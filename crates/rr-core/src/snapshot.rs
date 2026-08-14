@@ -20,6 +20,7 @@ pub enum RebuildReason {
     InvalidPayload,
     TrailingBytes,
     LexicalMismatch,
+    BuildVersionMismatch { found: u32 },
     InvalidInvariant,
 }
 
@@ -178,6 +179,11 @@ fn decode(bytes: &[u8]) -> LoadOutcome {
     if snapshot.meta.lexical_profile != crate::lex::lexical_profile() {
         return LoadOutcome::NeedsRebuild(RebuildReason::LexicalMismatch);
     }
+    if snapshot.meta.build_version != crate::index::BUILD_VERSION {
+        return LoadOutcome::NeedsRebuild(RebuildReason::BuildVersionMismatch {
+            found: snapshot.meta.build_version,
+        });
+    }
     if snapshot.validate().is_err() {
         return LoadOutcome::NeedsRebuild(RebuildReason::InvalidInvariant);
     }
@@ -223,6 +229,7 @@ mod tests {
             repo_head_oid: None,
             no_git: true,
             lexical_profile: crate::lex::lexical_profile(),
+            build_version: crate::index::BUILD_VERSION,
         })
         .build(Vec::new())
         .unwrap();
@@ -235,12 +242,31 @@ mod tests {
         ));
     }
     #[test]
+    fn build_version_mismatch_needs_rebuild() {
+        let (mut snapshot, _) = crate::index::SnapshotBuilder::new(crate::index::SnapshotMeta {
+            repo_head_oid: None,
+            no_git: true,
+            lexical_profile: crate::lex::lexical_profile(),
+            build_version: crate::index::BUILD_VERSION,
+        })
+        .build(Vec::new())
+        .unwrap();
+        snapshot.meta.build_version += 1;
+        let payload = postcard::to_allocvec(&snapshot).unwrap();
+        let bytes = encode(&payload).unwrap();
+        assert!(matches!(
+            decode(&bytes),
+            LoadOutcome::NeedsRebuild(RebuildReason::BuildVersionMismatch { .. })
+        ));
+    }
+    #[test]
     fn store_round_trips_empty_snapshot() {
         let directory = tempfile::tempdir().unwrap();
         let (snapshot, _) = crate::index::SnapshotBuilder::new(crate::index::SnapshotMeta {
             repo_head_oid: None,
             no_git: true,
             lexical_profile: crate::lex::lexical_profile(),
+            build_version: crate::index::BUILD_VERSION,
         })
         .build(Vec::new())
         .unwrap();

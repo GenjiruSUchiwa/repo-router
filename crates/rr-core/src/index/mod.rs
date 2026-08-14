@@ -75,6 +75,8 @@ pub struct SnapshotMeta {
     pub no_git: bool,
     /// Lexical normalization profile used to build this snapshot.
     pub lexical_profile: crate::lex::LexicalProfile,
+    /// Index-build semantic version ([`BUILD_VERSION`]) used to build this snapshot.
+    pub build_version: u32,
 }
 
 /// One indexed source file and its arena slice.
@@ -382,15 +384,21 @@ mod validate {
             s.meta.lexical_profile == crate::lex::lexical_profile(),
             "lexical profile mismatch",
         )?;
+        check(
+            s.meta.build_version == BUILD_VERSION,
+            "build version mismatch",
+        )?;
         let n_imps = s.imports.len();
         let n_terms = s.terms.len();
         let n_strings = s.strings.len();
 
-        for (i, string) in s.strings.iter().enumerate() {
+        let mut seen_string: std::collections::HashSet<&str> =
+            std::collections::HashSet::with_capacity(n_strings);
+        for string in &s.strings {
             if string.is_empty() {
                 return inv("empty string in table");
             }
-            if s.strings[..i].iter().any(|other| other == string) {
+            if !seen_string.insert(string.as_str()) {
                 return inv("duplicate string in table");
             }
         }

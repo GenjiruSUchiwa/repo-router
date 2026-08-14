@@ -60,7 +60,9 @@ pub fn build_map(root: &Path, threads: usize) -> Result<BuildReport> {
     for result in results {
         let (input, stats) = result?;
         worker_stats.add_assign(stats);
-        inputs.push(input);
+        if let Some(input) = input {
+            inputs.push(input);
+        }
     }
 
     let head = main_repo
@@ -72,6 +74,7 @@ pub fn build_map(root: &Path, threads: usize) -> Result<BuildReport> {
         repo_head_oid: head,
         no_git,
         lexical_profile: lexical_profile(),
+        build_version: rr_core::index::BUILD_VERSION,
     };
     let (snapshot, counts) = SnapshotBuilder::new(meta).build(inputs)?;
     let stats = BuildStats {
@@ -140,7 +143,7 @@ fn process_file(
     source: &SourceFile,
     root: &Path,
     cache: &FactCache,
-) -> Result<(FileInput, WorkerStats)> {
+) -> Result<(Option<FileInput>, WorkerStats)> {
     if let Some(error) = &state.repo_error {
         return Err(Error::Content(error.clone()));
     }
@@ -156,12 +159,14 @@ fn process_file(
                             stats.cache_hits += 1;
                             let input = cached_input(source, oid, facts);
                             record_status(&mut stats, input.parse_status);
-                            return Ok((input, stats));
+                            return Ok((Some(input), stats));
                         }
                         CacheOutcome::Miss => stats.cache_misses += 1,
                         CacheOutcome::Corrupt => stats.cache_corrupt += 1,
                     }
-                    let content = repo.acquire_content(&source.path, probe)?;
+                    let Some(content) = repo.acquire_content(&source.path, probe)? else {
+                        return Ok((None, stats));
+                    };
                     if content.oid != oid {
                         return Err(Error::Content(format!(
                             "clean object identity mismatch for {}",
@@ -172,22 +177,26 @@ fn process_file(
                     content
                 }
                 ContentProbe::ReadRequired => {
-                    let content = repo.acquire_content(&source.path, probe)?;
+                    let Some(content) = repo.acquire_content(&source.path, probe)? else {
+                        return Ok((None, stats));
+                    };
                     stats.filtered_raw_reads += 1;
                     if let Some(input) =
                         cached_after_acquisition(source, &content, cache, &mut stats)?
                     {
-                        return Ok((input, stats));
+                        return Ok((Some(input), stats));
                     }
                     content
                 }
             }
         }
         None => {
-            let content = acquire_non_git(root, &source.path)?;
+            let Some(content) = acquire_non_git(root, &source.path)? else {
+                return Ok((None, stats));
+            };
             stats.filtered_raw_reads += 1;
             if let Some(input) = cached_after_acquisition(source, &content, cache, &mut stats)? {
-                return Ok((input, stats));
+                return Ok((Some(input), stats));
             }
             content
         }
@@ -209,7 +218,7 @@ fn process_file(
         stats.cache_write_failures += 1;
     }
     Ok((
-        FileInput {
+        Some(FileInput {
             path: source.path.clone(),
             oid: acquired.oid,
             representation: acquired.representation,
@@ -217,7 +226,7 @@ fn process_file(
             language: source.lang,
             parse_status: facts.status(),
             facts,
-        },
+        }),
         stats,
     ))
 }

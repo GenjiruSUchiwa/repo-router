@@ -61,31 +61,36 @@ impl GitRepo {
     /// For [`ContentProbe::CleanGitBlob`] the bytes are read from the object
     /// database by OID and never re-filtered. For [`ContentProbe::ReadRequired`]
     /// the Git clean-filter pipeline runs once; a filter failure is an error,
-    /// never a silent fall back to raw bytes.
+    /// never a silent fall back to raw bytes. Returns `Ok(None)` when the file
+    /// vanished between discovery and read, so callers can skip it.
     ///
     /// # Errors
     /// Returns [`Error::Content`] on object read or filter-pipeline failure.
-    pub fn acquire_content(&self, path: &RelPath, probe: ContentProbe) -> Result<AcquiredContent> {
+    pub fn acquire_content(
+        &self,
+        path: &RelPath,
+        probe: ContentProbe,
+    ) -> Result<Option<AcquiredContent>> {
         let full = self.workdir().join(path.as_str());
         match probe {
             ContentProbe::CleanGitBlob(oid) => {
                 let bytes = self.read_blob(oid)?;
-                Ok(AcquiredContent {
+                Ok(Some(AcquiredContent {
                     oid,
                     representation: ContentRepresentation::GitCanonical,
                     bytes,
-                })
+                }))
             }
             ContentProbe::ReadRequired => {
-                let bytes = self
-                    .filtered_bytes(&full, path)?
-                    .ok_or_else(|| Error::Content("git filter pipeline unavailable".into()))?;
+                let Some(bytes) = self.filtered_bytes(&full, path)? else {
+                    return Ok(None);
+                };
                 let oid = hash_blob(&bytes, self.hash_algo());
-                Ok(AcquiredContent {
+                Ok(Some(AcquiredContent {
                     oid,
                     representation: ContentRepresentation::GitCanonical,
                     bytes,
-                })
+                }))
             }
         }
     }
@@ -109,28 +114,28 @@ impl GitRepo {
     }
 
     fn read_blob(&self, oid: Oid) -> Result<Vec<u8>> {
-        let gid = gix::ObjectId::from_hex(oid.to_hex().as_bytes())
+        let gid = gix::ObjectId::try_from(oid.as_bytes())
             .map_err(|e| Error::Content(format!("invalid object id: {e}")))?;
         let object = self
             .gix_repo()
             .find_object(gid)
             .map_err(|e| Error::Content(format!("object lookup failed: {e}")))?;
-        Ok(object.data.clone())
+        Ok(object.detach().data)
     }
 
     fn filtered_bytes(&self, full: &Path, rel: &RelPath) -> Result<Option<Vec<u8>>> {
-        let Ok((mut pipeline, index)) = self.gix_repo().filter_pipeline(None) else {
-            return Ok(None);
-        };
+        let (mut pipeline, index) = self
+            .gix_repo()
+            .filter_pipeline(None)
+            .map_err(|error| Error::Content(format!("git filter pipeline unavailable: {error}")))?;
         let file = match std::fs::File::open(full) {
             Ok(f) => f,
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(err) => return Err(Error::Io(err)),
         };
-        let Ok(mut converted) = pipeline.convert_to_git(file, Path::new(rel.as_str()), &index)
-        else {
-            return Ok(None);
-        };
+        let mut converted = pipeline
+            .convert_to_git(file, Path::new(rel.as_str()), &index)
+            .map_err(|error| Error::Content(format!("git clean-filter failed: {error}")))?;
         let mut content = Vec::new();
         converted.read_to_end(&mut content).map_err(Error::Io)?;
         Ok(Some(content))
@@ -141,18 +146,23 @@ impl GitRepo {
 ///
 /// Bytes are read once and identified with Git blob framing and SHA-1. The OID
 /// is a local content identity only ([`ContentRepresentation::RawNoGit`]).
+/// Returns `Ok(None)` when the file vanished between discovery and read.
 ///
 /// # Errors
 /// Propagates filesystem read errors.
-pub fn acquire_non_git(root: &Path, path: &RelPath) -> Result<AcquiredContent> {
+pub fn acquire_non_git(root: &Path, path: &RelPath) -> Result<Option<AcquiredContent>> {
     let full: PathBuf = root.join(path.as_str());
-    let bytes = std::fs::read(&full)?;
+    let bytes = match std::fs::read(&full) {
+        Ok(bytes) => bytes,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(err) => return Err(Error::Io(err)),
+    };
     let oid = hash_blob(&bytes, HashAlgo::Sha1);
-    Ok(AcquiredContent {
+    Ok(Some(AcquiredContent {
         oid,
         representation: ContentRepresentation::RawNoGit,
         bytes,
-    })
+    }))
 }
 
 #[cfg(test)]
@@ -167,7 +177,7 @@ mod tests {
         let bytes = b"fn main() {}\n";
         std::fs::write(directory.path().join("src/lib.rs"), bytes).unwrap();
         let path = RelPath::new("src/lib.rs").unwrap();
-        let acquired = acquire_non_git(directory.path(), &path).unwrap();
+        let acquired = acquire_non_git(directory.path(), &path).unwrap().unwrap();
         assert_eq!(acquired.bytes, bytes);
         assert_eq!(acquired.oid, hash_blob(bytes, HashAlgo::Sha1));
         assert_eq!(acquired.representation, ContentRepresentation::RawNoGit);

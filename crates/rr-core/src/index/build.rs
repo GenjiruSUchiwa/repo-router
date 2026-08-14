@@ -354,28 +354,36 @@ impl SnapshotBuilder {
 
     fn derive_symbol_parents(&mut self) {
         let mut parents = vec![None; self.symbols.len()];
-        for child in &self.symbols {
-            let parent = self
-                .symbols
-                .iter()
-                .filter(|candidate| {
-                    candidate.id != child.id
-                        && candidate.file == child.file
-                        && candidate.span.contains(child.span)
-                        && candidate.span.byte_len() > child.span.byte_len()
-                })
-                .min_by_key(|candidate| candidate.span.byte_len())
-                .map(|candidate| candidate.id);
-            parents[child.id.index()] = parent;
+        for file in &self.files {
+            let start = file.first_symbol as usize;
+            let end = start + file.symbol_count as usize;
+            let file_symbols = &self.symbols[start..end];
+            for child in file_symbols {
+                let parent = file_symbols
+                    .iter()
+                    .filter(|candidate| {
+                        candidate.id != child.id
+                            && candidate.span.contains(child.span)
+                            && candidate.span.byte_len() > child.span.byte_len()
+                    })
+                    .min_by_key(|candidate| candidate.span.byte_len())
+                    .map(|candidate| candidate.id);
+                parents[child.id.index()] = parent;
+            }
         }
         self.symbol_parent = parents;
     }
 
     fn resolve_references_and_imports(&mut self) -> Result<()> {
         let mut by_qualified: HashMap<String, Vec<SymbolId>> = HashMap::new();
+        let mut by_name: HashMap<String, Vec<SymbolId>> = HashMap::new();
         for symbol in &self.symbols {
             by_qualified
                 .entry(self.strings.values[symbol.qualified_name.index()].clone())
+                .or_default()
+                .push(symbol.id);
+            by_name
+                .entry(self.strings.values[symbol.name.index()].clone())
                 .or_default()
                 .push(symbol.id);
         }
@@ -395,6 +403,7 @@ impl SnapshotBuilder {
                     &name,
                     qualified.as_deref(),
                     &by_qualified,
+                    &by_name,
                 )?
             };
             self.references[index].resolution = resolution;
@@ -425,6 +434,7 @@ impl SnapshotBuilder {
         name: &str,
         qualified: Option<&str>,
         by_qualified: &HashMap<String, Vec<SymbolId>>,
+        by_name: &HashMap<String, Vec<SymbolId>>,
     ) -> Result<Resolution> {
         if let Some(path) = qualified {
             let candidates =
@@ -439,12 +449,12 @@ impl SnapshotBuilder {
             return classify(imported);
         }
 
-        let local = self.local_candidates(file, owner, name);
+        let local = self.local_candidates(file, owner, name, by_name);
         if !local.is_empty() {
             return classify(local);
         }
 
-        classify(self.file_candidates(file, name))
+        classify(self.file_candidates(file, name, by_name))
     }
 
     fn import_candidates(
@@ -479,18 +489,24 @@ impl SnapshotBuilder {
         candidates
     }
 
-    fn local_candidates(&self, file: FileId, owner: Option<SymbolId>, name: &str) -> Vec<SymbolId> {
+    fn local_candidates(
+        &self,
+        file: FileId,
+        owner: Option<SymbolId>,
+        name: &str,
+        by_name: &HashMap<String, Vec<SymbolId>>,
+    ) -> Vec<SymbolId> {
+        let Some(named) = by_name.get(name) else {
+            return Vec::new();
+        };
         let mut scope = owner;
         loop {
-            let candidates: Vec<SymbolId> = self
-                .symbols
+            let candidates: Vec<SymbolId> = named
                 .iter()
-                .filter(|symbol| {
-                    symbol.file == file
-                        && self.symbol_parent[symbol.id.index()] == scope
-                        && self.strings.values[symbol.name.index()] == name
+                .copied()
+                .filter(|id| {
+                    self.symbols[id.index()].file == file && self.symbol_parent[id.index()] == scope
                 })
-                .map(|symbol| symbol.id)
                 .collect();
             if !candidates.is_empty() {
                 return candidates;
@@ -502,15 +518,20 @@ impl SnapshotBuilder {
         }
     }
 
-    fn file_candidates(&self, file: FileId, name: &str) -> Vec<SymbolId> {
+    fn file_candidates(
+        &self,
+        file: FileId,
+        name: &str,
+        by_name: &HashMap<String, Vec<SymbolId>>,
+    ) -> Vec<SymbolId> {
+        let Some(named) = by_name.get(name) else {
+            return Vec::new();
+        };
         let module = &self.file_modules[file.index()];
-        self.symbols
+        named
             .iter()
-            .filter(|symbol| {
-                self.file_modules[symbol.file.index()] == *module
-                    && self.strings.values[symbol.name.index()] == name
-            })
-            .map(|symbol| symbol.id)
+            .copied()
+            .filter(|id| self.file_modules[self.symbols[id.index()].file.index()] == *module)
             .collect()
     }
 
@@ -567,45 +588,59 @@ impl SnapshotBuilder {
             }
         }
 
-        let imports: Vec<(Option<SymbolId>, String, Option<String>)> = self
-            .imports
+        let file_ranges: Vec<(usize, usize, usize, usize)> = self
+            .files
             .iter()
-            .map(|import| {
+            .map(|file| {
                 (
-                    import.owner,
-                    self.strings.values[import.path.index()].clone(),
-                    import
-                        .alias
-                        .map(|id| self.strings.values[id.index()].clone()),
+                    file.first_symbol as usize,
+                    file.symbol_count as usize,
+                    file.first_import as usize,
+                    file.import_count as usize,
                 )
             })
             .collect();
-        for symbol in 0..self.symbols.len() {
-            let symbol_id = self.symbols[symbol].id;
-            let mut paths = Vec::new();
-            let mut aliases = Vec::new();
-            for (owner, path, alias) in &imports {
-                if owner.is_none() || *owner == Some(symbol_id) {
-                    if !paths.iter().any(|seen| seen == path) {
-                        paths.push(path.clone());
-                    }
-                    if let Some(alias) = alias {
-                        if !aliases.iter().any(|seen| seen == alias) {
-                            aliases.push(alias.clone());
+        for (first_symbol, symbol_count, first_import, import_count) in file_ranges {
+            let file_imports: Vec<(Option<SymbolId>, String, Option<String>)> = self.imports
+                [first_import..first_import + import_count]
+                .iter()
+                .map(|import| {
+                    (
+                        import.owner,
+                        self.strings.values[import.path.index()].clone(),
+                        import
+                            .alias
+                            .map(|id| self.strings.values[id.index()].clone()),
+                    )
+                })
+                .collect();
+            for symbol in first_symbol..first_symbol + symbol_count {
+                let symbol_id = self.symbols[symbol].id;
+                let mut paths = Vec::new();
+                let mut aliases = Vec::new();
+                for (owner, path, alias) in &file_imports {
+                    if owner.is_none() || *owner == Some(symbol_id) {
+                        if !paths.iter().any(|seen| seen == path) {
+                            paths.push(path.clone());
+                        }
+                        if let Some(alias) = alias {
+                            if !aliases.iter().any(|seen| seen == alias) {
+                                aliases.push(alias.clone());
+                            }
                         }
                     }
                 }
-            }
-            for path in paths {
-                self.emit(symbol_id, LexicalField::Import, InputKind::Qualified, &path)?;
-            }
-            for alias in aliases {
-                self.emit(
-                    symbol_id,
-                    LexicalField::Import,
-                    InputKind::Identifier,
-                    &alias,
-                )?;
+                for path in paths {
+                    self.emit(symbol_id, LexicalField::Import, InputKind::Qualified, &path)?;
+                }
+                for alias in aliases {
+                    self.emit(
+                        symbol_id,
+                        LexicalField::Import,
+                        InputKind::Identifier,
+                        &alias,
+                    )?;
+                }
             }
         }
 
@@ -701,7 +736,7 @@ impl SnapshotBuilder {
                             .as_bytes(),
                     )
             });
-            field_mut(&mut self.postings, field_index_value).clone_from(&lists);
+            *field_mut(&mut self.postings, field_index_value) = lists;
         }
 
         let mut by_term: HashMap<TermId, Vec<FilePosting>> = HashMap::new();
@@ -965,6 +1000,7 @@ mod tests {
             repo_head_oid: None,
             no_git: true,
             lexical_profile: crate::lex::lexical_profile(),
+            build_version: crate::index::BUILD_VERSION,
         })
         .build(vec![input])
         .unwrap();
@@ -1011,6 +1047,7 @@ mod tests {
             repo_head_oid: None,
             no_git: true,
             lexical_profile: crate::lex::lexical_profile(),
+            build_version: crate::index::BUILD_VERSION,
         })
         .build(vec![input])
         .unwrap();
