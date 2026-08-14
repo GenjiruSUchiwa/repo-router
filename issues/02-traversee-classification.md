@@ -1,28 +1,28 @@
 ---
-title: "M1-02 · Traversée gitignore-aware et classification des fichiers"
+title: "M1-02 · Gitignore-aware traversal and file classification"
 labels: ["milestone:M1", "type:core"]
 ---
 
-## Pourquoi
-Indexer `node_modules/` ou `target/` détruit la pertinence et la vitesse.
-La traversée est la fondation du pipeline `map` : elle décide ce qui existe.
+## Why
+Indexing `node_modules/` or `target/` destroys both relevance and speed.
+The traversal is the foundation of the `map` pipeline: it decides what exists.
 
-## Quoi
-Un module `rr-core::walk` qui produit la liste des fichiers source candidats,
-avec langage détecté et drapeau `generated`.
+## What
+A `rr-core::walk` module that produces the list of candidate source files,
+with detected language and a `generated` flag.
 
-## Comment
-1. Utiliser la crate `ignore` (moteur de ripgrep) : respecte `.gitignore`,
-   `.ignore`, exclusions globales — ne pas réécrire cette logique.
-2. Exclusions par défaut en dur : `.git/`, `.rr/`, `node_modules/`, `target/`,
-   `dist/`, `build/`, `.venv/`, `vendor/` (surchargables via `rr.toml` plus tard).
-3. Détection de langage par extension d'abord (`.rs`, `.py`, `.ts`, `.tsx`) ;
-   table extensible, pas de crate lourde de détection par contenu en V1.
-4. Heuristique `generated` : chemin contient `generated`/`.pb.`/`_pb2.py`,
-   ou première ligne contient `@generated` / `DO NOT EDIT`. Les fichiers
-   generated sont indexés mais pénalisés au ranking (issue 08).
-5. Parallélisme : `ignore::WalkBuilder::build_parallel()` avec un canal
-   crossbeam vers le collecteur.
+## How
+1. Use the `ignore` crate (ripgrep's engine): respects `.gitignore`,
+   `.ignore`, global exclusions — do not rewrite this logic.
+2. Hard-coded default exclusions: `.git/`, `.rr/`, `node_modules/`, `target/`,
+   `dist/`, `build/`, `.venv/`, `vendor/` (overridable via `rr.toml` later).
+3. Language detection by extension first (`.rs`, `.py`, `.ts`, `.tsx`);
+   extensible table, no heavy content-based detection crate in V1.
+4. `generated` heuristic: path contains `generated`/`.pb.`/`_pb2.py`,
+   or first line contains `@generated` / `DO NOT EDIT`. Generated files
+   are indexed but penalized at ranking time (issue 08).
+5. Parallelism: `ignore::WalkBuilder::build_parallel()` with a crossbeam
+   channel to the collector.
 
 ## Pseudo-code
 ```rust
@@ -37,14 +37,14 @@ pub fn discover(root: &Path, cfg: &WalkCfg) -> Vec<SourceFile> {
 }
 ```
 
-## Bonnes pratiques
-- Chemins **relatifs à la racine repo**, normalisés `/`, dès cette couche —
-  tout le reste du système ne voit jamais un chemin absolu (déterminisme
-  des snapshots entre machines).
-- Trier la sortie finale par chemin : ordre déterministe quel que soit le
-  parallélisme (exigence spec §5.3).
+## Best practices
+- Paths **relative to the repo root**, normalized with `/`, from this layer
+  onward — the rest of the system never sees an absolute path (snapshot
+  determinism across machines).
+- Sort the final output by path: deterministic order regardless of
+  parallelism (spec requirement §5.3).
 
-## Critères d'acceptation
-- [ ] Sur le fixture, découvre exactement les fichiers attendus, dans le même ordre à chaque run.
-- [ ] Un pattern ajouté à `.gitignore` exclut immédiatement le fichier.
-- [ ] Test : repo avec symlink cyclique → pas de boucle infinie.
+## Acceptance criteria
+- [ ] On the fixture, discovers exactly the expected files, in the same order on every run.
+- [ ] A pattern added to `.gitignore` immediately excludes the file.
+- [ ] Test: repo with a cyclic symlink → no infinite loop.

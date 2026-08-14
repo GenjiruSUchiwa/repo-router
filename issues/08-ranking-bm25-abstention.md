@@ -1,39 +1,39 @@
 ---
-title: "M2-08 · Ranking BM25 par champs + seuils d'abstention calibrés"
+title: "M2-08 · Per-field BM25 ranking + calibrated abstention thresholds"
 labels: ["milestone:M2", "type:core", "hard"]
 ---
 
-## Pourquoi
-La partie la plus difficile du projet. Radar a publié un échec de calibration
-d'abstention (4 anchors faux sur 9 après une calibration qui semblait sûre)
-et a fait un rollback. On prend le problème au sérieux dès la conception :
-**pas de seuil sans corpus de test gelé** (issue 14 fournit le harnais ;
-un mini-corpus de 20 questions est créé ici même).
+## Why
+The hardest part of the project. Radar published an abstention calibration
+failure (4 wrong anchors out of 9 after a calibration that seemed safe)
+and rolled back. We take the problem seriously from the design stage:
+**no threshold without a frozen test corpus** (issue 14 provides the
+harness; a 20-question mini-corpus is created right here).
 
-## Quoi
-Pipeline lexical pour requêtes sans identifiant exact : candidats → score
-BM25F → décision directe/candidats/aucun.
+## What
+Lexical pipeline for queries with no exact identifier: candidates → BM25F
+score → direct/candidates/none decision.
 
-## Comment
-1. Candidats : union des postings des termes de requête (tous champs),
-   plafonnée à 64 par doc-frequency croissante (termes rares d'abord).
-2. Score BM25F sur documents synthétiques par symbole (les fingerprints,
-   PAS le fichier source — spec §11.4), champs pondérés :
-   nom 8, qualified 5, chemin 5, signature 4, appelés 3, corps 1.5.
-   Pénalité ×0.5 si `generated`. Bonus léger si kind ∈ {fn, method} quand
-   la requête contient un verbe.
-3. Décision (valeurs initiales, à recalibrer sur corpus, jamais en dur
-   ailleurs que dans `ranking.rs::THRESHOLDS`) :
-   - direct ssi `score[0] > T_abs` ET `score[0]/score[1] > 1.6` ;
-   - sinon candidats top-3 ;
-   - aucun si `score[0] < T_min`.
-   Le ratio top1/top2 est plus robuste que le score absolu — c'est la marge
-   qui prédit la justesse, pas la magnitude.
-4. Tie-break déterministe final : (score desc, SymbolId asc). Deux runs =
-   même sortie, toujours.
-5. Mini-corpus `fixtures/queries.yaml` : 20 questions → anchor attendu.
-   `cargo test ranking_corpus` échoue si top-3 < 18/20 ou si un direct est faux.
-   **Un direct faux est pire qu'une abstention** : le test pondère ainsi.
+## How
+1. Candidates: union of the postings of the query terms (all fields),
+   capped at 64 by ascending doc-frequency (rare terms first).
+2. BM25F score over synthetic documents per symbol (the fingerprints,
+   NOT the source file — spec §11.4), weighted fields:
+   name 8, qualified 5, path 5, signature 4, callees 3, body 1.5.
+   ×0.5 penalty if `generated`. Slight bonus if kind ∈ {fn, method} when
+   the query contains a verb.
+3. Decision (initial values, to be recalibrated on the corpus, never
+   hard-coded anywhere but `ranking.rs::THRESHOLDS`):
+   - direct iff `score[0] > T_abs` AND `score[0]/score[1] > 1.6`;
+   - otherwise top-3 candidates;
+   - none if `score[0] < T_min`.
+   The top1/top2 ratio is more robust than the absolute score — it is the
+   margin that predicts correctness, not the magnitude.
+4. Final deterministic tie-break: (score desc, SymbolId asc). Two runs =
+   same output, always.
+5. Mini-corpus `fixtures/queries.yaml`: 20 questions → expected anchor.
+   `cargo test ranking_corpus` fails if top-3 < 18/20 or if a direct is wrong.
+   **A wrong direct is worse than an abstention**: the test weights accordingly.
 
 ## Pseudo-code
 ```rust
@@ -44,14 +44,14 @@ scored.sort_by(|a,b| b.0.total_cmp(&a.0).then(a.1.cmp(&b.1)));
 match decide(&scored, &THRESHOLDS) { Direct(..) | Candidates(..) | None }
 ```
 
-## Bonnes pratiques
-- Chaque changement de poids = un commit dédié avec le diff du score corpus
-  dans le message. L'historique Git devient le journal de calibration.
-- `rr query --explain` (flag caché) : imprime les features par candidat —
-  indispensable pour déboguer le ranking sans deviner.
+## Best practices
+- Every weight change = a dedicated commit with the corpus score diff in
+  the message. The Git history becomes the calibration journal.
+- `rr query --explain` (hidden flag): prints the features per candidate —
+  indispensable for debugging the ranking without guessing.
 
-## Critères d'acceptation
-- [ ] Corpus 20 questions : ≥ 18 top-3, 0 direct faux.
-- [ ] « where is token verification handled? » → direct `verify_token`.
-- [ ] « security logic » (hors vocabulaire) → candidats ou aucun, JAMAIS un direct faux.
-- [ ] Déterminisme : 100 runs, sorties identiques.
+## Acceptance criteria
+- [ ] 20-question corpus: ≥ 18 top-3, 0 wrong directs.
+- [ ] "where is token verification handled?" → direct `verify_token`.
+- [ ] "security logic" (out of vocabulary) → candidates or none, NEVER a wrong direct.
+- [ ] Determinism: 100 runs, identical outputs.

@@ -1,49 +1,49 @@
 ---
-title: "M0-01 · Bootstrap du workspace Cargo, CI et hygiène de base"
+title: "M0-01 · Bootstrap the Cargo workspace, CI, and basic hygiene"
 labels: ["milestone:M0", "type:infra"]
 ---
 
-## Pourquoi
-Tout le reste s'appuie dessus. Un workspace propre dès le départ évite les
-refactorings de structure au milieu du développement, et une CI qui compile
-sur les trois cibles garantit qu'on ne découvre pas les problèmes de
-portabilité (notre argument n°1 : macOS ARM64) au moment de la release.
+## Why
+Everything else builds on this. A clean workspace from the start avoids
+structural refactorings in the middle of development, and a CI that compiles
+on all three targets guarantees we don't discover portability problems
+(our argument #1: macOS ARM64) at release time.
 
-## Quoi
-Créer le monorepo Cargo avec les crates vides mais compilables, le lint, la CI.
+## What
+Create the Cargo monorepo with empty but compilable crates, linting, and CI.
 
 ```text
 repo-router/
 ├── Cargo.toml            # workspace
 ├── crates/
-│   ├── rr-cli/           # binaire `rr` (clap)
+│   ├── rr-cli/           # `rr` binary (clap)
 │   ├── rr-core/          # parser / facts / index / query / verify / cache
 │   └── rr-git/           # OIDs, refs, diff (gitoxide)
-├── fixtures/             # dépôts de test (issue 14 les gèlera)
+├── fixtures/             # test repositories (issue 14 will freeze them)
 └── benches/
 ```
 
-## Comment
+## How
 1. `cargo new --lib crates/rr-core`, `crates/rr-git`; `cargo new crates/rr-cli`.
-2. Workspace `Cargo.toml` : `resolver = "2"`, profil release `lto = true`,
+2. Workspace `Cargo.toml`: `resolver = "2"`, release profile `lto = true`,
    `codegen-units = 1`, `strip = "symbols"`, `panic = "abort"`.
-3. `rr-cli` : clap v4 en mode derive, une commande `rr version` qui affiche
-   version + git sha compilé (via `build.rs` + `vergen` ou équivalent simple).
-4. CI GitHub Actions : matrix `macos-14` (ARM), `ubuntu-latest` (x86_64),
-   `ubuntu-24.04-arm` ; étapes `cargo fmt --check`, `cargo clippy -- -D warnings`,
+3. `rr-cli`: clap v4 in derive mode, an `rr version` command that prints
+   version + compiled git sha (via `build.rs` + `vergen` or a simple equivalent).
+4. GitHub Actions CI: matrix `macos-14` (ARM), `ubuntu-latest` (x86_64),
+   `ubuntu-24.04-arm`; steps `cargo fmt --check`, `cargo clippy -- -D warnings`,
    `cargo test`, `cargo build --release`.
-5. Gérer SIGPIPE proprement dès maintenant (leçon de l'observation §9.6) :
-   dans `main()`, remettre SIGPIPE à `SIG_DFL` avant tout print
-   (crate `libc`, 3 lignes, cfg(unix)) — sinon `rr ... | head` paniquera.
+5. Handle SIGPIPE properly right away (lesson from observation §9.6):
+   in `main()`, reset SIGPIPE to `SIG_DFL` before any print
+   (`libc` crate, 3 lines, cfg(unix)) — otherwise `rr ... | head` will panic.
 
-## Bonnes pratiques
-- `#![deny(unsafe_code)]` dans rr-core (l'unsafe éventuel vivra dans rr-git).
-- Erreurs : `thiserror` dans les libs, `anyhow` uniquement dans rr-cli.
-- Toute sortie utilisateur passe par une couche `output.rs` unique dans rr-cli
-  (préparera le double contrat texte/JSON de l'issue 07).
+## Best practices
+- `#![deny(unsafe_code)]` in rr-core (any unsafe will live in rr-git).
+- Errors: `thiserror` in the libs, `anyhow` only in rr-cli.
+- All user-facing output goes through a single `output.rs` layer in rr-cli
+  (this prepares the dual text/JSON contract of issue 07).
 
-## Critères d'acceptation
-- [ ] `cargo build --release` vert sur les 3 cibles en CI.
-- [ ] `rr version` affiche `rr X.Y.Z (<sha>)`.
-- [ ] `rr version | head -0` ne panique pas.
-- [ ] clippy pedantic activé sans warning.
+## Acceptance criteria
+- [ ] `cargo build --release` green on all 3 targets in CI.
+- [ ] `rr version` prints `rr X.Y.Z (<sha>)`.
+- [ ] `rr version | head -0` does not panic.
+- [ ] clippy pedantic enabled with no warnings.

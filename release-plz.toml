@@ -1,5 +1,5 @@
 [workspace]
-# Version unique pour tout le workspace, pilotée par les conventional commits.
+# Single version for the whole workspace, driven by conventional commits.
 changelog_update = true
 git_release_enable = false
 git_tag_enable = false
@@ -8,7 +8,7 @@ release = false
 
 [[package]]
 name = "rr-cli"
-# rr-cli porte la version publique : tag vX.Y.Z et GitHub Release.
+# rr-cli carries the public version: vX.Y.Z tag and GitHub Release.
 git_tag_enable = true
 git_tag_name = "v{{ version }}"
 git_release_enable = true

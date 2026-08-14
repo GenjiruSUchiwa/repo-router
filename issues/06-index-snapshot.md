@@ -1,31 +1,31 @@
 ---
-title: "M1-06 · Index exact + postings lexicaux + snapshot atomique"
+title: "M1-06 · Exact index + lexical postings + atomic snapshot"
 labels: ["milestone:M1", "type:core"]
 ---
 
-## Pourquoi
-Transforme les faits en structures interrogeables. Clôt le jalon M1 :
-`rr map` devient utilisable de bout en bout.
+## Why
+Turns the facts into queryable structures. Closes milestone M1:
+`rr map` becomes usable end to end.
 
-## Quoi
-`rr-core::index` : construction en mémoire, sérialisation `.rr/local/snapshot.bin`,
-et la commande CLI `rr map` qui orchestre issues 02→06.
+## What
+`rr-core::index`: in-memory construction, serialization to `.rr/local/snapshot.bin`,
+and the `rr map` CLI command that orchestrates issues 02→06.
 
-## Comment
-1. Structures (IDs u32 partout, cf. spec §8) :
-   - `exact: HashMap<TermId /*nom exact*/, SmallVec<SymbolId>>`
+## How
+1. Structures (u32 IDs everywhere, cf. spec §8):
+   - `exact: HashMap<TermId /*exact name*/, SmallVec<SymbolId>>`
    - `qualified: HashMap<TermId, SmallVec<SymbolId>>`
-   - `postings: HashMap<TermId, RoaringBitmap /*SymbolId*/>` par champ
-     (nom / chemin / signature / corps / appelés) — 5 maps, pas une map de maps.
+   - `postings: HashMap<TermId, RoaringBitmap /*SymbolId*/>` per field
+     (name / path / signature / body / callees) — 5 maps, not a map of maps.
    - `files: Vec<FileRecord>`, `symbols: Vec<SymbolRecord>` (arena, index = ID).
-2. Résolution cheap des relations : un appel `foo()` est résolu ssi exactement
-   un symbole nommé `foo` existe dans le même fichier ou module ; sinon rester
-   nom irrésolu + compteur (affiché par `rr map --verbose`).
-3. Sérialisation : `postcard` ou `bincode` + en-tête
-   `{ magic, SCHEMA_VERSION, repo_head_oid, created_at }`. Version différente
-   au chargement ⇒ rebuild silencieux, jamais de migration.
-4. Écriture atomique : temp file dans le même dossier + `rename` (spec §10.8).
-5. `rr map` : sortie une ligne, façon Radar observé :
+2. Cheap relation resolution: a call `foo()` is resolved iff exactly one
+   symbol named `foo` exists in the same file or module; otherwise it stays
+   an unresolved name + counter (displayed by `rr map --verbose`).
+3. Serialization: `postcard` or `bincode` + header
+   `{ magic, SCHEMA_VERSION, repo_head_oid, created_at }`. Different version
+   at load time ⇒ silent rebuild, never a migration.
+4. Atomic write: temp file in the same directory + `rename` (spec §10.8).
+5. `rr map`: one-line output, in the style of observed Radar:
    `rr map — 42 files, 310 symbols, 12 unresolved refs, 38 ms (cache 95%)`.
 
 ## Pseudo-code
@@ -38,17 +38,17 @@ fn build(root: &Path) -> Snapshot {
     let mut ix = Index::default();
     for (f, facts) in facts { ix.add(f, facts, &mut interner /*05*/); }
     ix.resolve_unambiguous();
-    ix.freeze_sorted()          // tri déterministe de toutes les postings
+    ix.freeze_sorted()          // deterministic sort of all postings
 }
 ```
 
-## Bonnes pratiques
-- `freeze_sorted()` trie chaque SmallVec/bitmap : deux builds du même arbre
-  donnent des snapshots **byte-identiques** (test d'or du déterminisme).
-- Budget mémoire : pas de String dupliquée, tout passe par l'interner.
+## Best practices
+- `freeze_sorted()` sorts every SmallVec/bitmap: two builds of the same
+  tree yield **byte-identical** snapshots (golden determinism test).
+- Memory budget: no duplicated String, everything goes through the interner.
 
-## Critères d'acceptation
-- [ ] `rr map` deux fois de suite → snapshots byte-identiques.
-- [ ] Snapshot du fixture < 50 Ko.
-- [ ] Version de schéma bumpée ⇒ rebuild auto sans erreur.
-- [ ] 10 000 fichiers générés (script fourni) : map à froid < 5 s, à chaud < 300 ms.
+## Acceptance criteria
+- [ ] `rr map` twice in a row → byte-identical snapshots.
+- [ ] Fixture snapshot < 50 KB.
+- [ ] Bumped schema version ⇒ auto rebuild without error.
+- [ ] 10,000 generated files (script provided): cold map < 5 s, warm < 300 ms.

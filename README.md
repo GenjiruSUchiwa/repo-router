@@ -1,62 +1,62 @@
 # repo-router
 
-**`rr`** — un navigateur de dépôt pour agents de code (Claude Code, etc.), inspiré du comportement public de [Radar](https://radar.dev). Il indexe un dépôt (Tree-sitter + fingerprints lexicaux), puis répond aux questions de navigation (« où est défini X ? », « qui appelle Y ? ») avec un **minimum de contexte** : une route précise vers la source, pas un dump de fichiers.
+**`rr`** — a repository navigator for coding agents (Claude Code, etc.), inspired by the publicly documented behavior of [Radar](https://radar.dev). It indexes a repository (Tree-sitter + lexical fingerprints), then answers navigation questions ("where is X defined?", "who calls Y?") with **minimal context**: a precise route to the source, not a file dump.
 
-> Réimplémentation ouverte et cross-platform, écrite à partir du comportement publiquement documenté et observé de Radar — pas de son code source, qui reste privé. Voir [`docs/SPEC.md`](docs/SPEC.md) et [`docs/OBSERVATIONS.md`](docs/OBSERVATIONS.md).
+> An open, cross-platform reimplementation written from Radar's publicly documented and observed behavior — not from its source code, which remains private. See [`docs/SPEC.md`](docs/SPEC.md) and [`docs/OBSERVATIONS.md`](docs/OBSERVATIONS.md).
 
-## Pourquoi
+## Why
 
-Les agents de code brûlent leur fenêtre de contexte à `grep` et lire des fichiers entiers. `rr` vise l'inverse :
+Coding agents burn their context window running `grep` and reading whole files. `rr` aims for the opposite:
 
-- **Contexte minimal par défaut** — une réponse tient en quelques lignes ; la source complète n'est lue que sur demande (`--source`), bornée et vérifiée par hash.
-- **Exact avant flou** — routage exact (symbole, chemin) d'abord ; ranking lexical (BM25 par champs) ensuite ; **abstention** assumée quand la confiance est basse plutôt qu'une réponse plausible mais fausse.
-- **Déterministe et incrémental** — index adressé par OID Git, snapshot atomique, `refresh` rapide git-gated. Pas de LLM dans la boucle de retrieval.
-- **Contrats agent-friendly** — double sortie texte/JSON stable, `MAP.md`/`SYMBOLS.md` committés et greppables, `rr init` qui installe le contrat de navigation (dont un SKILL.md pour Claude Code).
+- **Minimal context by default** — an answer fits in a few lines; full source is only read on demand (`--source`), bounded and hash-verified.
+- **Exact before fuzzy** — exact routing (symbol, path) first; lexical ranking (per-field BM25) second; deliberate **abstention** when confidence is low, rather than a plausible-but-wrong answer.
+- **Deterministic and incremental** — Git-OID-addressed index, atomic snapshots, fast git-gated `refresh`. No LLM in the retrieval loop.
+- **Agent-friendly contracts** — stable dual text/JSON output, committed and greppable `MAP.md`/`SYMBOLS.md`, and `rr init` to install the navigation contract (including a SKILL.md for Claude Code).
 
-## Commandes (cibles V1)
+## Commands (V1 targets)
 
-| Commande | Rôle |
+| Command | Role |
 |---|---|
-| `rr map` | Indexe le dépôt (traversée gitignore-aware, Tree-sitter, fingerprints) |
-| `rr query <q>` | Répond : définitions, références, imports — texte ou `--json` |
-| `rr query --source` | Renvoie le span source exact, vérifié par hash, refus si stale |
-| `rr refresh` | Met à jour l'index de façon incrémentale (git-gated) |
-| `rr route` | Cache de routes résolues, committable |
-| `rr impact <sym>` | Rayon d'impact d'un changement (appelants transitifs) |
-| `rr check` | Garde-fou : cohérence index ↔ worktree |
-| `rr init` | Installe le contrat de navigation dans le dépôt |
-| `rr version` | Version + SHA git du build ✅ |
+| `rr map` | Index the repository (gitignore-aware traversal, Tree-sitter, fingerprints) |
+| `rr query <q>` | Answer: definitions, references, imports — text or `--json` |
+| `rr query --source` | Return the exact source span, hash-verified, refused if stale |
+| `rr refresh` | Update the index incrementally (git-gated) |
+| `rr route` | Committable cache of resolved routes |
+| `rr impact <sym>` | Change impact radius (transitive callers) |
+| `rr check` | Guardrail: index/worktree consistency |
+| `rr init` | Install the navigation contract into the repository |
+| `rr version` | Version + build git SHA (implemented) |
 
-## État du projet
+## Project status
 
-Bootstrap en cours. Le plan V1 tient en **14 issues sur 5 jalons** — voir les [issues](../../issues) et [jalons](../../milestones) :
+Bootstrap phase. The V1 plan is **14 issues across 5 milestones** — see the [issues](../../issues) and [milestones](../../milestones):
 
-- **M0 Bootstrap** — workspace, CI, hygiène ✅
-- **M1 Indexation** — traversée, cache OID, Tree-sitter (Rust d'abord), fingerprints, snapshot
-- **M2 Requête** — `query`, ranking + abstention, `--source`, `refresh`
-- **M3 Interface agent** — `MAP.md`/`SYMBOLS.md`, `rr route`, `rr init`
-- **M4 Impact & qualité** — `impact`, `check`, corpus gelé et benchmarks
+- **M0 Bootstrap** — workspace, CI, hygiene (done)
+- **M1 Indexing** — traversal, OID cache, Tree-sitter (Rust first), fingerprints, snapshot
+- **M2 Query** — `query`, ranking + abstention, `--source`, `refresh`
+- **M3 Agent interface** — `MAP.md`/`SYMBOLS.md`, `rr route`, `rr init`
+- **M4 Impact & quality** — `impact`, `check`, frozen corpus and benchmarks
 
-## Développement
+## Development
 
-Rust stable. Workspace à trois crates :
+Stable Rust. Three-crate workspace:
 
 ```
 crates/
-  rr-core/   # modèle de données, indexes, ranking
-  rr-git/    # traversée, OID, intégration git
-  rr-cli/    # binaire `rr`
+  rr-core/   # data model, indexes, ranking
+  rr-git/    # traversal, OIDs, git integration
+  rr-cli/    # the `rr` binary
 ```
 
 ```sh
-cargo build --release   # binaire dans target/release/rr
+cargo build --release   # binary at target/release/rr
 cargo test --all-targets --all-features
 cargo clippy --all-targets --all-features -- -D warnings -D clippy::pedantic
 cargo fmt --check
 ```
 
-La CI (macOS arm64, Linux x64/arm64) exige fmt + clippy pedantic sans warning + tests. Les releases sont automatisées : conventional commits → [release-plz](https://release-plz.dev) (version, changelog, tag) → binaires multi-plateformes attachés à la GitHub Release.
+CI (macOS arm64, Linux x64/arm64) enforces fmt + warning-free pedantic clippy + tests. Releases are automated: conventional commits → [release-plz](https://release-plz.dev) (version, changelog, tag) → multi-platform binaries attached to the GitHub Release.
 
-## Licence
+## License
 
 MIT.

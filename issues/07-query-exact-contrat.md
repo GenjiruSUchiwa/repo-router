@@ -1,49 +1,49 @@
 ---
-title: "M2-07 · `rr query` : routage exact + double contrat texte/JSON"
+title: "M2-07 · `rr query`: exact routing + dual text/JSON contract"
 labels: ["milestone:M2", "type:core", "contract"]
 ---
 
-## Pourquoi
-Premier moment où un agent peut consommer l'outil. Le contrat de sortie est
-un engagement public : on le fige ici et on ne le casse plus.
+## Why
+First moment where an agent can consume the tool. The output contract is
+a public commitment: we freeze it here and never break it again.
 
-## Quoi
-`rr query "<question>"` : détection d'identifiants explicites, lookup exact,
-sortie texte (compatible dans l'esprit avec Radar observé) + `--json` stable.
+## What
+`rr query "<question>"`: detection of explicit identifiers, exact lookup,
+text output (compatible in spirit with observed Radar) + stable `--json`.
 
-## Comment
-1. Détection d'identifiant explicite dans la requête : regex conservatrice
-   (`[A-Za-z_][A-Za-z0-9_]*` contenant `_` OU casse mixte OU présent tel quel
-   dans l'index exact ; chemins `a/b.rs`, formes `Foo::bar`, `x.y`).
-2. Lookup `exact[name]` :
-   - 1 résultat → réponse directe ;
-   - N résultats → départage par overlap des autres termes de la requête
-     avec chemin/qualified ; si toujours ambigu → candidats (max 3) ;
-   - 0 → pipeline lexical (issue 08).
-3. Contrat texte (stdout, rien d'autre) :
+## How
+1. Explicit identifier detection in the query: conservative regex
+   (`[A-Za-z_][A-Za-z0-9_]*` containing `_` OR mixed case OR present as-is
+   in the exact index; paths `a/b.rs`, forms `Foo::bar`, `x.y`).
+2. Lookup `exact[name]`:
+   - 1 result → direct answer;
+   - N results → tie-break by overlap of the other query terms with
+     path/qualified; if still ambiguous → candidates (max 3);
+   - 0 → lexical pipeline (issue 08).
+3. Text contract (stdout, nothing else):
    ```text
    FINAL SOURCE ANCHOR (copy exactly): src/auth/token.rs#verify_token
    ```
-   Ambigu : `source candidates:` + une ligne par anchor. Introuvable :
-   `NO ANCHOR (index has no match); try: rr map` — divergence assumée avec
-   Radar qui dumpe la carte (observation §4) : notre repli reste minuscule.
-4. Contrat `--json` (schéma versionné, champ `v: 1`) :
+   Ambiguous: `source candidates:` + one line per anchor. Not found:
+   `NO ANCHOR (index has no match); try: rr map` — a deliberate divergence
+   from Radar which dumps the map (observation §4): our fallback stays tiny.
+4. `--json` contract (versioned schema, field `v: 1`):
    ```json
    {"v":1,"result":"direct","anchor":{"path":"src/auth/token.rs","symbol":"verify_token","lines":[9,15]},"confidence":1.0}
    ```
-   Variantes `result`: `direct` | `candidates` | `none`. Écrire le JSON Schema
-   dans `docs/query.schema.json`, testé en CI contre la sortie réelle.
-5. Codes de sortie : 0 = direct, 2 = candidats, 3 = aucun, 1 = erreur
-   d'exécution (divergence assumée : Radar renvoie 0 partout, un agent
-   scripté mérite mieux).
+   `result` variants: `direct` | `candidates` | `none`. Write the JSON Schema
+   in `docs/query.schema.json`, tested in CI against the real output.
+5. Exit codes: 0 = direct, 2 = candidates, 3 = none, 1 = execution error
+   (deliberate divergence: Radar returns 0 everywhere; a scripted agent
+   deserves better).
 
-## Bonnes pratiques
-- Le contrat texte et le JSON sortent de la MÊME structure interne
-  (`QueryResult`) via deux renderers — jamais deux chemins de calcul.
-- Tests de contrat : fichiers `tests/contract/*.txt` comparés verbatim.
+## Best practices
+- The text contract and the JSON come from the SAME internal structure
+  (`QueryResult`) via two renderers — never two computation paths.
+- Contract tests: `tests/contract/*.txt` files compared verbatim.
 
-## Critères d'acceptation
-- [ ] `rr query verify_token` → anchor direct, exit 0.
-- [ ] `rr query session` (fixture) → 2 candidats, exit 2.
-- [ ] `--json` valide contre le schéma en CI.
-- [ ] Latence à chaud < 10 ms sur le corpus 10 000 fichiers.
+## Acceptance criteria
+- [ ] `rr query verify_token` → direct anchor, exit 0.
+- [ ] `rr query session` (fixture) → 2 candidates, exit 2.
+- [ ] `--json` validates against the schema in CI.
+- [ ] Warm latency < 10 ms on the 10,000-file corpus.

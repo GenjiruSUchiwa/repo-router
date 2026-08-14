@@ -1,37 +1,37 @@
 ---
-title: "M1-03 · Adressage par OID Git et cache de faits partageable"
+title: "M1-03 · Git OID addressing and shareable facts cache"
 labels: ["milestone:M1", "type:core", "differentiator"]
 ---
 
-## Pourquoi
-C'est le changement d'approche n°1 face à Radar. Git calcule déjà un hash de
-contenu (OID de blob) pour chaque fichier suivi. En clé de cache, l'OID rend
-les faits parsés **partageables via une ref Git** : la CI indexe une fois,
-l'équipe clone un index chaud. Radar (BLAKE3 local) ne peut pas faire ça.
+## Why
+This is approach change #1 versus Radar. Git already computes a content
+hash (blob OID) for every tracked file. Used as a cache key, the OID makes
+parsed facts **shareable via a Git ref**: CI indexes once, the team clones
+a warm index. Radar (local BLAKE3) cannot do that.
 
-## Quoi
-`rr-git::oid` (calcul/lookup d'OID) et `rr-core::cache` (store de faits
-clé → valeur, local d'abord, ref Git ensuite).
+## What
+`rr-git::oid` (OID computation/lookup) and `rr-core::cache` (key → value
+facts store, local first, Git ref later).
 
-## Comment
-1. Avec `gitoxide` (crate `gix`) : pour un fichier **non modifié** dans le
-   working tree, lire l'OID directement depuis l'index Git (gratuit, zéro
-   lecture du contenu). Pour un fichier modifié/non suivi, hasher en mémoire
-   au format objet Git (`blob <len>\0<bytes>`, SHA-1 ou SHA-256 selon le repo).
-2. Clé de cache complète : `(oid, lang, EXTRACTOR_VERSION, FACT_SCHEMA_VERSION)`.
-   Bump de version d'extracteur ⇒ invalidation naturelle, aucun code de migration.
-3. Store local V1 : fichiers `.rr/local/facts/<aa>/<oid>.bin` (bincode ou
-   postcard), écrits par fichier temporaire + rename (atomicité).
-4. V1.5 (issue séparée si besoin) : `rr cache push` / `rr cache pull` qui
-   sérialise les faits dans un blob attaché à `refs/rr/facts` — ne bloque
-   pas M1, mais la clé OID doit être en place dès maintenant.
-5. Repo sans Git : fallback hash maison même format, drapeau `no_git` dans
-   le snapshot (le partage est simplement indisponible).
+## How
+1. With `gitoxide` (the `gix` crate): for an **unmodified** file in the
+   working tree, read the OID directly from the Git index (free, zero
+   content reads). For a modified/untracked file, hash in memory using the
+   Git object format (`blob <len>\0<bytes>`, SHA-1 or SHA-256 depending on the repo).
+2. Full cache key: `(oid, lang, EXTRACTOR_VERSION, FACT_SCHEMA_VERSION)`.
+   Bumping the extractor version ⇒ natural invalidation, no migration code.
+3. Local store V1: files `.rr/local/facts/<aa>/<oid>.bin` (bincode or
+   postcard), written via temporary file + rename (atomicity).
+4. V1.5 (separate issue if needed): `rr cache push` / `rr cache pull` which
+   serializes the facts into a blob attached to `refs/rr/facts` — does not
+   block M1, but the OID key must be in place from now on.
+5. Repo without Git: fallback custom hash in the same format, `no_git` flag
+   in the snapshot (sharing is simply unavailable).
 
 ## Pseudo-code
 ```rust
 fn facts_for(file: &SourceFile, repo: &GitRepo, cache: &FactCache) -> Facts {
-    let oid = repo.oid_of(file)          // index Git si propre
+    let oid = repo.oid_of(file)          // Git index if clean
         .unwrap_or_else(|| hash_as_git_blob(read(file)));
     let key = CacheKey { oid, lang: file.lang, ext: EXTRACTOR_VERSION };
     cache.get(&key).unwrap_or_else(|| {
@@ -42,13 +42,13 @@ fn facts_for(file: &SourceFile, repo: &GitRepo, cache: &FactCache) -> Facts {
 }
 ```
 
-## Bonnes pratiques
-- Ne jamais mettre le contenu du fichier dans le cache — uniquement des faits.
-- Mesurer et logger (`--verbose`) le hit-rate du cache : c'est LA métrique
-  de santé de l'incrémental.
+## Best practices
+- Never put file content in the cache — only facts.
+- Measure and log (`--verbose`) the cache hit rate: it is THE health
+  metric of incrementality.
 
-## Critères d'acceptation
-- [ ] Deuxième `rr map` sans modification : 100 % cache hits, 0 parse.
-- [ ] `git mv` d'un fichier non modifié : cache hit (même OID).
-- [ ] Édition d'un fichier : lui seul est re-parsé.
-- [ ] Fonctionne dans un dossier sans `.git`.
+## Acceptance criteria
+- [ ] Second `rr map` with no modifications: 100% cache hits, 0 parses.
+- [ ] `git mv` of an unmodified file: cache hit (same OID).
+- [ ] Editing a file: only that file is re-parsed.
+- [ ] Works in a directory without `.git`.

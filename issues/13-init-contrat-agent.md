@@ -1,44 +1,44 @@
 ---
-title: "M3-13 · `rr init` : contrat de navigation + SKILL.md Claude Code"
+title: "M3-13 · `rr init`: navigation contract + Claude Code SKILL.md"
 labels: ["milestone:M3", "type:agent-interface"]
 ---
 
-## Pourquoi
-Leçon n°2 de l'observation : le contrat d'instructions injecté chez l'agent
-EST la moitié du produit. Sans lui, l'agent ne sait pas que MAP.md, SYMBOLS.md
-et `rr query` existent, et retombe sur grep.
+## Why
+Lesson #2 from the observation: the instruction contract injected into the
+agent IS half the product. Without it, the agent does not know that MAP.md,
+SYMBOLS.md and `rr query` exist, and falls back to grep.
 
-## Quoi
-`rr init` écrit : un bloc de navigation dans `CLAUDE.md`/`AGENTS.md`
-(créés ou mis à jour entre marqueurs), `.claude/skills/rr-navigation/SKILL.md`,
-et un `rr.toml` de config commenté.
+## What
+`rr init` writes: a navigation block in `CLAUDE.md`/`AGENTS.md`
+(created or updated between markers), `.claude/skills/rr-navigation/SKILL.md`,
+and a commented `rr.toml` config file.
 
-## Comment
-1. Bloc navigation entre `<!-- rr:begin navigation -->` / `<!-- rr:end -->`
-   (idempotent : régénérer remplace le bloc, ne touche à rien d'autre).
-   Contenu — la procédure, dans cet ordre :
-   1. `rr query "<tâche complète>"` d'abord (zéro appel modèle) ; un
-      `FINAL SOURCE ANCHOR` = réponse, copier exactement, s'arrêter ;
-   2. sinon greper `.rr/ROUTES.md` (lignes `[ok]`) puis `.rr/SYMBOLS.md` ;
-   3. sinon lire MAP.md ; lectures multiples EN PARALLÈLE ;
-   4. après résolution manuelle : `rr route add "<tâche>" file#symbol` ;
-   5. les cartes routent, la source répond — toujours confirmer dans le code ;
-   6. si stale : `rr refresh` puis réessayer une fois.
-2. SKILL.md : même procédure au format skill Claude Code (frontmatter
-   name/description déclencheurs : « naviguer », « où est », « qui appelle »).
-3. `rr.toml` : excludes additionnels, langages, budget MAP — clés réellement
-   honorées uniquement (pattern Radar : ne documenter que le vrai).
-4. Détection : si `CLAUDE.md` existe → y écrire ; sinon `AGENTS.md` ; sinon
-   le créer. `--target <fichier>` pour forcer.
+## How
+1. Navigation block between `<!-- rr:begin navigation -->` / `<!-- rr:end -->`
+   (idempotent: regenerating replaces the block, touches nothing else).
+   Content — the procedure, in this order:
+   1. `rr query "<full task>"` first (zero model calls); a
+      `FINAL SOURCE ANCHOR` = the answer, copy exactly, stop;
+   2. otherwise grep `.rr/ROUTES.md` (`[ok]` lines) then `.rr/SYMBOLS.md`;
+   3. otherwise read MAP.md; multiple reads IN PARALLEL;
+   4. after manual resolution: `rr route add "<task>" file#symbol`;
+   5. maps route, source answers — always confirm in the code;
+   6. if stale: `rr refresh` then retry once.
+2. SKILL.md: same procedure in the Claude Code skill format (frontmatter
+   name/description triggers: "navigate", "where is", "who calls").
+3. `rr.toml`: additional excludes, languages, MAP budget — only keys that
+   are actually honored (Radar pattern: document only what is real).
+4. Detection: if `CLAUDE.md` exists → write there; otherwise `AGENTS.md`;
+   otherwise create it. `--target <file>` to force.
 
-## Bonnes pratiques
-- Le texte du contrat vit dans `rr-cli/contracts/*.md` (include_str!), pas
-  dans le code — relisible, diffable, traduisible.
-- Chaque phrase du contrat doit économiser des tokens à l'agent : relire
-  chaque ligne en se demandant « est-ce que ça change son comportement ? ».
+## Best practices
+- The contract text lives in `rr-cli/contracts/*.md` (include_str!), not
+  in the code — re-readable, diffable, translatable.
+- Every sentence of the contract must save the agent tokens: re-read each
+  line asking "does this change its behavior?".
 
-## Critères d'acceptation
-- [ ] `rr init` deux fois → deuxième run no-op (idempotence).
-- [ ] Contenu hors marqueurs jamais modifié (test avec CLAUDE.md existant).
-- [ ] Session Claude Code sur le fixture : l'agent utilise `rr query` en
-      premier réflexe (test manuel documenté dans la PR).
+## Acceptance criteria
+- [ ] `rr init` twice → second run is a no-op (idempotence).
+- [ ] Content outside the markers never modified (test with an existing CLAUDE.md).
+- [ ] Claude Code session on the fixture: the agent uses `rr query` as its
+      first reflex (manual test documented in the PR).

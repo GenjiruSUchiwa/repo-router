@@ -1,46 +1,46 @@
-# Radar v0.5.0 — Observations empiriques du binaire Linux x86_64
+# Radar v0.5.0 — Empirical observations of the Linux x86_64 binary
 
-> Addendum à `RADAR_REIMPLEMENTATION_SPEC.md`. Comportements observés en exécutant
-> le binaire officiel (checksum vérifié `73f8faa5…`) sur un dépôt fixture
-> Rust + Python (8 fichiers, relations appelant/appelé, test). Date : 2026-08-14.
-> Licence de la release : MIT (LICENSE.txt inclus dans l'archive).
+> Addendum to `RADAR_REIMPLEMENTATION_SPEC.md`. Behaviors observed by running
+> the official binary (verified checksum `73f8faa5…`) on a Rust + Python
+> fixture repository (8 files, caller/callee relations, one test). Date: 2026-08-14.
+> Release license: MIT (LICENSE.txt included in the archive).
 
 ---
 
-## 1. Le produit réel diffère de l'image donnée par le site
+## 1. The real product differs from the image the website gives
 
-Le `--help` se décrit comme *"the repository cartographer for AI agents"* qui
+The `--help` describes itself as *"the repository cartographer for AI agents"* that
 *"compiles a repository into tiny committed MAP.md routers so agents navigate by
-map instead of grep"*. Le produit n'est pas seulement un moteur de requête :
-c'est un système de **cartes committées lisibles** (`MAP.md`) plus un cache
-local jetable (`.radar/`), plus un **contrat de navigation injecté dans les
-instructions de l'agent**.
+map instead of grep"*. The product is not just a query engine: it is a system of
+**committed human-readable maps** (`MAP.md`) plus a disposable local cache
+(`.radar/`), plus a **navigation contract injected into the agent's
+instructions**.
 
-## 2. Surface CLI observée — 17 sous-commandes
+## 2. Observed CLI surface — 17 subcommands
 
-| commande | rôle observé |
+| command | observed role |
 |---|---|
 | `scan` | walk + hash + extraction, stats (`files: 8  source: 7  defs: 16  refs: 23`, 5 ms) |
-| `map` | construit/reconstruit l'arbre MAP.md (`1 written, 0 unchanged, 1 purpose slot(s) pending`) |
-| `check` | valide invariants/staleness/budgets, **codes de sortie documentés 0/1/2/3** |
-| `tree` | topologie des cartes (alias `ls`) |
-| `refresh` | rafraîchissement incrémental « git-gated » |
-| `status` | une ligne : état git, cartes stale, slots en attente, routes cachées |
-| `impact` | appelants/dépendances/tests déterministes sur un change-set Git |
-| `watch` | boucle de refresh par polling |
-| `browse` | TUI lecture seule |
-| `slots` / `fill` | slots sémantiques à remplir (texte libre validé, ex. « purpose ») |
-| `init` | écrit le contrat de navigation (README/AGENTS.md/CLAUDE.md), un `SKILL.md` Claude Code, `radar.toml` |
-| `export` | base de connaissances → une page HTML autonome |
-| `serve` | `--mcp` = outils stdio pour agents ; sinon vue web localhost GET-only |
-| `route` | cache de navigation résolue : `add` / `find` / `list` |
-| `query` | résout une tâche localement, zéro appel modèle |
-| `agent` | refresh + vérif contrat, puis lance l'agent de code pointé sur `./MAP.md` |
+| `map` | builds/rebuilds the MAP.md tree (`1 written, 0 unchanged, 1 purpose slot(s) pending`) |
+| `check` | validates invariants/staleness/budgets, **documented exit codes 0/1/2/3** |
+| `tree` | map topology (alias `ls`) |
+| `refresh` | "git-gated" incremental refresh |
+| `status` | one line: git state, stale maps, pending slots, cached routes |
+| `impact` | deterministic callers/dependencies/tests over a Git change-set |
+| `watch` | polling-based refresh loop |
+| `browse` | read-only TUI |
+| `slots` / `fill` | semantic slots to fill in (validated free text, e.g. "purpose") |
+| `init` | writes the navigation contract (README/AGENTS.md/CLAUDE.md), a Claude Code `SKILL.md`, `radar.toml` |
+| `export` | knowledge base → a single self-contained HTML page |
+| `serve` | `--mcp` = stdio tools for agents; otherwise GET-only localhost web view |
+| `route` | resolved-navigation cache: `add` / `find` / `list` |
+| `query` | resolves a task locally, zero model calls |
+| `agent` | refresh + contract check, then launches the code agent pointed at `./MAP.md` |
 
-## 3. Artefacts générés
+## 3. Generated artifacts
 
-### À la racine (committé)
-`MAP.md` (~200 tokens annoncés) avec frontmatter YAML :
+### At the root (committed)
+`MAP.md` (~200 tokens advertised) with YAML frontmatter:
 
 ```yaml
 type: Code Repository Map
@@ -52,65 +52,65 @@ tokens: ~200
 stamped: 2026-08-14T07:25:19Z
 ```
 
-Contenu : un slot `purpose` (`<!-- radar:slot purpose max=160 -->`, pré-rempli
-par une heuristique, destiné à être complété), la section **API** (signatures
-publiques par fichier), la section **Tests**.
+Contents: a `purpose` slot (`<!-- radar:slot purpose max=160 -->`, pre-filled
+by a heuristic, meant to be completed), the **API** section (public signatures
+per file), the **Tests** section.
 
-### Dans `.radar/` (entièrement gitignoré via `.gitignore` contenant `*`)
-- `ROUTES.md` — cache requête→anchor **en texte**, auto-amorcé :
+### In `.radar/` (entirely gitignored via a `.gitignore` containing `*`)
+- `ROUTES.md` — query→anchor cache **in text**, auto-bootstrapped:
   `[auto] verify token | src/auth/token.rs#verify_token | MAP.md | e6ffbcaf | 0 | 2`
-  États observés/documentés : `[auto]`, `[ok]`, `[stale]`. Les agents peuvent
-  enregistrer leurs découvertes : `radar route add "<tâche>" file#symbol`.
-- `SYMBOLS.md` — index trié des symboles publics **en texte greppable** :
+  Observed/documented states: `[auto]`, `[ok]`, `[stale]`. Agents can
+  record their findings: `radar route add "<task>" file#symbol`.
+- `SYMBOLS.md` — sorted index of public symbols **in greppable text**:
   `verify_token → MAP.md · src/auth/token.rs#9`
-- `query.bin`, `source.bin`, `state.bin`, `lock` — snapshots binaires (2,5 Ko /
-  588 o / 2,2 Ko sur le fixture).
+- `query.bin`, `source.bin`, `state.bin`, `lock` — binary snapshots (2.5 KB /
+  588 B / 2.2 KB on the fixture).
 
-**Insight majeur : les index agent-facing sont des fichiers texte pensés pour
-être lus/greppés par un agent en une lecture, pas des API.** Les `.bin` ne
-servent qu'au binaire lui-même.
+**Key insight: the agent-facing indexes are text files designed to be
+read/grepped by an agent in a single read, not APIs.** The `.bin` files
+only serve the binary itself.
 
-## 4. Contrat de sortie de `query` (observé)
+## 4. `query` output contract (observed)
 
-- **Pas de `--json`.** Seules options : `--path`, `--source`. Le contrat est du
-  texte stable :
+- **No `--json`.** Only options: `--path`, `--source`. The contract is stable
+  text:
 
 ```text
 FINAL SOURCE ANCHOR (copy exactly): src/auth/token.rs#verify_token
 ```
 
-- Avec `--source` :
+- With `--source`:
 
 ```text
 FINAL SOURCE ANCHOR (copy exactly): src/auth/token.rs#verify_token
 SOURCE SPAN (verified): src/auth/token.rs:9-15
 SOURCE COMPLETE
 ---
-<code borné>
+<bounded code>
 ```
 
-- Ambiguïté (`"session"`) → liste `source candidates:` (2 anchors), **exit 0**.
-- Introuvable → repli `candidate maps:` + frontmatter de la carte, **exit 0**.
-- Le contrat d'orientation existe aussi : `FINAL REPOSITORY OVERVIEW`
-  (mentionné par le contrat généré par `init`).
-- Requête en langage naturel (`"where is token verification handled?"`) →
-  routage lexical correct vers `verify_token` sur le fixture.
+- Ambiguity (`"session"`) → `source candidates:` list (2 anchors), **exit 0**.
+- Not found → fallback `candidate maps:` + the map's frontmatter, **exit 0**.
+- The orientation contract also exists: `FINAL REPOSITORY OVERVIEW`
+  (mentioned by the contract generated by `init`).
+- Natural-language query (`"where is token verification handled?"`) →
+  correct lexical routing to `verify_token` on the fixture.
 
-## 5. Staleness : refus, pas re-parse
+## 5. Staleness: refusal, not re-parse
 
-Après édition de `src/auth/token.rs` sans réindexation :
+After editing `src/auth/token.rs` without reindexing:
 
 ```text
 STALE SOURCE (no content returned): src/auth/token.rs changed since indexing; run `radar refresh`
 ```
 
-**Exit 0** malgré le refus. Radar **ne re-parse pas à la volée** (contrairement
-au `reparse_and_relocate_symbol` proposé en §27 de la spec) : il refuse et
-oriente vers `refresh`. Après `radar refresh` (`0 written, 1 unchanged`), le
-span est relocalisé correctement (9-15 → 11-17). Choix plus simple et plus sûr
-que la relocalisation à chaud — recommandé pour la réimplémentation.
+**Exit 0** despite the refusal. Radar **does not re-parse on the fly** (unlike
+the `reparse_and_relocate_symbol` proposed in §27 of the spec): it refuses and
+points to `refresh`. After `radar refresh` (`0 written, 1 unchanged`), the
+span is correctly relocated (9-15 → 11-17). A simpler and safer choice
+than hot relocation — recommended for the reimplementation.
 
-## 6. `impact` — sortie observée
+## 6. `impact` — observed output
 
 ```text
 radar impact - base HEAD (depth 2)
@@ -127,56 +127,56 @@ unresolved references: 12
 ambiguous references: 0
 ```
 
-Arêtes typées avec numéro de ligne, distances, et **compteurs d'irrésolus
-affichés honnêtement**. Limite constatée : le test `tests/token_test.rs`
-appelant `myapp::auth::token::verify_token` n'a pas été relié (résolution
-cross-module incomplète) — cohérent avec le principe §8.3 de la spec (« ne pas
-exiger une résolution parfaite »).
+Typed edges with line numbers, distances, and **unresolved counters
+reported honestly**. Observed limitation: the test `tests/token_test.rs`
+calling `myapp::auth::token::verify_token` was not linked (incomplete
+cross-module resolution) — consistent with spec principle §8.3 ("do not
+require perfect resolution").
 
-## 7. Le contrat de navigation injecté (`radar init`)
+## 7. The injected navigation contract (`radar init`)
 
-`init` écrit dans README.md (ou AGENTS.md/CLAUDE.md) un bloc
-`<!-- radar:begin navigation -->` : procédure en 8 étapes pour l'agent
-(query d'abord ; sinon greper ROUTES.md puis SYMBOLS.md ; lectures de cartes
-**en parallèle** ; « écrire la signature attendue avant de scanner » ; « les
-cartes routent, la source répond » ; enregistrer les routes résolues ;
-résolution des conflits de merge par régénération). Il embarque aussi la carte
-racine directement dans le README (« zero reads ») et crée
+`init` writes into README.md (or AGENTS.md/CLAUDE.md) a
+`<!-- radar:begin navigation -->` block: an 8-step procedure for the agent
+(query first; otherwise grep ROUTES.md then SYMBOLS.md; map reads
+**in parallel**; "write the expected signature before scanning"; "maps
+route, source answers"; record resolved routes; merge-conflict resolution
+by regeneration). It also embeds the root map directly in the README
+("zero reads") and creates
 `.claude/skills/radar-navigation/SKILL.md` + `radar.toml`.
 
-**C'est la moitié du produit.** La valeur ne vient pas seulement de l'index,
-mais du couplage index ↔ instructions de l'agent.
+**This is half the product.** The value comes not only from the index,
+but from the coupling between the index and the agent's instructions.
 
-## 8. Divergences spec ↔ réalité (à répercuter)
+## 8. Spec ↔ reality divergences (to propagate)
 
-| point | spec supposait | observé |
+| point | spec assumed | observed |
 |---|---|---|
-| sortie machine | `--json` stable partout | pas de `--json` ; contrat texte « copy exactly » + fichiers texte greppables |
-| carte committée | `.radar/map` TOML | `MAP.md` à la racine, Markdown + frontmatter YAML, budget tokens, slots |
-| `.radar/` | mixte committé/local | 100 % local, gitignoré `*` |
-| staleness | re-parse + relocalisation à chaud | refus explicite + `refresh` incrémental |
-| codes de sortie | riches par commande | quasi tout à 0 ; seuls `check` (0/1/2/3) discrimine |
-| surface | map/query/impact/MCP | 17 commandes, dont route-cache, slots, TUI, export HTML, launcher d'agent |
-| cache de routes | absent | `ROUTES.md` auto-amorcé + apprentissage par l'agent (`route add`) |
+| machine output | stable `--json` everywhere | no `--json`; "copy exactly" text contract + greppable text files |
+| committed map | `.radar/map` TOML | `MAP.md` at the root, Markdown + YAML frontmatter, token budget, slots |
+| `.radar/` | mixed committed/local | 100% local, gitignored `*` |
+| staleness | re-parse + hot relocation | explicit refusal + incremental `refresh` |
+| exit codes | rich per command | almost everything at 0; only `check` (0/1/2/3) discriminates |
+| surface | map/query/impact/MCP | 17 commands, including route-cache, slots, TUI, HTML export, agent launcher |
+| route cache | absent | auto-bootstrapped `ROUTES.md` + agent-driven learning (`route add`) |
 
-## 9. Recommandations pour la réimplémentation
+## 9. Recommendations for the reimplementation
 
-1. **Copier le choix « refus si stale »** plutôt que la relocalisation à chaud
-   de la spec §27 : plus simple, impossible d'être silencieusement faux.
-2. **Produire des index texte greppables** (`SYMBOLS.md`, `ROUTES.md`) comme
-   interface agent de premier rang ; garder les `.bin` comme détail interne.
-   Ajouter `--json` par-dessus reste une amélioration différenciante possible.
-3. **Traiter le contrat d'instructions (`init`) comme un livrable central**,
-   pas un bonus : MAP.md embarqué, SKILL.md, procédure de fallback.
-4. Le **cache de routes résolues** (auto-amorcé + enrichi par l'agent) est une
-   excellente idée absente de la spec — à intégrer en V1.5.
-5. Cible différenciante confirmée : **aucun binaire macOS ARM64 n'existe** ;
-   le launcher refuse toute plateforme hors linux-x86_64.
-6. Détail de robustesse à faire mieux : le binaire panique sur SIGPIPE
-   (`radar impact | head` → panic « Broken pipe ») ; gérer proprement EPIPE.
+1. **Copy the "refuse if stale" choice** rather than the hot relocation
+   from spec §27: simpler, impossible to be silently wrong.
+2. **Produce greppable text indexes** (`SYMBOLS.md`, `ROUTES.md`) as the
+   first-class agent interface; keep the `.bin` files as an internal detail.
+   Adding `--json` on top remains a possible differentiating improvement.
+3. **Treat the instruction contract (`init`) as a central deliverable**,
+   not a bonus: embedded MAP.md, SKILL.md, fallback procedure.
+4. The **resolved-route cache** (auto-bootstrapped + enriched by the agent) is an
+   excellent idea absent from the spec — to integrate in V1.5.
+5. Confirmed differentiating target: **no macOS ARM64 binary exists**;
+   the launcher refuses any platform other than linux-x86_64.
+6. Robustness detail to do better: the binary panics on SIGPIPE
+   (`radar impact | head` → panic "Broken pipe"); handle EPIPE cleanly.
 
-## 10. Chiffres du fixture (indicatifs)
+## 10. Fixture numbers (indicative)
 
-- `scan` : 8 fichiers, 16 defs, 23 refs, 5 ms (stat-cache actif).
-- `map` initial : instantané ; artefacts `.radar/` ≈ 6 Ko au total.
-- `refresh` après édition d'un fichier : 1 fichier re-parsé, cartes inchangées.
+- `scan`: 8 files, 16 defs, 23 refs, 5 ms (stat-cache active).
+- initial `map`: instantaneous; `.radar/` artifacts ≈ 6 KB total.
+- `refresh` after editing one file: 1 file re-parsed, maps unchanged.
