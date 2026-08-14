@@ -57,6 +57,10 @@ fn test_lexical_version_and_profile() {
     let profile = lexical_profile();
     assert_eq!(profile.algorithm, LEXICAL_VERSION);
     assert_eq!(profile.rust_unicode, std::char::UNICODE_VERSION);
+    assert_eq!(
+        profile.normalization_crate,
+        rr_core::lex::NORMALIZATION_CRATE_VERSION
+    );
 
     let serialized = serde_json::to_string(&profile).unwrap();
     let deserialized: LexicalProfile = serde_json::from_str(&serialized).unwrap();
@@ -272,10 +276,7 @@ fn test_lexicon_bijection_and_lookup() {
     assert_eq!(lexicon.get("second"), Some(id1));
     assert_eq!(lexicon.get("third"), None);
 
-    assert_eq!(
-        lexicon.terms(),
-        &["first".to_string(), "second".to_string()]
-    );
+    assert_eq!(lexicon.terms().collect::<Vec<_>>(), ["first", "second"]);
 }
 
 #[test]
@@ -329,6 +330,47 @@ fn test_lexicon_serde_strict_rejection() {
 
     let emoji_json = "[\"foo🙂bar\"]";
     assert!(serde_json::from_str::<Lexicon>(emoji_json).is_err());
+}
+
+#[test]
+fn test_lexicon_roundtrip_with_multichar_lowercase_expansion() {
+    let mut lexicon = Lexicon::new();
+    let mut out = SmallVec::<[FieldTerm; 32]>::with_capacity(32);
+    append_source_terms(
+        LexicalField::Name,
+        InputKind::Identifier,
+        "İd",
+        &mut lexicon,
+        &mut out,
+    )
+    .unwrap();
+
+    assert!(lexicon.get("id").is_some());
+    for term in lexicon.terms() {
+        assert!(is_canonical_term(term), "non-canonical term {term:?}");
+    }
+
+    let json = serde_json::to_string(&lexicon).unwrap();
+    let roundtrip: Lexicon = serde_json::from_str(&json).unwrap();
+    assert_eq!(lexicon, roundtrip);
+}
+
+#[test]
+fn test_query_stems_handled_to_handle() {
+    let mut lexicon = Lexicon::new();
+    let mut out = SmallVec::<[FieldTerm; 32]>::with_capacity(32);
+    append_source_terms(
+        LexicalField::Name,
+        InputKind::Identifier,
+        "handle_error",
+        &mut lexicon,
+        &mut out,
+    )
+    .unwrap();
+
+    let handle_id = lexicon.get("handle").unwrap();
+    let q = query_terms("how is the error handled", &lexicon);
+    assert!(q.as_slice().contains(&handle_id));
 }
 
 #[test]

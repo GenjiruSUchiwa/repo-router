@@ -64,6 +64,16 @@ mod tests {
     }
 
     #[test]
+    fn test_no_stem_surface_is_a_stop_word() {
+        for (surface, _) in STEM_PAIRS {
+            assert!(
+                !crate::lex::stop::is_stop_word(surface),
+                "stop word {surface:?} would shadow its stem pair in query_terms"
+            );
+        }
+    }
+
+    #[test]
     fn test_stem_lookup() {
         assert_eq!(stem_lookup("verification"), Some("verify"));
         assert_eq!(stem_lookup("verifications"), Some("verify"));

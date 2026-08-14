@@ -4,6 +4,7 @@ pub mod stop;
 
 use std::collections::HashMap;
 use std::fmt;
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
@@ -12,10 +13,17 @@ use crate::{Error, Result};
 
 pub const LEXICAL_VERSION: u32 = 1;
 
+/// Version of the `unicode-normalization` crate that provides the NFC tables
+/// used by the splitter. COUPLED to the `=` pin in the workspace `Cargo.toml`:
+/// bumping that pin can change NFC output for affected codepoints, so this
+/// constant must be bumped with it to invalidate stale snapshots.
+pub const NORMALIZATION_CRATE_VERSION: (u8, u8, u8) = (0, 1, 24);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LexicalProfile {
     pub algorithm: u32,
     pub rust_unicode: (u8, u8, u8),
+    pub normalization_crate: (u8, u8, u8),
 }
 
 #[must_use]
@@ -23,6 +31,7 @@ pub const fn lexical_profile() -> LexicalProfile {
     LexicalProfile {
         algorithm: LEXICAL_VERSION,
         rust_unicode: std::char::UNICODE_VERSION,
+        normalization_crate: NORMALIZATION_CRATE_VERSION,
     }
 }
 
@@ -157,11 +166,20 @@ impl AsRef<[TermId]> for QueryTerms {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(try_from = "Vec<String>", into = "Vec<String>")]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Default)]
+#[serde(try_from = "Vec<String>")]
 pub struct Lexicon {
-    terms: Vec<String>,
-    indices: HashMap<String, TermId>,
+    terms: Vec<Arc<str>>,
+    indices: HashMap<Arc<str>, TermId>,
+}
+
+impl Serialize for Lexicon {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.collect_seq(self.terms.iter().map(AsRef::<str>::as_ref))
+    }
 }
 
 impl Lexicon {
@@ -180,7 +198,7 @@ impl Lexicon {
 
     #[must_use]
     pub fn resolve(&self, id: TermId) -> Option<&str> {
-        self.terms.get(id.index()).map(String::as_str)
+        self.terms.get(id.index()).map(AsRef::as_ref)
     }
 
     #[must_use]
@@ -193,9 +211,8 @@ impl Lexicon {
         self.terms.is_empty()
     }
 
-    #[must_use]
-    pub fn terms(&self) -> &[String] {
-        &self.terms
+    pub fn terms(&self) -> impl ExactSizeIterator<Item = &str> + '_ {
+        self.terms.iter().map(AsRef::as_ref)
     }
 
     pub(crate) fn intern(&mut self, canonical: &str) -> Result<TermId> {
@@ -205,16 +222,10 @@ impl Lexicon {
 
         let next_index = u32::try_from(self.terms.len()).map_err(|_| Error::TermIdExhausted)?;
         let id = TermId::from_index(next_index);
-        let owned = canonical.to_string();
-        self.terms.push(owned.clone());
+        let owned: Arc<str> = Arc::from(canonical);
+        self.terms.push(Arc::clone(&owned));
         self.indices.insert(owned, id);
         Ok(id)
-    }
-}
-
-impl From<Lexicon> for Vec<String> {
-    fn from(lexicon: Lexicon) -> Self {
-        lexicon.terms
     }
 }
 
@@ -228,14 +239,15 @@ impl TryFrom<Vec<String>> for Lexicon {
             });
         }
 
+        let mut shared_terms = Vec::with_capacity(terms.len());
         let mut indices = HashMap::with_capacity(terms.len());
-        for (idx, term) in terms.iter().enumerate() {
+        for (idx, term) in terms.into_iter().enumerate() {
             if term.is_empty() {
                 return Err(Error::InvalidLexicon {
                     reason: "lexicon term cannot be empty",
                 });
             }
-            if !split::is_canonical_term(term) {
+            if !split::is_canonical_term(&term) {
                 return Err(Error::InvalidLexicon {
                     reason: "lexicon term is not canonical",
                 });
@@ -244,14 +256,19 @@ impl TryFrom<Vec<String>> for Lexicon {
                 reason: "lexicon index exceeds u32::MAX",
             })?;
             let id = TermId::from_index(next_index);
-            if indices.insert(term.clone(), id).is_some() {
+            let shared: Arc<str> = Arc::from(term);
+            shared_terms.push(Arc::clone(&shared));
+            if indices.insert(shared, id).is_some() {
                 return Err(Error::InvalidLexicon {
                     reason: "duplicate lexicon term",
                 });
             }
         }
 
-        Ok(Self { terms, indices })
+        Ok(Self {
+            terms: shared_terms,
+            indices,
+        })
     }
 }
 

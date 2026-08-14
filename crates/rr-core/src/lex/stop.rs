@@ -1,8 +1,8 @@
-pub const STOP_WORDS: [&str; 47] = [
+pub const STOP_WORDS: [&str; 46] = [
     "a", "an", "and", "are", "as", "at", "be", "been", "being", "by", "can", "could", "did", "do",
-    "does", "for", "from", "had", "handled", "has", "have", "how", "i", "in", "into", "is", "it",
-    "of", "on", "or", "please", "should", "show", "that", "the", "this", "to", "was", "were",
-    "what", "when", "where", "which", "who", "why", "with", "would",
+    "does", "for", "from", "had", "has", "have", "how", "i", "in", "into", "is", "it", "of", "on",
+    "or", "please", "should", "show", "that", "the", "this", "to", "was", "were", "what", "when",
+    "where", "which", "who", "why", "with", "would",
 ];
 
 #[must_use]
@@ -30,7 +30,7 @@ mod tests {
     fn test_is_stop_word() {
         assert!(is_stop_word("where"));
         assert!(is_stop_word("is"));
-        assert!(is_stop_word("handled"));
+        assert!(!is_stop_word("handled"));
         assert!(!is_stop_word("token"));
         assert!(!is_stop_word("verification"));
         assert!(!is_stop_word("verify"));

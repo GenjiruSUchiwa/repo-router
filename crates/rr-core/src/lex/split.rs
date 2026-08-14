@@ -1,4 +1,6 @@
-use unicode_normalization::UnicodeNormalization;
+use std::borrow::Cow;
+
+use unicode_normalization::{is_nfc_quick, IsNormalized, UnicodeNormalization};
 
 use crate::Result;
 
@@ -10,7 +12,8 @@ pub fn for_each_lexeme<F>(input: &str, f: F) -> Result<()>
 where
     F: FnMut(&str) -> Result<()>,
 {
-    let stripped = strip_raw_prefix(input);
+    let stripped = strip_raw_markers(input);
+    let stripped = stripped.as_ref();
     if stripped.is_empty() {
         return Ok(());
     }
@@ -40,28 +43,84 @@ pub fn is_canonical_term(term: &str) -> bool {
     lower_nfc == term
 }
 
-fn strip_raw_prefix(input: &str) -> &str {
-    if let Some(suffix) = input.strip_prefix("r#") {
-        if suffix.is_empty() {
-            ""
-        } else {
-            suffix
+/// Strips Rust raw-identifier markers (`r#`) at the start of the input and after
+/// any non-alphanumeric boundary, so `crate::auth::r#type` and a bare `r#type`
+/// canonicalize identically. Borrows when no embedded marker is present.
+fn strip_raw_markers(input: &str) -> Cow<'_, str> {
+    let leading = input.strip_prefix("r#").unwrap_or(input);
+
+    let mut out: Option<String> = None;
+    let mut copied_to = 0usize;
+    let mut search_from = 0usize;
+    while let Some(rel) = leading[search_from..].find("r#") {
+        let pos = search_from + rel;
+        let at_boundary = !leading[..pos]
+            .chars()
+            .next_back()
+            .is_some_and(char::is_alphanumeric);
+        if at_boundary {
+            let buf = out.get_or_insert_with(|| String::with_capacity(leading.len()));
+            buf.push_str(&leading[copied_to..pos]);
+            copied_to = pos + 2;
         }
-    } else {
-        input
+        search_from = pos + 2;
+    }
+
+    match out {
+        Some(mut buf) => {
+            buf.push_str(&leading[copied_to..]);
+            Cow::Owned(buf)
+        }
+        None => Cow::Borrowed(leading),
     }
 }
 
-fn for_each_ascii_lexeme<F>(input: &str, mut f: F) -> Result<()>
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CharClass {
+    Separator,
+    Digit,
+    Upper,
+    Lower,
+    UncasedAlpha,
+}
+
+const fn classify_byte(b: u8) -> CharClass {
+    if b.is_ascii_digit() {
+        CharClass::Digit
+    } else if b.is_ascii_uppercase() {
+        CharClass::Upper
+    } else if b.is_ascii_lowercase() {
+        CharClass::Lower
+    } else {
+        CharClass::Separator
+    }
+}
+
+fn classify_char(c: char) -> CharClass {
+    if !c.is_alphanumeric() {
+        CharClass::Separator
+    } else if c.is_numeric() {
+        CharClass::Digit
+    } else if c.is_uppercase() {
+        CharClass::Upper
+    } else if c.is_lowercase() {
+        CharClass::Lower
+    } else {
+        CharClass::UncasedAlpha
+    }
+}
+
+/// Single implementation of the token-boundary state machine, shared by the
+/// ASCII and Unicode paths via a `CharClass` accessor.
+fn scan_segments<C, E>(len: usize, class_at: C, mut emit: E) -> Result<()>
 where
-    F: FnMut(&str) -> Result<()>,
+    C: Fn(usize) -> CharClass,
+    E: FnMut(usize, usize) -> Result<()>,
 {
-    let bytes = input.as_bytes();
-    let len = bytes.len();
     let mut i = 0usize;
 
     while i < len {
-        while i < len && !bytes[i].is_ascii_alphanumeric() {
+        while i < len && class_at(i) == CharClass::Separator {
             i += 1;
         }
         if i >= len {
@@ -69,54 +128,71 @@ where
         }
 
         let start = i;
-        if bytes[i].is_ascii_digit() {
-            while i < len && bytes[i].is_ascii_digit() {
+        if class_at(i) == CharClass::Digit {
+            while i < len && class_at(i) == CharClass::Digit {
                 i += 1;
             }
-            emit_ascii_segment(&input[start..i], &mut f)?;
+            emit(start, i)?;
+            continue;
+        }
+
+        if class_at(i) == CharClass::UncasedAlpha {
+            while i < len && class_at(i) == CharClass::UncasedAlpha {
+                i += 1;
+            }
+            emit(start, i)?;
             continue;
         }
 
         while i < len {
-            if !bytes[i].is_ascii_alphanumeric() {
-                break;
-            }
-
-            if bytes[i].is_ascii_digit() {
-                let digit_start = i;
-                while i < len && bytes[i].is_ascii_digit() {
+            match class_at(i) {
+                CharClass::Separator | CharClass::UncasedAlpha => break,
+                CharClass::Digit => {
+                    let digit_start = i;
+                    while i < len && class_at(i) == CharClass::Digit {
+                        i += 1;
+                    }
+                    if i < len && class_at(i) != CharClass::Separator {
+                        break;
+                    }
+                    i = digit_start;
+                    break;
+                }
+                CharClass::Upper => {
+                    if i > start && class_at(i - 1) == CharClass::Lower {
+                        break;
+                    }
+                    if i > start
+                        && class_at(i - 1) == CharClass::Upper
+                        && i + 1 < len
+                        && class_at(i + 1) == CharClass::Lower
+                    {
+                        break;
+                    }
                     i += 1;
                 }
-                if i < len && bytes[i].is_ascii_alphabetic() {
-                    break;
-                }
-                i = digit_start;
-                break;
+                CharClass::Lower => i += 1,
             }
-
-            if bytes[i].is_ascii_uppercase() {
-                if i > start && bytes[i - 1].is_ascii_lowercase() {
-                    break;
-                }
-                if i > start
-                    && bytes[i - 1].is_ascii_uppercase()
-                    && i + 1 < len
-                    && bytes[i + 1].is_ascii_lowercase()
-                {
-                    break;
-                }
-            }
-
-            i += 1;
         }
 
-        let segment = &input[start..i];
-        if !segment.is_empty() {
-            emit_ascii_segment(segment, &mut f)?;
+        if i > start {
+            emit(start, i)?;
         }
     }
 
     Ok(())
+}
+
+fn for_each_ascii_lexeme<F>(input: &str, mut f: F) -> Result<()>
+where
+    F: FnMut(&str) -> Result<()>,
+{
+    let bytes = input.as_bytes();
+    scan_segments(
+        bytes.len(),
+        |i| classify_byte(bytes[i]),
+        |start, end| emit_ascii_segment(&input[start..end], &mut f),
+    )
 }
 
 fn emit_ascii_segment<F>(segment: &str, f: &mut F) -> Result<()>
@@ -145,123 +221,72 @@ where
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CharClass {
-    Separator,
-    Digit,
-    Upper,
-    Lower,
-    UncasedAlpha,
-}
-
-fn classify_char(c: char) -> CharClass {
-    if !c.is_alphanumeric() {
-        CharClass::Separator
-    } else if c.is_numeric() {
-        CharClass::Digit
-    } else if c.is_uppercase() {
-        CharClass::Upper
-    } else if c.is_lowercase() {
-        CharClass::Lower
-    } else {
-        CharClass::UncasedAlpha
-    }
-}
-
 fn for_each_unicode_lexeme<F>(input: &str, mut f: F) -> Result<()>
 where
     F: FnMut(&str) -> Result<()>,
 {
-    let nfc_input: String = input.chars().nfc().collect();
-    let chars: Vec<char> = nfc_input.chars().collect();
-    let classes: Vec<CharClass> = chars.iter().copied().map(classify_char).collect();
-    let len = chars.len();
-    let mut i = 0usize;
+    let nfc_input: Cow<'_, str> = match is_nfc_quick(input.chars()) {
+        IsNormalized::Yes => Cow::Borrowed(input),
+        IsNormalized::No | IsNormalized::Maybe => Cow::Owned(input.chars().nfc().collect()),
+    };
+    let text = nfc_input.as_ref();
+    let marks: Vec<(usize, CharClass)> = text
+        .char_indices()
+        .map(|(offset, c)| (offset, classify_char(c)))
+        .collect();
 
-    while i < len {
-        while i < len && classes[i] == CharClass::Separator {
-            i += 1;
-        }
-        if i >= len {
-            break;
-        }
-
-        let start = i;
-        if classes[i] == CharClass::Digit {
-            while i < len && classes[i] == CharClass::Digit {
-                i += 1;
-            }
-            emit_unicode_segment(&chars[start..i], &mut f)?;
-            continue;
-        }
-
-        if classes[i] == CharClass::UncasedAlpha {
-            while i < len && classes[i] == CharClass::UncasedAlpha {
-                i += 1;
-            }
-            emit_unicode_segment(&chars[start..i], &mut f)?;
-            continue;
-        }
-
-        while i < len {
-            if classes[i] == CharClass::Separator || classes[i] == CharClass::UncasedAlpha {
-                break;
-            }
-
-            if classes[i] == CharClass::Digit {
-                let digit_start = i;
-                while i < len && classes[i] == CharClass::Digit {
-                    i += 1;
-                }
-                if i < len
-                    && (classes[i] == CharClass::Upper
-                        || classes[i] == CharClass::Lower
-                        || classes[i] == CharClass::UncasedAlpha)
-                {
-                    break;
-                }
-                i = digit_start;
-                break;
-            }
-
-            if classes[i] == CharClass::Upper {
-                if i > start && classes[i - 1] == CharClass::Lower {
-                    break;
-                }
-                if i > start
-                    && classes[i - 1] == CharClass::Upper
-                    && i + 1 < len
-                    && classes[i + 1] == CharClass::Lower
-                {
-                    break;
-                }
-            }
-
-            i += 1;
-        }
-
-        let slice = &chars[start..i];
-        if !slice.is_empty() {
-            emit_unicode_segment(slice, &mut f)?;
-        }
-    }
-
-    Ok(())
+    scan_segments(
+        marks.len(),
+        |i| marks[i].1,
+        |start, end| {
+            let start_byte = marks[start].0;
+            let end_byte = marks.get(end).map_or(text.len(), |m| m.0);
+            emit_unicode_segment(&text[start_byte..end_byte], &mut f)
+        },
+    )
 }
 
-fn emit_unicode_segment<F>(chars: &[char], f: &mut F) -> Result<()>
+fn lowercases_to_self(c: char) -> bool {
+    let mut lower = c.to_lowercase();
+    lower.next() == Some(c) && lower.next().is_none()
+}
+
+fn emit_unicode_segment<F>(segment: &str, f: &mut F) -> Result<()>
 where
     F: FnMut(&str) -> Result<()>,
 {
-    let lower_nfc: String = chars.iter().flat_map(|c| c.to_lowercase()).nfc().collect();
-    f(&lower_nfc)
+    let already_canonical = segment.chars().all(lowercases_to_self)
+        && matches!(is_nfc_quick(segment.chars()), IsNormalized::Yes);
+    if already_canonical {
+        return f(segment);
+    }
+
+    let mut term: String = segment.chars().flat_map(char::to_lowercase).nfc().collect();
+    for _ in 0..4 {
+        let stable: String = term
+            .chars()
+            .filter(|c| c.is_alphanumeric())
+            .flat_map(char::to_lowercase)
+            .nfc()
+            .collect();
+        if stable == term {
+            break;
+        }
+        term = stable;
+    }
+    if term.is_empty() || !is_canonical_term(&term) {
+        return Ok(());
+    }
+    f(&term)
 }
 
 #[cfg(test)]
 mod tests {
+    use proptest::prelude::*;
+
     use super::*;
 
-    const GOLDEN_CASES: [(&str, &[&str]); 32] = [
+    const GOLDEN_CASES: [(&str, &[&str]); 34] = [
         ("", &[]),
         ("___", &[]),
         ("verify", &["verify"]),
@@ -284,6 +309,8 @@ mod tests {
         ("r#type", &["type"]),
         ("r#async_fn", &["async", "fn"]),
         ("r#", &[]),
+        ("crate::auth::r#type", &["crate", "auth", "type"]),
+        ("foo::r#async::bar", &["foo", "async", "bar"]),
         ("JWTValidator", &["jwt", "validator"]),
         ("héllo_wörld", &["héllo", "wörld"]),
         ("E\u{0301}clair", &["éclair"]),
@@ -293,7 +320,7 @@ mod tests {
         ("東京_HTTP", &["東京", "http"]),
         ("foo🙂bar", &["foo", "bar"]),
         ("ΣParser", &["σ", "parser"]),
-        ("İd", &["i̇d"]),
+        ("İd", &["id"]),
     ];
 
     #[test]
@@ -331,5 +358,29 @@ mod tests {
         assert!(!is_canonical_term("verify token"));
         assert!(!is_canonical_term("E\u{0301}clair"));
         assert!(!is_canonical_term("foo🙂bar"));
+        assert!(!is_canonical_term("i\u{0307}d"));
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(500))]
+
+        #[test]
+        fn prop_ascii_and_unicode_paths_agree_on_ascii(input in "[ -~]{0,48}") {
+            let mut via_ascii = Vec::new();
+            for_each_ascii_lexeme(&input, |t| {
+                via_ascii.push(t.to_string());
+                Ok(())
+            })
+            .unwrap();
+
+            let mut via_unicode = Vec::new();
+            for_each_unicode_lexeme(&input, |t| {
+                via_unicode.push(t.to_string());
+                Ok(())
+            })
+            .unwrap();
+
+            prop_assert_eq!(via_ascii, via_unicode);
+        }
     }
 }
