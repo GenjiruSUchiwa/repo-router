@@ -180,7 +180,10 @@ pub trait TermLookup {
 
 impl TermLookup for Lexicon {
     fn get(&self, canonical: &str) -> Option<TermId> {
-        self.get(canonical)
+        // Explicit inherent-method call: `self.get(canonical)` would resolve to
+        // this trait method (infinite recursion) if the inherent `get` were
+        // ever renamed.
+        Lexicon::get(self, canonical)
     }
 }
 

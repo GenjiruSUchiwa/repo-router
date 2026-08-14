@@ -64,16 +64,15 @@ pub fn parse_query<'a>(snapshot: &Snapshot, request: QueryRequest<'a>) -> Result
 
     let terms = query_terms(raw, snapshot).into_iter().collect();
 
-    let tokens = tokenize_whitespace(raw);
-    let single_token = tokens.len() == 1;
+    let cleaned_tokens: Vec<&str> = tokenize_whitespace(raw)
+        .into_iter()
+        .map(strip_surrounding_punctuation)
+        .filter(|cleaned| !cleaned.is_empty())
+        .collect();
+    let single_token = cleaned_tokens.len() == 1;
 
     let mut exact_atoms = SmallVec::new();
-    for token in tokens {
-        let cleaned = strip_surrounding_punctuation(token);
-        if cleaned.is_empty() {
-            continue;
-        }
-
+    for cleaned in cleaned_tokens {
         if let Some(kind) = classify_atom(cleaned, single_token, snapshot) {
             exact_atoms.push(ExactAtom {
                 text: cleaned,
@@ -230,13 +229,18 @@ pub fn route_exact(snapshot: &Snapshot, query: &ParsedQuery<'_>) -> ExactOutcome
             continue;
         }
         if let Some(symbols) = lookup_exact_qualified(snapshot, atom.text) {
-            return evaluate_symbol_candidates(
+            match evaluate_symbol_candidates(
                 snapshot,
                 query,
                 atom,
                 symbols,
                 effective_path_qualifier,
-            );
+            ) {
+                // Every match for this atom was filtered out by the path
+                // qualifier; later atoms may still route.
+                ExactOutcome::Miss => {}
+                outcome => return outcome,
+            }
         }
     }
 
@@ -245,13 +249,18 @@ pub fn route_exact(snapshot: &Snapshot, query: &ParsedQuery<'_>) -> ExactOutcome
             continue;
         }
         if let Some(symbols) = lookup_exact_name(snapshot, atom.text) {
-            return evaluate_symbol_candidates(
+            match evaluate_symbol_candidates(
                 snapshot,
                 query,
                 atom,
                 symbols,
                 effective_path_qualifier,
-            );
+            ) {
+                // Every match for this atom was filtered out by the path
+                // qualifier; later atoms may still route.
+                ExactOutcome::Miss => {}
+                outcome => return outcome,
+            }
         }
     }
 

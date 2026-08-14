@@ -76,15 +76,10 @@ fn main() -> ExitCode {
         Commands::Query { path, json, query } => match run_query(path.as_ref(), json, &query) {
             Ok(code) => ExitCode::from(code),
             Err(err) => {
-                eprintln!("rr: query: {err}");
-                if err
-                    .downcast_ref::<rr_core::Error>()
-                    .is_some_and(|error| matches!(error, rr_core::Error::InvalidQuery { .. }))
-                {
-                    ExitCode::from(2)
-                } else {
-                    ExitCode::from(1)
-                }
+                eprintln!("rr: query: {err:#}");
+                // Exit 1 for all errors: SPEC reserves 2 for the candidates
+                // outcome, so errors must not collide with it.
+                ExitCode::from(1)
             }
         },
     }
