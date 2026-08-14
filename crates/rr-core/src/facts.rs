@@ -53,12 +53,7 @@ impl TryFrom<RawSpan> for Span {
     type Error = Error;
 
     fn try_from(raw: RawSpan) -> Result<Self> {
-        Self::new(
-            raw.start_byte,
-            raw.end_byte,
-            raw.start_line,
-            raw.end_line,
-        )
+        Self::new(raw.start_byte, raw.end_byte, raw.start_line, raw.end_line)
     }
 }
 
@@ -68,12 +63,7 @@ impl Span {
     /// # Errors
     /// Returns [`Error::InvalidSpanByteOrder`] or [`Error::InvalidSpanLineRange`]
     /// when the structural invariants fail.
-    pub fn new(
-        start_byte: u32,
-        end_byte: u32,
-        start_line: u32,
-        end_line: u32,
-    ) -> Result<Self> {
+    pub fn new(start_byte: u32, end_byte: u32, start_line: u32, end_line: u32) -> Result<Self> {
         if start_byte > end_byte {
             return Err(Error::InvalidSpanByteOrder {
                 start_byte,
@@ -659,9 +649,8 @@ pub(crate) fn nearest_owner(span: Span, defs: &[Def]) -> Option<LocalDefId> {
 }
 
 fn defs_sorted(defs: &[Def]) -> bool {
-    defs.windows(2).all(|pair| {
-        def_key(&pair[0]) <= def_key(&pair[1])
-    })
+    defs.windows(2)
+        .all(|pair| def_key(&pair[0]) <= def_key(&pair[1]))
 }
 
 fn def_key(def: &Def) -> (u32, u32, DefKind, &str) {
@@ -674,9 +663,9 @@ fn def_key(def: &Def) -> (u32, u32, DefKind, &str) {
 }
 
 fn references_sorted(references: &[Reference]) -> bool {
-    references.windows(2).all(|pair| {
-        reference_key(&pair[0]) <= reference_key(&pair[1])
-    })
+    references
+        .windows(2)
+        .all(|pair| reference_key(&pair[0]) <= reference_key(&pair[1]))
 }
 
 fn reference_key(reference: &Reference) -> (u32, u32, ReferenceKind, &str) {
@@ -689,9 +678,9 @@ fn reference_key(reference: &Reference) -> (u32, u32, ReferenceKind, &str) {
 }
 
 fn imports_sorted(imports: &[Import]) -> bool {
-    imports.windows(2).all(|pair| {
-        import_key(&pair[0]) <= import_key(&pair[1])
-    })
+    imports
+        .windows(2)
+        .all(|pair| import_key(&pair[0]) <= import_key(&pair[1]))
 }
 
 fn import_key(import: &Import) -> (u32, u32, ImportKind, &str, Option<&str>) {
@@ -855,7 +844,8 @@ mod tests {
     #[test]
     fn facts_rejects_unsorted_collections() {
         let defs = vec![sample_def("b", 10, 20), sample_def("a", 0, 5)];
-        let err = Facts::from_parts(defs, Vec::new(), Vec::new(), ParseStatus::Complete).unwrap_err();
+        let err =
+            Facts::from_parts(defs, Vec::new(), Vec::new(), ParseStatus::Complete).unwrap_err();
         assert!(matches!(
             err,
             Error::InvalidFacts {
@@ -879,7 +869,8 @@ mod tests {
                 owner: None,
             },
         ];
-        let err = Facts::from_parts(Vec::new(), refs, Vec::new(), ParseStatus::Complete).unwrap_err();
+        let err =
+            Facts::from_parts(Vec::new(), refs, Vec::new(), ParseStatus::Complete).unwrap_err();
         assert!(matches!(
             err,
             Error::InvalidFacts {
@@ -926,7 +917,8 @@ mod tests {
             span: span(0, 1, 1, 1),
             owner: Some(LocalDefId::from_index(3)),
         }];
-        let err = Facts::from_parts(Vec::new(), refs, Vec::new(), ParseStatus::Complete).unwrap_err();
+        let err =
+            Facts::from_parts(Vec::new(), refs, Vec::new(), ParseStatus::Complete).unwrap_err();
         assert!(matches!(
             err,
             Error::InvalidLocalDefId {
@@ -1055,12 +1047,7 @@ mod tests {
 
     #[test]
     fn degraded_constructor_is_valid() {
-        let facts = Facts::degraded(
-            vec!["foo".into()],
-            DegradedReason::InvalidUtf8,
-            4,
-            false,
-        );
+        let facts = Facts::degraded(vec!["foo".into()], DegradedReason::InvalidUtf8, 4, false);
         assert!(matches!(
             facts.status(),
             ParseStatus::Degraded {

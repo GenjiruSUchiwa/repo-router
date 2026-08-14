@@ -13,9 +13,9 @@ pub use facts::{
     Def, DefKind, DegradedReason, Facts, Import, ImportKind, LocalDefId, ParseStatus, Reference,
     ReferenceKind, Span, TestSignals, Visibility, FACT_SCHEMA_VERSION,
 };
-pub use parser::EXTRACTOR_VERSION;
 pub use lang::Lang;
 pub use oid::{HashAlgo, Oid, OidError};
+pub use parser::EXTRACTOR_VERSION;
 pub use path::{RelPath, RelPathError};
 pub use walk::{discover, is_generated, SourceFile, WalkCfg, DEFAULT_EXCLUDES};
 
