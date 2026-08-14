@@ -5,10 +5,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use rr_core::parser::RustExtractor;
-use rr_core::{
-    DefKind, DegradedReason, Facts, ParseStatus, ReferenceKind, FACT_SCHEMA_VERSION,
-};
 use rr_core::EXTRACTOR_VERSION;
+use rr_core::{DefKind, DegradedReason, Facts, ParseStatus, ReferenceKind, FACT_SCHEMA_VERSION};
 use serde::Serialize;
 
 #[derive(Debug, PartialEq, Serialize)]
@@ -145,7 +143,13 @@ fn to_snapshot(path: &str, source: &str, facts: &Facts) -> SnapshotFile {
                     def.signature_span.start_byte(),
                     def.signature_span.end_byte(),
                 ),
-                body_preview: def.body_idents.iter().take(12).cloned().collect::<Vec<_>>().join(" "),
+                body_preview: def
+                    .body_idents
+                    .iter()
+                    .take(12)
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(" "),
                 test_explicit: def.test_signals.explicit_attribute,
                 test_cfg: def.test_signals.inside_cfg_test,
                 doc_idents: def.doc_idents.clone(),
@@ -180,20 +184,21 @@ fn to_snapshot(path: &str, source: &str, facts: &Facts) -> SnapshotFile {
 
 fn collect_rust_files(root: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
-    fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
-        for entry in fs::read_dir(dir).unwrap() {
-            let entry = entry.unwrap();
-            let path = entry.path();
-            if path.is_dir() {
-                walk(&path, out);
-            } else if path.extension().and_then(|e| e.to_str()) == Some("rs") {
-                out.push(path);
-            }
-        }
-    }
-    walk(root, &mut files);
+    walk_rust_files(root, &mut files);
     files.sort();
     files
+}
+
+fn walk_rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
+    for entry in fs::read_dir(dir).unwrap() {
+        let entry = entry.unwrap();
+        let path = entry.path();
+        if path.is_dir() {
+            walk_rust_files(&path, out);
+        } else if path.extension().and_then(|e| e.to_str()) == Some("rs") {
+            out.push(path);
+        }
+    }
 }
 
 #[test]
@@ -206,7 +211,11 @@ fn rust_basic_golden_and_verify_token_refs() {
     let mut snapshots = BTreeMap::new();
 
     for path in collect_rust_files(&root) {
-        let rel = path.strip_prefix(&root).unwrap().to_string_lossy().replace('\\', "/");
+        let rel = path
+            .strip_prefix(&root)
+            .unwrap()
+            .to_string_lossy()
+            .replace('\\', "/");
         let bytes = fs::read(&path).unwrap();
         let facts = extractor.extract(&bytes).unwrap();
         let source = std::str::from_utf8(&bytes).unwrap();
@@ -335,17 +344,14 @@ fn rust_imports_golden() {
     let paths: Vec<_> = facts
         .imports()
         .iter()
-        .map(|i| {
-            (
-                i.path.as_str(),
-                i.alias.as_deref(),
-                i.is_glob,
-                i.is_public,
-            )
-        })
+        .map(|i| (i.path.as_str(), i.alias.as_deref(), i.is_glob, i.is_public))
         .collect();
-    assert!(paths.iter().any(|(p, a, g, _)| *p == "crate::a::b" && a.is_none() && !*g));
-    assert!(paths.iter().any(|(p, a, g, _)| *p == "crate::a" && a.is_none() && !*g));
+    assert!(paths
+        .iter()
+        .any(|(p, a, g, _)| *p == "crate::a::b" && a.is_none() && !*g));
+    assert!(paths
+        .iter()
+        .any(|(p, a, g, _)| *p == "crate::a" && a.is_none() && !*g));
     assert!(paths
         .iter()
         .any(|(p, a, ..)| *p == "crate::a::c" && *a == Some("d")));
@@ -376,7 +382,6 @@ fn recovered_fixture_retains_neighbors() {
     assert!(names.contains(&"before_error"));
     assert!(names.contains(&"after_error"));
 }
-
 
 #[test]
 fn invalid_utf8_fixture_degrades() {

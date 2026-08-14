@@ -5,8 +5,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use tree_sitter::{Node, Parser, Query, QueryCursor, StreamingIterator, Tree};
 
 use crate::facts::{
-    nearest_owner, Def, DefKind, DegradedReason, Facts, Import, ImportKind, ParseStatus,
-    Reference, ReferenceKind, Span, TestSignals, Visibility,
+    nearest_owner, Def, DefKind, DegradedReason, Facts, Import, ImportKind, ParseStatus, Reference,
+    ReferenceKind, Span, TestSignals, Visibility,
 };
 use crate::lang::Lang;
 use crate::{Error, Result};
@@ -96,6 +96,49 @@ struct PendingIdent {
     span: Span,
 }
 
+/// Intermediate capture bag filled by one query pass.
+#[derive(Default)]
+struct CaptureBag {
+    defs: BTreeMap<(u32, u32), PendingDef>,
+    references: Vec<PendingReference>,
+    imports: Vec<PendingImport>,
+    idents: Vec<PendingIdent>,
+    error_spans: Vec<Span>,
+    error_keys: BTreeSet<(u32, u32)>,
+    missing_keys: BTreeSet<(u32, u32)>,
+}
+
+/// Captures belonging to a single query match, before materialization.
+#[derive(Default)]
+struct MatchCaptures<'a> {
+    def_item: Option<Node<'a>>,
+    def_name: Option<Node<'a>>,
+    def_body: Option<Node<'a>>,
+    ref_kind: Option<ReferenceKind>,
+    ref_name: Option<Node<'a>>,
+    import_decl: Option<Node<'a>>,
+}
+
+impl CaptureBag {
+    fn record_error(&mut self, span: Span) {
+        if self.error_keys.insert((span.start_byte(), span.end_byte())) {
+            self.error_spans.push(span);
+        }
+    }
+
+    fn record_missing(&mut self, span: Span) {
+        self.missing_keys
+            .insert((span.start_byte(), span.end_byte()));
+    }
+
+    fn diagnostic_counts(&self) -> (u32, u32) {
+        (
+            u32::try_from(self.error_keys.len()).unwrap_or(u32::MAX),
+            u32::try_from(self.missing_keys.len()).unwrap_or(u32::MAX),
+        )
+    }
+}
+
 impl RustExtractor {
     /// Sets the pinned Rust language, compiles the embedded query, and validates
     /// required capture names.
@@ -109,10 +152,12 @@ impl RustExtractor {
     fn build(query_source: &str, match_limit: Option<u32>) -> Result<Self> {
         let language: tree_sitter::Language = tree_sitter_rust::LANGUAGE.into();
         let mut parser = Parser::new();
-        parser.set_language(&language).map_err(|err| Error::ExtractorLanguage {
-            lang: Lang::Rust,
-            message: err.to_string(),
-        })?;
+        parser
+            .set_language(&language)
+            .map_err(|err| Error::ExtractorLanguage {
+                lang: Lang::Rust,
+                message: err.to_string(),
+            })?;
 
         let query = Query::new(&language, query_source).map_err(|err| Error::ExtractorQuery {
             lang: Lang::Rust,
@@ -158,284 +203,357 @@ impl RustExtractor {
         self.collect_facts(source, &tree)
     }
 
-    #[allow(clippy::too_many_lines)]
     fn collect_facts(&mut self, source: &str, tree: &Tree) -> Result<Facts> {
-        let root = tree.root_node();
-        let mut pending_defs: BTreeMap<(u32, u32), PendingDef> = BTreeMap::new();
-        let mut pending_references: Vec<PendingReference> = Vec::new();
-        let mut pending_imports: Vec<PendingImport> = Vec::new();
-        let mut pending_idents: Vec<PendingIdent> = Vec::new();
-        let mut error_spans: Vec<Span> = Vec::new();
-        let mut missing_keys: BTreeSet<(u32, u32)> = BTreeSet::new();
-        let mut error_keys: BTreeSet<(u32, u32)> = BTreeSet::new();
-
-        {
-            let mut matches = self.cursor.matches(&self.query, root, source.as_bytes());
-            while let Some(query_match) = matches.next() {
-                let mut def_item: Option<Node<'_>> = None;
-                let mut def_name: Option<Node<'_>> = None;
-                let mut def_body: Option<Node<'_>> = None;
-                let mut ref_kind: Option<ReferenceKind> = None;
-                let mut ref_name: Option<Node<'_>> = None;
-                let mut import_decl: Option<Node<'_>> = None;
-
-                for capture in query_match.captures {
-                    let id = capture.index;
-                    let node = capture.node;
-                    if id == self.capture.def_item || id == self.capture.def_signature {
-                        def_item = Some(node);
-                    } else if id == self.capture.def_name {
-                        def_name = Some(node);
-                    } else if id == self.capture.def_body {
-                        def_body = Some(node);
-                    } else if id == self.capture.reference_call {
-                        ref_kind = Some(ReferenceKind::Call);
-                    } else if id == self.capture.reference_method {
-                        ref_kind = Some(ReferenceKind::MethodCall);
-                    } else if id == self.capture.reference_macro {
-                        ref_kind = Some(ReferenceKind::MacroCall);
-                    } else if id == self.capture.reference_implementation {
-                        ref_kind = Some(ReferenceKind::Implementation);
-                    } else if id == self.capture.reference_name {
-                        ref_name = Some(node);
-                    } else if id == self.capture.import_declaration {
-                        import_decl = Some(node);
-                    } else if id == self.capture.identifier {
-                        let span = node_span(node, source)?;
-                        if let Some(text) = node_text(node, source) {
-                            pending_idents.push(PendingIdent {
-                                text: text.to_string(),
-                                span,
-                            });
-                        }
-                    } else if id == self.capture.syntax_error {
-                        let span = node_span(node, source)?;
-                        if error_keys.insert((span.start_byte(), span.end_byte())) {
-                            error_spans.push(span);
-                        }
-                    } else if id == self.capture.syntax_missing {
-                        let span = node_span(node, source)?;
-                        missing_keys.insert((span.start_byte(), span.end_byte()));
-                    }
-                }
-
-                if let (Some(item), Some(name_node)) = (def_item, def_name) {
-                    let item_span = node_span(item, source)?;
-                    let key = (item_span.start_byte(), item_span.end_byte());
-                    if let std::collections::btree_map::Entry::Vacant(slot) =
-                        pending_defs.entry(key)
-                    {
-                        let name = node_text(name_node, source)
-                            .ok_or(Error::ExtractionInvariant {
-                                message: "definition name is not valid UTF-8",
-                            })?
-                            .to_string();
-                        let name_span = node_span(name_node, source)?;
-                        let expanded = expanded_item_span(item, source)?;
-                        let body_span = match def_body {
-                            Some(body) => Some(node_span(body, source)?),
-                            None => None,
-                        };
-                        let signature = signature_span(body_span, expanded, source)?;
-                        let (doc_idents, attribute_idents) = metadata_idents(item, source);
-                        slot.insert(PendingDef {
-                            name,
-                            name_span,
-                            kind: classify_definition(item)?,
-                            visibility: visibility(item, source),
-                            span: expanded,
-                            signature_span: signature,
-                            body_span,
-                            local_qualified: local_qualified_name(item, source)?,
-                            test_signals: test_signals(item, source),
-                            doc_idents,
-                            attribute_idents,
-                        });
-                    }
-                }
-
-                if let (Some(kind), Some(name_node)) = (ref_kind, ref_name) {
-                    let span = node_span(name_node, source)?;
-                    let full = node_text(name_node, source)
-                        .ok_or(Error::ExtractionInvariant {
-                            message: "reference name is not valid UTF-8",
-                        })?;
-                    let (name, qualified) = normalize_reference(kind, full, name_node, source);
-                    pending_references.push(PendingReference {
-                        name,
-                        qualified,
-                        kind,
-                        span,
-                    });
-                }
-
-                if let Some(decl) = import_decl {
-                    expand_import_declaration(decl, source, &mut pending_imports)?;
-                }
-            }
-        }
-
+        let bag = self.collect_captures(source, tree.root_node())?;
         if self.cursor.did_exceed_match_limit() {
-            return Ok(degraded_facts(source.as_bytes(), DegradedReason::QueryMatchLimit));
+            return Ok(degraded_facts(
+                source.as_bytes(),
+                DegradedReason::QueryMatchLimit,
+            ));
         }
+        finalize_facts(bag)
+    }
 
-        let error_nodes = u32::try_from(error_keys.len()).unwrap_or(u32::MAX);
-        let missing_nodes = u32::try_from(missing_keys.len()).unwrap_or(u32::MAX);
-
-        let mut defs: Vec<PendingDef> = pending_defs.into_values().collect();
-        defs.sort_by(|a, b| {
-            (
-                a.span.start_byte(),
-                a.span.end_byte(),
-                a.kind,
-                a.name.as_str(),
-            )
-                .cmp(&(
-                    b.span.start_byte(),
-                    b.span.end_byte(),
-                    b.kind,
-                    b.name.as_str(),
-                ))
-        });
-
-        let finalized_defs: Vec<Def> = defs
-            .iter()
-            .map(|d| Def {
-                name: d.name.clone(),
-                local_qualified: d.local_qualified.clone(),
-                kind: d.kind,
-                visibility: d.visibility.clone(),
-                span: d.span,
-                signature_span: d.signature_span,
-                signature_idents: Vec::new(),
-                body_idents: Vec::new(),
-                doc_idents: d.doc_idents.clone(),
-                attribute_idents: d.attribute_idents.clone(),
-                test_signals: d.test_signals,
-            })
-            .collect();
-
-        let name_spans: HashSet<(u32, u32)> = defs
-            .iter()
-            .map(|d| (d.name_span.start_byte(), d.name_span.end_byte()))
-            .collect();
-
-        let mut references = Vec::with_capacity(pending_references.len());
-        for pending in pending_references {
-            if inside_any_error(pending.span, &error_spans) {
-                continue;
-            }
-            let owner = nearest_owner(pending.span, &finalized_defs);
-            references.push(Reference {
-                name: pending.name,
-                qualified: pending.qualified,
-                kind: pending.kind,
-                span: pending.span,
-                owner,
-            });
+    fn collect_captures(&mut self, source: &str, root: Node<'_>) -> Result<CaptureBag> {
+        let ids = self.capture;
+        let mut bag = CaptureBag::default();
+        let mut matches = self.cursor.matches(&self.query, root, source.as_bytes());
+        while let Some(query_match) = matches.next() {
+            ingest_match(ids, query_match, source, &mut bag)?;
         }
-        references.sort_by(|a, b| {
-            (
-                a.span.start_byte(),
-                a.span.end_byte(),
-                a.kind,
-                a.name.as_str(),
-            )
-                .cmp(&(
-                    b.span.start_byte(),
-                    b.span.end_byte(),
-                    b.kind,
-                    b.name.as_str(),
-                ))
-        });
+        Ok(bag)
+    }
+}
 
-        let mut imports = Vec::with_capacity(pending_imports.len());
-        for pending in pending_imports {
-            if inside_any_error(pending.span, &error_spans) {
-                continue;
-            }
-            let owner = nearest_owner(pending.span, &finalized_defs);
-            imports.push(Import {
-                kind: pending.kind,
-                path: pending.path,
-                alias: pending.alias,
-                is_public: pending.is_public,
-                is_glob: pending.is_glob,
-                span: pending.span,
-                owner,
-            });
+fn ingest_match(
+    ids: CaptureIds,
+    query_match: &tree_sitter::QueryMatch<'_, '_>,
+    source: &str,
+    bag: &mut CaptureBag,
+) -> Result<()> {
+    let mut view = MatchCaptures::default();
+    for capture in query_match.captures {
+        route_capture(ids, capture.index, capture.node, source, &mut view, bag)?;
+    }
+    materialize_match(&view, source, bag)
+}
+
+fn route_capture<'a>(
+    ids: CaptureIds,
+    id: u32,
+    node: Node<'a>,
+    source: &str,
+    view: &mut MatchCaptures<'a>,
+    bag: &mut CaptureBag,
+) -> Result<()> {
+    match id {
+        i if i == ids.def_item || i == ids.def_signature => view.def_item = Some(node),
+        i if i == ids.def_name => view.def_name = Some(node),
+        i if i == ids.def_body => view.def_body = Some(node),
+        i if i == ids.reference_call => view.ref_kind = Some(ReferenceKind::Call),
+        i if i == ids.reference_method => view.ref_kind = Some(ReferenceKind::MethodCall),
+        i if i == ids.reference_macro => view.ref_kind = Some(ReferenceKind::MacroCall),
+        i if i == ids.reference_implementation => {
+            view.ref_kind = Some(ReferenceKind::Implementation);
         }
-        imports.sort_by(|a, b| {
-            (
-                a.span.start_byte(),
-                a.span.end_byte(),
-                a.kind,
-                a.path.as_str(),
-                a.alias.as_deref(),
-            )
-                .cmp(&(
-                    b.span.start_byte(),
-                    b.span.end_byte(),
-                    b.kind,
-                    b.path.as_str(),
-                    b.alias.as_deref(),
-                ))
-        });
+        i if i == ids.reference_name => view.ref_name = Some(node),
+        i if i == ids.import_declaration => view.import_decl = Some(node),
+        i if i == ids.identifier => push_ident(node, source, &mut bag.idents)?,
+        i if i == ids.syntax_error => bag.record_error(node_span(node, source)?),
+        i if i == ids.syntax_missing => bag.record_missing(node_span(node, source)?),
+        _ => {}
+    }
+    Ok(())
+}
 
-        let reference_spans: Vec<Span> = references.iter().map(|r| r.span).collect();
-        let import_spans: Vec<Span> = imports.iter().map(|i| i.span).collect();
+fn materialize_match(view: &MatchCaptures<'_>, source: &str, bag: &mut CaptureBag) -> Result<()> {
+    if let (Some(item), Some(name_node)) = (view.def_item, view.def_name) {
+        try_insert_def(item, name_node, view.def_body, source, &mut bag.defs)?;
+    }
+    if let (Some(kind), Some(name_node)) = (view.ref_kind, view.ref_name) {
+        bag.references
+            .push(build_reference(kind, name_node, source)?);
+    }
+    if let Some(decl) = view.import_decl {
+        expand_import_declaration(decl, source, &mut bag.imports)?;
+    }
+    Ok(())
+}
 
-        let mut signature_idents: Vec<Vec<String>> = vec![Vec::new(); defs.len()];
-        let mut body_idents: Vec<Vec<String>> = vec![Vec::new(); defs.len()];
+fn push_ident(node: Node<'_>, source: &str, out: &mut Vec<PendingIdent>) -> Result<()> {
+    let Some(text) = node_text(node, source) else {
+        return Ok(());
+    };
+    out.push(PendingIdent {
+        text: text.to_string(),
+        span: node_span(node, source)?,
+    });
+    Ok(())
+}
 
-        for ident in pending_idents {
-            if name_spans.contains(&(ident.span.start_byte(), ident.span.end_byte())) {
-                continue;
-            }
-            if reference_spans.iter().any(|s| s.contains(ident.span)) {
-                continue;
-            }
-            if import_spans.iter().any(|s| s.contains(ident.span)) {
-                continue;
-            }
-            if inside_any_error(ident.span, &error_spans) {
-                continue;
-            }
-            let Some(owner) = nearest_owner(ident.span, &finalized_defs) else {
-                continue;
-            };
-            let idx = owner.index();
-            let def = &defs[idx];
-            if def.signature_span.contains(ident.span)
-                && def
-                    .body_span
-                    .is_none_or(|body| !body.contains(ident.span))
-            {
-                signature_idents[idx].push(ident.text);
-            } else if def
-                .body_span
-                .is_some_and(|body| body.contains(ident.span))
-            {
-                body_idents[idx].push(ident.text);
-            }
+fn try_insert_def(
+    item: Node<'_>,
+    name_node: Node<'_>,
+    body: Option<Node<'_>>,
+    source: &str,
+    defs: &mut BTreeMap<(u32, u32), PendingDef>,
+) -> Result<()> {
+    let item_span = node_span(item, source)?;
+    let key = (item_span.start_byte(), item_span.end_byte());
+    let std::collections::btree_map::Entry::Vacant(slot) = defs.entry(key) else {
+        return Ok(());
+    };
+
+    let name = required_text(name_node, source, "definition name is not valid UTF-8")?;
+    let body_span = body.map(|node| node_span(node, source)).transpose()?;
+    let expanded = expanded_item_span(item, source)?;
+    let (doc_idents, attribute_idents) = metadata_idents(item, source);
+
+    slot.insert(PendingDef {
+        name,
+        name_span: node_span(name_node, source)?,
+        kind: classify_definition(item)?,
+        visibility: visibility(item, source),
+        span: expanded,
+        signature_span: signature_span(body_span, expanded, source)?,
+        body_span,
+        local_qualified: local_qualified_name(item, source)?,
+        test_signals: test_signals(item, source),
+        doc_idents,
+        attribute_idents,
+    });
+    Ok(())
+}
+
+fn build_reference(
+    kind: ReferenceKind,
+    name_node: Node<'_>,
+    source: &str,
+) -> Result<PendingReference> {
+    let full = required_text(name_node, source, "reference name is not valid UTF-8")?;
+    let (name, qualified) = normalize_reference(kind, &full, name_node);
+    Ok(PendingReference {
+        name,
+        qualified,
+        kind,
+        span: node_span(name_node, source)?,
+    })
+}
+
+fn required_text(node: Node<'_>, source: &str, message: &'static str) -> Result<String> {
+    node_text(node, source)
+        .map(str::to_string)
+        .ok_or(Error::ExtractionInvariant { message })
+}
+
+fn finalize_facts(bag: CaptureBag) -> Result<Facts> {
+    let (error_nodes, missing_nodes) = bag.diagnostic_counts();
+    let pending_defs = sorted_pending_defs(bag.defs);
+    let mut defs = pending_defs
+        .iter()
+        .map(pending_def_to_def)
+        .collect::<Vec<_>>();
+
+    let references = finalize_references(bag.references, &bag.error_spans, &defs);
+    let imports = finalize_imports(bag.imports, &bag.error_spans, &defs);
+    assign_idents(
+        bag.idents,
+        &pending_defs,
+        &mut defs,
+        &references,
+        &imports,
+        &bag.error_spans,
+    );
+
+    let status = parse_status(error_nodes, missing_nodes);
+    Facts::from_parts(defs, references, imports, status)
+}
+
+fn sorted_pending_defs(defs: BTreeMap<(u32, u32), PendingDef>) -> Vec<PendingDef> {
+    let mut defs: Vec<PendingDef> = defs.into_values().collect();
+    defs.sort_by(|left, right| {
+        (
+            left.span.start_byte(),
+            left.span.end_byte(),
+            left.kind,
+            left.name.as_str(),
+        )
+            .cmp(&(
+                right.span.start_byte(),
+                right.span.end_byte(),
+                right.kind,
+                right.name.as_str(),
+            ))
+    });
+    defs
+}
+
+fn pending_def_to_def(pending: &PendingDef) -> Def {
+    Def {
+        name: pending.name.clone(),
+        local_qualified: pending.local_qualified.clone(),
+        kind: pending.kind,
+        visibility: pending.visibility.clone(),
+        span: pending.span,
+        signature_span: pending.signature_span,
+        signature_idents: Vec::new(),
+        body_idents: Vec::new(),
+        doc_idents: pending.doc_idents.clone(),
+        attribute_idents: pending.attribute_idents.clone(),
+        test_signals: pending.test_signals,
+    }
+}
+
+fn finalize_references(
+    pending: Vec<PendingReference>,
+    error_spans: &[Span],
+    defs: &[Def],
+) -> Vec<Reference> {
+    let mut references: Vec<Reference> = pending
+        .into_iter()
+        .filter(|item| !inside_any_error(item.span, error_spans))
+        .map(|item| Reference {
+            name: item.name,
+            qualified: item.qualified,
+            kind: item.kind,
+            span: item.span,
+            owner: nearest_owner(item.span, defs),
+        })
+        .collect();
+    references.sort_by(|left, right| {
+        (
+            left.span.start_byte(),
+            left.span.end_byte(),
+            left.kind,
+            left.name.as_str(),
+        )
+            .cmp(&(
+                right.span.start_byte(),
+                right.span.end_byte(),
+                right.kind,
+                right.name.as_str(),
+            ))
+    });
+    references
+}
+
+fn finalize_imports(
+    pending: Vec<PendingImport>,
+    error_spans: &[Span],
+    defs: &[Def],
+) -> Vec<Import> {
+    let mut imports: Vec<Import> = pending
+        .into_iter()
+        .filter(|item| !inside_any_error(item.span, error_spans))
+        .map(|item| Import {
+            kind: item.kind,
+            path: item.path,
+            alias: item.alias,
+            is_public: item.is_public,
+            is_glob: item.is_glob,
+            span: item.span,
+            owner: nearest_owner(item.span, defs),
+        })
+        .collect();
+    imports.sort_by(|left, right| {
+        (
+            left.span.start_byte(),
+            left.span.end_byte(),
+            left.kind,
+            left.path.as_str(),
+            left.alias.as_deref(),
+        )
+            .cmp(&(
+                right.span.start_byte(),
+                right.span.end_byte(),
+                right.kind,
+                right.path.as_str(),
+                right.alias.as_deref(),
+            ))
+    });
+    imports
+}
+
+fn assign_idents(
+    idents: Vec<PendingIdent>,
+    pending_defs: &[PendingDef],
+    defs: &mut [Def],
+    references: &[Reference],
+    imports: &[Import],
+    error_spans: &[Span],
+) {
+    let name_spans: HashSet<(u32, u32)> = pending_defs
+        .iter()
+        .map(|def| (def.name_span.start_byte(), def.name_span.end_byte()))
+        .collect();
+    let reference_spans: Vec<Span> = references.iter().map(|item| item.span).collect();
+    let import_spans: Vec<Span> = imports.iter().map(|item| item.span).collect();
+
+    let mut signature_idents = vec![Vec::new(); defs.len()];
+    let mut body_idents = vec![Vec::new(); defs.len()];
+
+    for ident in idents {
+        if !ident_is_assignable(
+            ident.span,
+            &name_spans,
+            &reference_spans,
+            &import_spans,
+            error_spans,
+        ) {
+            continue;
         }
-
-        let mut final_defs = finalized_defs;
-        for (idx, def) in final_defs.iter_mut().enumerate() {
-            def.signature_idents = std::mem::take(&mut signature_idents[idx]);
-            def.body_idents = std::mem::take(&mut body_idents[idx]);
-        }
-
-        let status = if error_nodes == 0 && missing_nodes == 0 {
-            ParseStatus::Complete
-        } else {
-            ParseStatus::Recovered {
-                error_nodes,
-                missing_nodes,
-            }
+        let Some(owner) = nearest_owner(ident.span, defs) else {
+            continue;
         };
+        let idx = owner.index();
+        let pending = &pending_defs[idx];
+        if is_signature_ident(pending, ident.span) {
+            signature_idents[idx].push(ident.text);
+        } else if pending
+            .body_span
+            .is_some_and(|body| body.contains(ident.span))
+        {
+            body_idents[idx].push(ident.text);
+        }
+    }
 
-        Facts::from_parts(final_defs, references, imports, status)
+    for (idx, def) in defs.iter_mut().enumerate() {
+        def.signature_idents = std::mem::take(&mut signature_idents[idx]);
+        def.body_idents = std::mem::take(&mut body_idents[idx]);
+    }
+}
+
+fn ident_is_assignable(
+    span: Span,
+    name_spans: &HashSet<(u32, u32)>,
+    reference_spans: &[Span],
+    import_spans: &[Span],
+    error_spans: &[Span],
+) -> bool {
+    if name_spans.contains(&(span.start_byte(), span.end_byte())) {
+        return false;
+    }
+    if reference_spans.iter().any(|item| item.contains(span)) {
+        return false;
+    }
+    if import_spans.iter().any(|item| item.contains(span)) {
+        return false;
+    }
+    !inside_any_error(span, error_spans)
+}
+
+fn is_signature_ident(def: &PendingDef, span: Span) -> bool {
+    def.signature_span.contains(span) && def.body_span.is_none_or(|body| !body.contains(span))
+}
+
+const fn parse_status(error_nodes: u32, missing_nodes: u32) -> ParseStatus {
+    if error_nodes == 0 && missing_nodes == 0 {
+        ParseStatus::Complete
+    } else {
+        ParseStatus::Recovered {
+            error_nodes,
+            missing_nodes,
+        }
     }
 }
 
@@ -491,8 +609,7 @@ fn node_span(node: Node<'_>, source: &str) -> Result<Span> {
         });
     }
     let bytes = source.as_bytes();
-    if !source.is_char_boundary(start_byte as usize)
-        || !source.is_char_boundary(end_byte as usize)
+    if !source.is_char_boundary(start_byte as usize) || !source.is_char_boundary(end_byte as usize)
     {
         return Err(Error::ExtractionInvariant {
             message: "tree-sitter node is not on a UTF-8 boundary",
@@ -544,11 +661,7 @@ fn expanded_item_span(node: Node<'_>, source: &str) -> Result<Span> {
     )
 }
 
-fn signature_span(
-    body_span: Option<Span>,
-    expanded: Span,
-    source: &str,
-) -> Result<Span> {
+fn signature_span(body_span: Option<Span>, expanded: Span, source: &str) -> Result<Span> {
     let Some(body) = body_span else {
         return Ok(expanded);
     };
@@ -570,7 +683,12 @@ fn signature_span(
     } else {
         1
     };
-    Span::new(expanded.start_byte(), end_byte, expanded.start_line(), end_line)
+    Span::new(
+        expanded.start_byte(),
+        end_byte,
+        expanded.start_line(),
+        end_line,
+    )
 }
 
 fn line_of_offset(bytes: &[u8], offset: usize) -> u32 {
@@ -646,9 +764,17 @@ fn local_qualified_name(node: Node<'_>, source: &str) -> Result<Option<String>> 
                     segments.push(name.to_string());
                 }
             }
-            "function_item" | "function_signature_item" | "struct_item" | "enum_item"
-            | "union_item" | "trait_item" | "type_item" | "const_item" | "static_item"
-            | "macro_definition" | "associated_type" => {
+            "function_item"
+            | "function_signature_item"
+            | "struct_item"
+            | "enum_item"
+            | "union_item"
+            | "trait_item"
+            | "type_item"
+            | "const_item"
+            | "static_item"
+            | "macro_definition"
+            | "associated_type" => {
                 if let Some(name) = definition_name_text(current, source) {
                     segments.push(name.to_string());
                 }
@@ -695,7 +821,9 @@ fn test_signals(node: Node<'_>, source: &str) -> TestSignals {
 
     let mut current = Some(node);
     while let Some(item) = current {
-        if is_definition_item(item) || item.kind() == "impl_item" || item.kind() == "foreign_mod_item"
+        if is_definition_item(item)
+            || item.kind() == "impl_item"
+            || item.kind() == "foreign_mod_item"
         {
             for attr in attached_attributes(item) {
                 let path = attribute_path(attr, source).unwrap_or_default();
@@ -738,10 +866,7 @@ fn is_definition_item(node: Node<'_>) -> bool {
 }
 
 fn is_explicit_test_attr(path: &str) -> bool {
-    path == "test"
-        || path.ends_with("::test")
-        || path == "rstest"
-        || path == "test_case"
+    path == "test" || path.ends_with("::test") || path == "rstest" || path == "test_case"
 }
 
 fn is_cfg_test_attr(attr: Node<'_>, source: &str, path: &str) -> bool {
@@ -822,10 +947,7 @@ fn doc_attribute_string<'a>(node: Node<'a>, source: &'a str) -> Option<&'a str> 
     let stripped = text
         .strip_prefix('"')
         .and_then(|s| s.strip_suffix('"'))
-        .or_else(|| {
-            text.strip_prefix("r\"")
-                .and_then(|s| s.strip_suffix('"'))
-        })
+        .or_else(|| text.strip_prefix("r\"").and_then(|s| s.strip_suffix('"')))
         .unwrap_or(text);
     Some(stripped)
 }
@@ -849,7 +971,6 @@ fn normalize_reference(
     kind: ReferenceKind,
     full: &str,
     name_node: Node<'_>,
-    _source: &str,
 ) -> (String, Option<String>) {
     match kind {
         ReferenceKind::MethodCall => {
@@ -876,11 +997,7 @@ fn normalize_reference(
 }
 
 fn terminal_name(path: &str) -> String {
-    path.rsplit("::")
-        .next()
-        .unwrap_or(path)
-        .trim()
-        .to_string()
+    path.rsplit("::").next().unwrap_or(path).trim().to_string()
 }
 
 fn terminal_type_name(path: &str) -> String {
@@ -1201,10 +1318,7 @@ mod tests {
             Ok(_) => panic!("expected contract error"),
             Err(err) => err,
         };
-        assert!(matches!(
-            err,
-            Error::ExtractorQueryContract { capture: _ }
-        ));
+        assert!(matches!(err, Error::ExtractorQueryContract { capture: _ }));
     }
 
     #[test]
@@ -1252,7 +1366,11 @@ extern "C" { fn foreign(); }
 struct S;
 "#;
         let facts = extract(src);
-        let by_name: HashMap<_, _> = facts.defs().iter().map(|d| (d.name.as_str(), d.kind)).collect();
+        let by_name: HashMap<_, _> = facts
+            .defs()
+            .iter()
+            .map(|d| (d.name.as_str(), d.kind))
+            .collect();
         assert_eq!(by_name["free"], DefKind::Function);
         assert_eq!(by_name["method"], DefKind::Method);
         assert_eq!(by_name["req"], DefKind::TraitMethod);
@@ -1281,10 +1399,9 @@ fn outer() {
 }
 "#;
         let facts = extract(src);
-        assert!(facts
-            .defs()
-            .iter()
-            .any(|d| d.name == "verify" && d.kind == DefKind::Function && d.local_qualified.as_deref() == Some("auth::verify")));
+        assert!(facts.defs().iter().any(|d| d.name == "verify"
+            && d.kind == DefKind::Function
+            && d.local_qualified.as_deref() == Some("auth::verify")));
         assert!(facts.defs().iter().any(|d| {
             d.name == "verify"
                 && d.kind == DefKind::Method
@@ -1298,8 +1415,7 @@ fn outer() {
         assert!(facts.defs().iter().any(|d| {
             d.name == "verify"
                 && d.kind == DefKind::Method
-                && d.local_qualified.as_deref()
-                    == Some("auth::<TokenService as Validator>::verify")
+                && d.local_qualified.as_deref() == Some("auth::<TokenService as Validator>::verify")
         }));
         assert!(facts.defs().iter().any(|d| {
             d.name == "inner" && d.local_qualified.as_deref() == Some("outer::inner")
@@ -1316,7 +1432,8 @@ fn outer() {
         let whole = &src[def.span.start_byte() as usize..def.span.end_byte() as usize];
         assert!(whole.starts_with("/// docs here"));
         assert!(whole.contains("#[inline]"));
-        let sig = &src[def.signature_span.start_byte() as usize..def.signature_span.end_byte() as usize];
+        let sig =
+            &src[def.signature_span.start_byte() as usize..def.signature_span.end_byte() as usize];
         assert!(sig.contains("fn foo()"));
         assert!(!sig.contains("let x"));
         assert!(!def.doc_idents.is_empty());
@@ -1354,10 +1471,7 @@ pub(in crate::auth) fn f() {}
         assert_eq!(by_name["c"], &Visibility::Crate);
         assert_eq!(by_name["d"], &Visibility::Restricted("self".into()));
         assert_eq!(by_name["e"], &Visibility::Restricted("super".into()));
-        assert_eq!(
-            by_name["f"],
-            &Visibility::Restricted("crate::auth".into())
-        );
+        assert_eq!(by_name["f"], &Visibility::Restricted("crate::auth".into()));
     }
 
     #[test]
@@ -1448,16 +1562,8 @@ fn outer() {
 }
 "#;
         let facts = extract(src);
-        let inner = facts
-            .defs()
-            .iter()
-            .position(|d| d.name == "inner")
-            .unwrap();
-        let outer = facts
-            .defs()
-            .iter()
-            .position(|d| d.name == "outer")
-            .unwrap();
+        let inner = facts.defs().iter().position(|d| d.name == "inner").unwrap();
+        let outer = facts.defs().iter().position(|d| d.name == "outer").unwrap();
         let inner_id = LocalDefId::from_index(u32::try_from(inner).unwrap());
         let outer_id = LocalDefId::from_index(u32::try_from(outer).unwrap());
         let inner_refs: Vec<_> = facts
@@ -1502,9 +1608,15 @@ use a as _;
                 )
             })
             .collect();
-        assert!(paths.iter().any(|(p, a, g, ..)| *p == "crate::a::b" && a.is_none() && !*g));
-        assert!(paths.iter().any(|(p, a, g, ..)| *p == "crate::a" && a.is_none() && !*g));
-        assert!(paths.iter().any(|(p, a, ..)| *p == "crate::a::c" && *a == Some("d")));
+        assert!(paths
+            .iter()
+            .any(|(p, a, g, ..)| *p == "crate::a::b" && a.is_none() && !*g));
+        assert!(paths
+            .iter()
+            .any(|(p, a, g, ..)| *p == "crate::a" && a.is_none() && !*g));
+        assert!(paths
+            .iter()
+            .any(|(p, a, ..)| *p == "crate::a::c" && *a == Some("d")));
         assert!(paths.iter().any(|(p, ..)| *p == "crate::a::nested::e"));
         assert!(paths
             .iter()
@@ -1521,9 +1633,17 @@ use a as _;
         assert!(paths.iter().any(|(p, ..)| *p == "super::x"));
         assert!(paths.iter().any(|(p, ..)| *p == "self::y"));
         assert!(paths.iter().any(|(p, a, ..)| *p == "a" && *a == Some("_")));
-        let z = facts.imports().iter().find(|i| i.path == "crate::z").unwrap();
+        let z = facts
+            .imports()
+            .iter()
+            .find(|i| i.path == "crate::z")
+            .unwrap();
         assert!(z.owner.is_some());
-        let b_count = facts.imports().iter().filter(|i| i.path == "crate::a::b" && i.alias.is_none() && !i.is_glob).count();
+        let b_count = facts
+            .imports()
+            .iter()
+            .filter(|i| i.path == "crate::a::b" && i.alias.is_none() && !i.is_glob)
+            .count();
         assert!(b_count >= 2);
     }
 
@@ -1564,18 +1684,16 @@ use a as _;
 
     #[test]
     fn fallback_caps_set_truncated() {
-        let (idents, _, truncated) = super::super::lexical_idents(
-            &{
-                let mut v = Vec::new();
-                for i in 0..(super::super::MAX_FALLBACK_IDENTIFIERS + 1) {
-                    if i > 0 {
-                        v.push(b' ');
-                    }
-                    v.extend_from_slice(b"x");
+        let (idents, _, truncated) = super::super::lexical_idents(&{
+            let mut v = Vec::new();
+            for i in 0..(super::super::MAX_FALLBACK_IDENTIFIERS + 1) {
+                if i > 0 {
+                    v.push(b' ');
                 }
-                v
-            },
-        );
+                v.extend_from_slice(b"x");
+            }
+            v
+        });
         assert_eq!(idents.len(), super::super::MAX_FALLBACK_IDENTIFIERS);
         assert!(truncated);
     }
