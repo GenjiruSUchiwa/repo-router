@@ -8,7 +8,8 @@ use anyhow::{bail, Context};
 use clap::{Parser, Subcommand};
 use output::Output;
 use rr_core::path::RelPath;
-use rr_core::query::{finish_exact, parse_query, route_exact, QueryRequest};
+use rr_core::query::{parse_query, route_query, QueryRequest};
+use rr_core::ranking::{RankingScratch, DEFAULT_RANKING_PROFILE};
 use rr_core::render::{render_json, render_text};
 use rr_core::snapshot::{LoadOutcome, SnapshotStore};
 use rr_git::{build_map, GitRepo};
@@ -180,8 +181,9 @@ fn run_query(path: Option<&RelPath>, json: bool, query_str: &str) -> anyhow::Res
 
     let request = QueryRequest::new(query_str, path);
     let parsed = parse_query(&snapshot, request).map_err(anyhow::Error::new)?;
-    let exact_outcome = route_exact(&snapshot, &parsed);
-    let result = finish_exact(exact_outcome);
+    let mut scratch = RankingScratch::new();
+    let result = route_query(&snapshot, &parsed, &DEFAULT_RANKING_PROFILE, &mut scratch)
+        .map_err(anyhow::Error::new)?;
 
     let rendered = if json {
         render_json(&snapshot, &result).map_err(|err| anyhow::anyhow!("{err}"))?

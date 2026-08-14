@@ -8,6 +8,7 @@ use crate::lang::Lang;
 use crate::lex::{append_source_terms, FieldTerm, InputKind, LexicalField, Lexicon};
 use crate::oid::Oid;
 use crate::path::RelPath;
+use crate::ranking::CorpusStats;
 use crate::{Error, Result};
 
 use super::{
@@ -16,7 +17,7 @@ use super::{
     SnapshotMeta, StringId, SymbolId, SymbolPosting, SymbolRecord, TermId, TermRecord,
 };
 
-pub const BUILD_VERSION: u32 = 1;
+pub const BUILD_VERSION: u32 = 2;
 
 #[derive(Debug, Clone)]
 pub struct FileInput {
@@ -136,7 +137,7 @@ pub struct SnapshotBuilder {
     references: Vec<ReferenceRecord>,
     imports: Vec<ImportRecord>,
     symbol_parent: Vec<Option<SymbolId>>,
-    symbol_terms: Vec<[Vec<TermId>; 10]>,
+    symbol_terms: Vec<[Vec<TermId>; LexicalField::COUNT]>,
     file_modules: Vec<Vec<String>>,
     file_path_terms: Vec<Vec<TermId>>,
     postings: FieldPostings,
@@ -211,7 +212,7 @@ impl SnapshotBuilder {
             let name = self.strings.intern(&def.name)?;
             let qualified_text = qualify(&module, def.local_qualified.as_deref(), &def.name);
             let qualified_name = self.strings.intern(&qualified_text)?;
-            let mut terms: [Vec<TermId>; 10] = Default::default();
+            let mut terms: [Vec<TermId>; LexicalField::COUNT] = Default::default();
             append_into(
                 &mut self.strings,
                 &mut self.lexicon,
@@ -220,16 +221,14 @@ impl SnapshotBuilder {
                 InputKind::Identifier,
                 &def.name,
             )?;
-            if let Some(local) = &def.local_qualified {
-                append_into(
-                    &mut self.strings,
-                    &mut self.lexicon,
-                    &mut terms,
-                    LexicalField::Qualified,
-                    InputKind::Qualified,
-                    local,
-                )?;
-            }
+            append_into(
+                &mut self.strings,
+                &mut self.lexicon,
+                &mut terms,
+                LexicalField::Qualified,
+                InputKind::Qualified,
+                &qualified_text,
+            )?;
             for value in &def.signature_idents {
                 append_into(
                     &mut self.strings,
@@ -270,7 +269,7 @@ impl SnapshotBuilder {
                     value,
                 )?;
             }
-            terms[field_index(LexicalField::Path)].extend(path_terms.iter().copied());
+            terms[LexicalField::Path.index()].extend(path_terms.iter().copied());
             self.symbols.push(SymbolRecord {
                 id: symbol_id,
                 file: file_id,
@@ -702,11 +701,11 @@ impl SnapshotBuilder {
     }
 
     fn build_postings(&mut self) -> Result<()> {
-        for field_index_value in 0..10 {
+        for field in LexicalField::ALL {
             let mut by_term: HashMap<TermId, Vec<SymbolPosting>> = HashMap::new();
             for (symbol_index, terms) in self.symbol_terms.iter().enumerate() {
                 let mut frequencies: HashMap<TermId, u32> = HashMap::new();
-                for term in &terms[field_index_value] {
+                for term in &terms[field.index()] {
                     *frequencies.entry(*term).or_default() += 1;
                 }
                 let symbol = self.symbols[symbol_index].id;
@@ -736,7 +735,7 @@ impl SnapshotBuilder {
                             .as_bytes(),
                     )
             });
-            *field_mut(&mut self.postings, field_index_value) = lists;
+            *self.postings.lists_mut(field) = lists;
         }
 
         let mut by_term: HashMap<TermId, Vec<FilePosting>> = HashMap::new();
@@ -774,18 +773,12 @@ impl SnapshotBuilder {
         });
 
         for (symbol, terms) in self.symbols.iter_mut().zip(&self.symbol_terms) {
-            symbol.field_lengths = FieldLengths {
-                name: checked_u32(terms[0].len(), "name field length")?,
-                qualified: checked_u32(terms[1].len(), "qualified field length")?,
-                path: checked_u32(terms[2].len(), "path field length")?,
-                signature: checked_u32(terms[3].len(), "signature field length")?,
-                body: checked_u32(terms[4].len(), "body field length")?,
-                documentation: checked_u32(terms[5].len(), "documentation field length")?,
-                attribute: checked_u32(terms[6].len(), "attribute field length")?,
-                callee: checked_u32(terms[7].len(), "callee field length")?,
-                caller: checked_u32(terms[8].len(), "caller field length")?,
-                import: checked_u32(terms[9].len(), "import field length")?,
-            };
+            let mut lengths = [0u32; LexicalField::COUNT];
+            for field in LexicalField::ALL {
+                lengths[field.index()] =
+                    checked_u32(terms[field.index()].len(), "symbol field length")?;
+            }
+            symbol.field_lengths = FieldLengths::from_ordinals(lengths);
         }
         Ok(())
     }
@@ -796,7 +789,7 @@ impl SnapshotBuilder {
             .iter()
             .map(|term| self.strings.intern(term).map(|text| TermRecord { text }))
             .collect::<Result<Vec<_>>>()?;
-        let snapshot = Snapshot {
+        let mut snapshot = Snapshot {
             meta: self.meta,
             strings: self.strings.values,
             terms,
@@ -808,7 +801,9 @@ impl SnapshotBuilder {
             exact_qualified: self.exact_qualified,
             postings: self.postings,
             file_path_postings: self.file_path_postings,
+            corpus: CorpusStats::EMPTY,
         };
+        snapshot.corpus = snapshot.compute_corpus_stats()?;
         snapshot.validate()?;
         let mut counts = IndexCounts {
             symbols: checked_u32(snapshot.symbols.len(), "symbol count")?,
@@ -852,7 +847,7 @@ fn empty_postings() -> FieldPostings {
 fn append_into(
     strings: &mut StringInterner,
     lexicon: &mut Lexicon,
-    terms: &mut [Vec<TermId>; 10],
+    terms: &mut [Vec<TermId>; LexicalField::COUNT],
     field: LexicalField,
     kind: InputKind,
     value: &str,
@@ -865,7 +860,7 @@ fn append_into(
         })?;
         strings.intern(text)?;
     }
-    terms[field_index(field)].extend(fields.into_iter().map(|term| term.term));
+    terms[field.index()].extend(fields.into_iter().map(|term| term.term));
     Ok(())
 }
 
@@ -887,35 +882,6 @@ fn collect_terms(
     Ok(fields.into_iter().map(|term| term.term).collect())
 }
 
-fn field_index(field: LexicalField) -> usize {
-    match field {
-        LexicalField::Name => 0,
-        LexicalField::Qualified => 1,
-        LexicalField::Path => 2,
-        LexicalField::Signature => 3,
-        LexicalField::Body => 4,
-        LexicalField::Documentation => 5,
-        LexicalField::Attribute => 6,
-        LexicalField::Callee => 7,
-        LexicalField::Caller => 8,
-        LexicalField::Import => 9,
-    }
-}
-
-fn field_mut(postings: &mut FieldPostings, index: usize) -> &mut Vec<PostingList> {
-    match index {
-        0 => &mut postings.name,
-        1 => &mut postings.qualified,
-        2 => &mut postings.path,
-        3 => &mut postings.signature,
-        4 => &mut postings.body,
-        5 => &mut postings.documentation,
-        6 => &mut postings.attribute,
-        7 => &mut postings.callee,
-        8 => &mut postings.caller,
-        _ => &mut postings.import,
-    }
-}
 fn checked_u32(value: usize, label: &'static str) -> Result<u32> {
     u32::try_from(value).map_err(|_| Error::IdSpaceExhausted(label))
 }
@@ -996,14 +962,9 @@ mod tests {
             parse_status: facts.status(),
             facts,
         };
-        let (snapshot, counts) = SnapshotBuilder::new(SnapshotMeta {
-            repo_head_oid: None,
-            no_git: true,
-            lexical_profile: crate::lex::lexical_profile(),
-            build_version: crate::index::BUILD_VERSION,
-        })
-        .build(vec![input])
-        .unwrap();
+        let (snapshot, counts) = SnapshotBuilder::new(SnapshotMeta::new(None, true))
+            .build(vec![input])
+            .unwrap();
         assert_eq!(counts.symbols, 2);
         assert!(snapshot
             .exact_names
@@ -1043,14 +1004,9 @@ mod tests {
             parse_status: facts.status(),
             facts,
         };
-        let (snapshot, _) = SnapshotBuilder::new(SnapshotMeta {
-            repo_head_oid: None,
-            no_git: true,
-            lexical_profile: crate::lex::lexical_profile(),
-            build_version: crate::index::BUILD_VERSION,
-        })
-        .build(vec![input])
-        .unwrap();
+        let (snapshot, _) = SnapshotBuilder::new(SnapshotMeta::new(None, true))
+            .build(vec![input])
+            .unwrap();
         let inner = snapshot
             .symbols
             .iter()

@@ -1,10 +1,7 @@
 #![allow(clippy::unwrap_used)]
 
-use rr_core::index::{
-    ContentRepresentation, FileInput, SnapshotBuilder, SnapshotMeta, BUILD_VERSION,
-};
+use rr_core::index::{ContentRepresentation, FileInput, SnapshotBuilder, SnapshotMeta};
 use rr_core::lang::Lang;
-use rr_core::lex::lexical_profile;
 use rr_core::oid::Oid;
 use rr_core::parser::RustExtractor;
 use rr_core::path::RelPath;
@@ -31,12 +28,7 @@ fn build_test_snapshot(files: Vec<(&str, &[u8], bool)>) -> rr_core::index::Snaps
         });
     }
 
-    let meta = SnapshotMeta {
-        repo_head_oid: None,
-        no_git: true,
-        lexical_profile: lexical_profile(),
-        build_version: BUILD_VERSION,
-    };
+    let meta = SnapshotMeta::new(None, true);
     let (snapshot, _) = SnapshotBuilder::new(meta).build(inputs).unwrap();
     snapshot
 }

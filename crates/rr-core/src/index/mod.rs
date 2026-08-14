@@ -7,7 +7,9 @@
 
 use crate::facts::{DefKind, ImportKind, ParseStatus, ReferenceKind, Span, Visibility};
 use crate::lang::Lang;
+use crate::lex::LexicalField;
 use crate::oid::Oid;
+use crate::ranking::{CorpusStats, FieldStats, RankingStamp, DEFAULT_RANKING_PROFILE};
 use crate::{Error, Result};
 
 pub use crate::lex::TermId;
@@ -77,6 +79,23 @@ pub struct SnapshotMeta {
     pub lexical_profile: crate::lex::LexicalProfile,
     /// Index-build semantic version ([`BUILD_VERSION`]) used to build this snapshot.
     pub build_version: u32,
+    /// Ranking configuration this index was frozen under.
+    pub ranking: RankingStamp,
+}
+
+impl SnapshotMeta {
+    /// Builds metadata stamped with the current binary's lexical, build, and
+    /// ranking configuration.
+    #[must_use]
+    pub fn new(repo_head_oid: Option<Oid>, no_git: bool) -> Self {
+        Self {
+            repo_head_oid,
+            no_git,
+            lexical_profile: crate::lex::lexical_profile(),
+            build_version: BUILD_VERSION,
+            ranking: RankingStamp::of(&DEFAULT_RANKING_PROFILE),
+        }
+    }
 }
 
 /// One indexed source file and its arena slice.
@@ -136,6 +155,39 @@ pub struct FieldLengths {
 }
 
 impl FieldLengths {
+    /// Builds field lengths from an array in canonical declaration order.
+    pub(crate) const fn from_ordinals(lengths: [u32; LexicalField::COUNT]) -> Self {
+        Self {
+            name: lengths[0],
+            qualified: lengths[1],
+            path: lengths[2],
+            signature: lengths[3],
+            body: lengths[4],
+            documentation: lengths[5],
+            attribute: lengths[6],
+            callee: lengths[7],
+            caller: lengths[8],
+            import: lengths[9],
+        }
+    }
+
+    /// Returns one field's term frequency, addressed by its canonical ordinal.
+    #[must_use]
+    pub const fn get(&self, field: LexicalField) -> u32 {
+        match field {
+            LexicalField::Name => self.name,
+            LexicalField::Qualified => self.qualified,
+            LexicalField::Path => self.path,
+            LexicalField::Signature => self.signature,
+            LexicalField::Body => self.body,
+            LexicalField::Documentation => self.documentation,
+            LexicalField::Attribute => self.attribute,
+            LexicalField::Callee => self.callee,
+            LexicalField::Caller => self.caller,
+            LexicalField::Import => self.import,
+        }
+    }
+
     /// All term frequencies zero.
     pub const ZERO: Self = Self {
         name: 0,
@@ -308,21 +360,42 @@ pub struct FieldPostings {
 
 impl FieldPostings {
     /// All field posting vectors in canonical declaration order.
-    pub const FIELDS: usize = 10;
+    pub const FIELDS: usize = LexicalField::COUNT;
 
-    fn as_slice(&self) -> [&Vec<PostingList>; Self::FIELDS] {
-        [
-            &self.name,
-            &self.qualified,
-            &self.path,
-            &self.signature,
-            &self.body,
-            &self.documentation,
-            &self.attribute,
-            &self.callee,
-            &self.caller,
-            &self.import,
-        ]
+    /// Returns one field's posting lists, ordered by canonical term text.
+    #[must_use]
+    pub fn lists(&self, field: LexicalField) -> &[PostingList] {
+        match field {
+            LexicalField::Name => &self.name,
+            LexicalField::Qualified => &self.qualified,
+            LexicalField::Path => &self.path,
+            LexicalField::Signature => &self.signature,
+            LexicalField::Body => &self.body,
+            LexicalField::Documentation => &self.documentation,
+            LexicalField::Attribute => &self.attribute,
+            LexicalField::Callee => &self.callee,
+            LexicalField::Caller => &self.caller,
+            LexicalField::Import => &self.import,
+        }
+    }
+
+    pub(crate) fn lists_mut(&mut self, field: LexicalField) -> &mut Vec<PostingList> {
+        match field {
+            LexicalField::Name => &mut self.name,
+            LexicalField::Qualified => &mut self.qualified,
+            LexicalField::Path => &mut self.path,
+            LexicalField::Signature => &mut self.signature,
+            LexicalField::Body => &mut self.body,
+            LexicalField::Documentation => &mut self.documentation,
+            LexicalField::Attribute => &mut self.attribute,
+            LexicalField::Callee => &mut self.callee,
+            LexicalField::Caller => &mut self.caller,
+            LexicalField::Import => &mut self.import,
+        }
+    }
+
+    fn as_slice(&self) -> [&[PostingList]; Self::FIELDS] {
+        LexicalField::ALL.map(|field| self.lists(field))
     }
 }
 
@@ -351,6 +424,12 @@ pub struct Snapshot {
     pub postings: FieldPostings,
     /// File-path postings.
     pub file_path_postings: Vec<FilePostingList>,
+    /// Frozen per-field corpus statistics consumed by ranking.
+    ///
+    /// Per-term document frequency is deliberately absent: it is exactly the
+    /// length of a term's posting list, so storing it again would create a
+    /// second population that could silently disagree with the first.
+    pub corpus: CorpusStats,
 }
 
 impl Snapshot {
@@ -384,6 +463,40 @@ impl Snapshot {
             })
             .collect::<Result<_>>()?;
         crate::lex::Lexicon::try_from(term_strings)
+    }
+
+    /// Recomputes the per-field corpus statistics from the symbol field lengths.
+    ///
+    /// This is the definition of [`Snapshot::corpus`]: the builder stores the
+    /// result once so ranking reads it in constant time, and validation proves
+    /// the stored copy still equals the recomputation.
+    ///
+    /// Every field is accumulated in one pass over the symbols, because this
+    /// runs on every snapshot load as part of [`Snapshot::validate`]: one pass
+    /// per field would walk the symbol arena ten times over.
+    ///
+    /// # Errors
+    /// Returns [`Error::SnapshotInvariant`] if a field's total term frequency
+    /// overflows `u64`.
+    pub fn compute_corpus_stats(&self) -> Result<CorpusStats> {
+        let mut corpus = CorpusStats::EMPTY;
+        for symbol in &self.symbols {
+            for field in LexicalField::ALL {
+                let length = symbol.field_lengths.get(field);
+                if length == 0 {
+                    continue;
+                }
+                let stats = &mut corpus.fields[field.index()];
+                stats.document_count += 1;
+                stats.total_term_frequency = stats
+                    .total_term_frequency
+                    .checked_add(u64::from(length))
+                    .ok_or(Error::SnapshotInvariant {
+                        reason: "field total term frequency overflow",
+                    })?;
+            }
+        }
+        Ok(corpus)
     }
 }
 
@@ -426,6 +539,10 @@ mod validate {
         check(
             s.meta.build_version == BUILD_VERSION,
             "build version mismatch",
+        )?;
+        check(
+            s.meta.ranking.accepts(&DEFAULT_RANKING_PROFILE),
+            "ranking profile mismatch",
         )?;
         let n_imps = s.imports.len();
         let n_terms = s.terms.len();
@@ -573,8 +690,18 @@ mod validate {
         check_routes(s, &s.exact_names, n_strings, n_syms)?;
         check_routes(s, &s.exact_qualified, n_strings, n_syms)?;
 
-        for list in s.postings.as_slice() {
-            check_postings(s, list, n_terms, n_syms)?;
+        check(
+            s.corpus == s.compute_corpus_stats()?,
+            "corpus statistics disagree with symbol field lengths",
+        )?;
+        for field in LexicalField::ALL {
+            check_postings(
+                s,
+                s.postings.lists(field),
+                n_terms,
+                n_syms,
+                s.corpus.field(field),
+            )?;
         }
         let mut previous_term_text: Option<&[u8]> = None;
         for list in &s.file_path_postings {
@@ -668,8 +795,10 @@ mod validate {
         list: &[PostingList],
         n_terms: usize,
         n_syms: usize,
+        stats: FieldStats,
     ) -> Result<()> {
         let mut previous_term_text: Option<&[u8]> = None;
+        let mut total_term_frequency = 0u64;
         for posting in list {
             check(posting.term.index() < n_terms, "posting term out of range")?;
             let term_text = s.strings[s.terms[posting.term.index()].text.index()].as_bytes();
@@ -677,6 +806,10 @@ mod validate {
                 check(previous < term_text, "postings not sorted by term text")?;
             }
             previous_term_text = Some(term_text);
+            check(
+                posting.entries.len() <= stats.document_count as usize,
+                "document frequency exceeds field document count",
+            )?;
             let mut last_symbol: Option<SymbolId> = None;
             for entry in &posting.entries {
                 check(entry.symbol.index() < n_syms, "posting symbol out of range")?;
@@ -685,8 +818,17 @@ mod validate {
                     check(entry.symbol > previous, "posting symbols not increasing")?;
                 }
                 last_symbol = Some(entry.symbol);
+                total_term_frequency = total_term_frequency
+                    .checked_add(u64::from(entry.term_frequency))
+                    .ok_or(Error::SnapshotInvariant {
+                        reason: "posting term frequency overflow",
+                    })?;
             }
         }
+        check(
+            total_term_frequency == stats.total_term_frequency,
+            "posting term frequencies disagree with corpus statistics",
+        )?;
         Ok(())
     }
 
@@ -708,15 +850,19 @@ mod tests {
     use super::*;
 
     #[test]
+    fn field_lengths_round_trip_through_canonical_ordinals() {
+        let lengths = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+        let field_lengths = FieldLengths::from_ordinals(lengths);
+        for field in LexicalField::ALL {
+            assert_eq!(field_lengths.get(field), lengths[field.index()], "{field}");
+        }
+    }
+
+    #[test]
     fn malformed_lexicon_returns_error_instead_of_panicking() {
-        let (mut snapshot, _) = SnapshotBuilder::new(SnapshotMeta {
-            repo_head_oid: None,
-            no_git: true,
-            lexical_profile: crate::lex::lexical_profile(),
-            build_version: BUILD_VERSION,
-        })
-        .build(Vec::new())
-        .unwrap();
+        let (mut snapshot, _) = SnapshotBuilder::new(SnapshotMeta::new(None, true))
+            .build(Vec::new())
+            .unwrap();
         snapshot.terms.push(TermRecord {
             text: StringId::from_index(u32::MAX),
         });

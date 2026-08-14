@@ -1,0 +1,802 @@
+{
+  "cases": [
+    {
+      "decision": "direct",
+      "id": "auth-create-session",
+      "label": "direct",
+      "margin_ppm": 442743,
+      "outcome": "correct_direct",
+      "top_anchor": "src/auth/session.rs#create_session",
+      "top_score": "55.170223"
+    },
+    {
+      "decision": "direct",
+      "id": "auth-decode-token",
+      "label": "direct",
+      "margin_ppm": 368631,
+      "outcome": "correct_direct",
+      "top_anchor": "src/auth/token.rs#decode_token",
+      "top_score": "80.196583"
+    },
+    {
+      "decision": "direct",
+      "id": "auth-destroy-session",
+      "label": "direct",
+      "margin_ppm": 583290,
+      "outcome": "correct_direct",
+      "top_anchor": "src/auth/session.rs#destroy_session",
+      "top_score": "73.210903"
+    },
+    {
+      "decision": "direct",
+      "id": "auth-hash-password",
+      "label": "direct",
+      "margin_ppm": 225284,
+      "outcome": "correct_direct",
+      "top_anchor": "src/auth/password.rs#hash_password",
+      "top_score": "57.825744"
+    },
+    {
+      "decision": "candidates",
+      "id": "auth-password-ambiguous",
+      "label": "candidates",
+      "margin_ppm": 71093,
+      "outcome": "covered_candidates",
+      "top_anchor": "src/auth/password.rs#verify_password",
+      "top_score": "35.701319"
+    },
+    {
+      "decision": "direct",
+      "id": "auth-repeated-terms",
+      "label": "direct",
+      "margin_ppm": 313921,
+      "outcome": "correct_direct",
+      "top_anchor": "src/auth/token.rs#verify_token",
+      "top_score": "57.144220"
+    },
+    {
+      "decision": "direct",
+      "id": "auth-token-verification",
+      "label": "direct",
+      "margin_ppm": 313921,
+      "outcome": "correct_direct",
+      "top_anchor": "src/auth/token.rs#verify_token",
+      "top_score": "57.144220"
+    },
+    {
+      "decision": "none",
+      "id": "auth-unanswerable-geometry",
+      "label": "none",
+      "margin_ppm": 0,
+      "outcome": "correct_none",
+      "top_anchor": "",
+      "top_score": "0.000000"
+    },
+    {
+      "decision": "none",
+      "id": "auth-unanswerable-payload",
+      "label": "none",
+      "margin_ppm": 539886,
+      "outcome": "correct_none",
+      "top_anchor": "src/auth/claims.rs#parse",
+      "top_score": "11.039133"
+    },
+    {
+      "decision": "direct",
+      "id": "geometry-circle-area",
+      "label": "direct",
+      "margin_ppm": 612926,
+      "outcome": "correct_direct",
+      "top_anchor": "src/geometry/shapes.rs#area_of_circle",
+      "top_score": "33.257616"
+    },
+    {
+      "decision": "direct",
+      "id": "geometry-circle-perimeter",
+      "label": "direct",
+      "margin_ppm": 612926,
+      "outcome": "correct_direct",
+      "top_anchor": "src/geometry/shapes.rs#perimeter_of_circle",
+      "top_score": "33.257616"
+    },
+    {
+      "decision": "direct",
+      "id": "geometry-normalize-vector",
+      "label": "direct",
+      "margin_ppm": 814028,
+      "outcome": "correct_direct",
+      "top_anchor": "src/geometry/vector.rs#normalize_vector",
+      "top_score": "58.282032"
+    },
+    {
+      "decision": "none",
+      "id": "geometry-unanswerable-radius",
+      "label": "none",
+      "margin_ppm": 58554,
+      "outcome": "correct_none",
+      "top_anchor": "src/geometry/shapes.rs#area_of_circle",
+      "top_score": "7.018074"
+    },
+    {
+      "decision": "none",
+      "id": "geometry-unanswerable-security",
+      "label": "none",
+      "margin_ppm": 0,
+      "outcome": "correct_none",
+      "top_anchor": "",
+      "top_score": "0.000000"
+    },
+    {
+      "decision": "none",
+      "id": "geometry-unanswerable-token",
+      "label": "none",
+      "margin_ppm": 0,
+      "outcome": "correct_none",
+      "top_anchor": "",
+      "top_score": "0.000000"
+    },
+    {
+      "decision": "direct",
+      "id": "http-apply-middleware",
+      "label": "direct",
+      "margin_ppm": 793859,
+      "outcome": "correct_direct",
+      "top_anchor": "src/http/middleware.rs#apply_middleware",
+      "top_score": "61.337614"
+    },
+    {
+      "decision": "direct",
+      "id": "http-backoff-delay",
+      "label": "direct",
+      "margin_ppm": 822061,
+      "outcome": "correct_direct",
+      "top_anchor": "src/http/retry.rs#backoff_delay",
+      "top_score": "45.437515"
+    },
+    {
+      "decision": "direct",
+      "id": "http-find-route",
+      "label": "direct",
+      "margin_ppm": 350552,
+      "outcome": "correct_direct",
+      "top_anchor": "src/http/router.rs#find_route",
+      "top_score": "30.943444"
+    },
+    {
+      "decision": "direct",
+      "id": "http-rate-limit",
+      "label": "direct",
+      "margin_ppm": 842980,
+      "outcome": "correct_direct",
+      "top_anchor": "src/http/middleware.rs#rate_limit",
+      "top_score": "57.468915"
+    },
+    {
+      "decision": "direct",
+      "id": "http-retry-backoff",
+      "label": "direct",
+      "margin_ppm": 356775,
+      "outcome": "correct_direct",
+      "top_anchor": "src/http/retry.rs#retry_with_backoff",
+      "top_score": "49.982821"
+    },
+    {
+      "decision": "candidates",
+      "id": "http-route-pattern-ambiguous",
+      "label": "candidates",
+      "margin_ppm": 137137,
+      "outcome": "covered_candidates",
+      "top_anchor": "src/http/router.rs#add_route",
+      "top_score": "31.807804"
+    },
+    {
+      "decision": "none",
+      "id": "http-unanswerable-key",
+      "label": "none",
+      "margin_ppm": 200599,
+      "outcome": "correct_none",
+      "top_anchor": "src/http/router.rs#add_route",
+      "top_score": "6.268491"
+    },
+    {
+      "decision": "none",
+      "id": "http-unanswerable-request",
+      "label": "none",
+      "margin_ppm": 863146,
+      "outcome": "correct_none",
+      "top_anchor": "src/http/middleware.rs#apply_middleware",
+      "top_score": "9.023740"
+    },
+    {
+      "decision": "direct",
+      "id": "storage-cache-eviction",
+      "label": "direct",
+      "margin_ppm": 387244,
+      "outcome": "correct_direct",
+      "top_anchor": "src/store/cache.rs#evict",
+      "top_score": "53.493280"
+    },
+    {
+      "decision": "direct",
+      "id": "storage-deserialize-entry",
+      "label": "direct",
+      "margin_ppm": 497091,
+      "outcome": "correct_direct",
+      "top_anchor": "src/store/serialize.rs#deserialize_entry",
+      "top_score": "48.006234"
+    },
+    {
+      "decision": "direct",
+      "id": "storage-remove-key",
+      "label": "direct",
+      "margin_ppm": 382872,
+      "outcome": "correct_direct",
+      "top_anchor": "src/store/kv.rs#remove",
+      "top_score": "34.478460"
+    },
+    {
+      "decision": "direct",
+      "id": "storage-serialize-entry",
+      "label": "direct",
+      "margin_ppm": 292970,
+      "outcome": "correct_direct",
+      "top_anchor": "src/store/serialize.rs#serialize_entry",
+      "top_score": "65.800633"
+    },
+    {
+      "decision": "none",
+      "id": "storage-unanswerable-bytes",
+      "label": "none",
+      "margin_ppm": 164871,
+      "outcome": "correct_none",
+      "top_anchor": "src/store/serialize.rs#deserialize_entry",
+      "top_score": "9.631818"
+    },
+    {
+      "decision": "none",
+      "id": "storage-unanswerable-token",
+      "label": "none",
+      "margin_ppm": 0,
+      "outcome": "correct_none",
+      "top_anchor": "",
+      "top_score": "0.000000"
+    },
+    {
+      "decision": "candidates",
+      "id": "storage-wire-ambiguous",
+      "label": "candidates",
+      "margin_ppm": 70588,
+      "outcome": "covered_candidates",
+      "top_anchor": "src/store/serialize.rs#serialize_entry",
+      "top_score": "30.502807"
+    },
+    {
+      "decision": "direct",
+      "id": "wide-dispatch-entry",
+      "label": "direct",
+      "margin_ppm": 491378,
+      "outcome": "correct_direct",
+      "top_anchor": "src/wide/dispatch.rs#dispatch_event",
+      "top_score": "72.851843"
+    },
+    {
+      "decision": "candidates",
+      "id": "wide-handled-event",
+      "label": "candidates",
+      "margin_ppm": 0,
+      "outcome": "covered_candidates",
+      "top_anchor": "src/wide/handlers.rs#handle_event_01",
+      "top_score": "46.591279"
+    },
+    {
+      "decision": "direct",
+      "id": "wide-record-audit",
+      "label": "direct",
+      "margin_ppm": 919207,
+      "outcome": "correct_direct",
+      "top_anchor": "src/wide/dispatch.rs#record_event",
+      "top_score": "75.308093"
+    },
+    {
+      "decision": "none",
+      "id": "wide-unanswerable-kind",
+      "label": "none",
+      "margin_ppm": 991445,
+      "outcome": "correct_none",
+      "top_anchor": "src/wide/dispatch.rs#dispatch_event",
+      "top_score": "6.713401"
+    },
+    {
+      "decision": "none",
+      "id": "wide-unanswerable-src",
+      "label": "none",
+      "margin_ppm": 0,
+      "outcome": "correct_none",
+      "top_anchor": "src/wide/dispatch.rs#Event",
+      "top_score": "0.029499"
+    }
+  ],
+  "corpus": {
+    "cases": 35,
+    "digest": "a948e96c6b98e649bbc61cefe110a496d51669b98a4bc423c20bc354de267de9",
+    "repositories": [
+      "auth",
+      "geometry",
+      "http",
+      "storage",
+      "wide"
+    ]
+  },
+  "folds": [
+    {
+      "cases": [
+        {
+          "decision": "direct",
+          "id": "auth-create-session",
+          "label": "direct",
+          "margin_ppm": 442743,
+          "outcome": "correct_direct",
+          "top_anchor": "src/auth/session.rs#create_session",
+          "top_score": "55.170223"
+        },
+        {
+          "decision": "direct",
+          "id": "auth-decode-token",
+          "label": "direct",
+          "margin_ppm": 368631,
+          "outcome": "correct_direct",
+          "top_anchor": "src/auth/token.rs#decode_token",
+          "top_score": "80.196583"
+        },
+        {
+          "decision": "direct",
+          "id": "auth-destroy-session",
+          "label": "direct",
+          "margin_ppm": 583290,
+          "outcome": "correct_direct",
+          "top_anchor": "src/auth/session.rs#destroy_session",
+          "top_score": "73.210903"
+        },
+        {
+          "decision": "direct",
+          "id": "auth-hash-password",
+          "label": "direct",
+          "margin_ppm": 225284,
+          "outcome": "correct_direct",
+          "top_anchor": "src/auth/password.rs#hash_password",
+          "top_score": "57.825744"
+        },
+        {
+          "decision": "candidates",
+          "id": "auth-password-ambiguous",
+          "label": "candidates",
+          "margin_ppm": 71093,
+          "outcome": "covered_candidates",
+          "top_anchor": "src/auth/password.rs#verify_password",
+          "top_score": "35.701319"
+        },
+        {
+          "decision": "direct",
+          "id": "auth-repeated-terms",
+          "label": "direct",
+          "margin_ppm": 313921,
+          "outcome": "correct_direct",
+          "top_anchor": "src/auth/token.rs#verify_token",
+          "top_score": "57.144220"
+        },
+        {
+          "decision": "direct",
+          "id": "auth-token-verification",
+          "label": "direct",
+          "margin_ppm": 313921,
+          "outcome": "correct_direct",
+          "top_anchor": "src/auth/token.rs#verify_token",
+          "top_score": "57.144220"
+        },
+        {
+          "decision": "none",
+          "id": "auth-unanswerable-geometry",
+          "label": "none",
+          "margin_ppm": 0,
+          "outcome": "correct_none",
+          "top_anchor": "",
+          "top_score": "0.000000"
+        },
+        {
+          "decision": "none",
+          "id": "auth-unanswerable-payload",
+          "label": "none",
+          "margin_ppm": 539886,
+          "outcome": "correct_none",
+          "top_anchor": "src/auth/claims.rs#parse",
+          "top_score": "11.039133"
+        }
+      ],
+      "held_out": "auth",
+      "metrics": {
+        "answerable": 7,
+        "correct_directs": 6,
+        "correct_nones": 2,
+        "covered": 7,
+        "mean_reciprocal_rank_ppm": 1000000,
+        "none_confusion": {
+          "answerable_abstained": 0,
+          "answerable_answered": 7,
+          "unanswerable_abstained": 2,
+          "unanswerable_answered": 0
+        },
+        "top_one_recall_ppm": 1000000,
+        "top_three_recall_ppm": 1000000,
+        "wrong_directs": 0
+      },
+      "thresholds": {
+        "direct_at_least": 30723125,
+        "direct_margin_at_least_ppm": 215054,
+        "none_below": 20067313
+      }
+    },
+    {
+      "cases": [
+        {
+          "decision": "direct",
+          "id": "geometry-circle-area",
+          "label": "direct",
+          "margin_ppm": 612926,
+          "outcome": "correct_direct",
+          "top_anchor": "src/geometry/shapes.rs#area_of_circle",
+          "top_score": "33.257616"
+        },
+        {
+          "decision": "direct",
+          "id": "geometry-circle-perimeter",
+          "label": "direct",
+          "margin_ppm": 612926,
+          "outcome": "correct_direct",
+          "top_anchor": "src/geometry/shapes.rs#perimeter_of_circle",
+          "top_score": "33.257616"
+        },
+        {
+          "decision": "direct",
+          "id": "geometry-normalize-vector",
+          "label": "direct",
+          "margin_ppm": 814028,
+          "outcome": "correct_direct",
+          "top_anchor": "src/geometry/vector.rs#normalize_vector",
+          "top_score": "58.282032"
+        },
+        {
+          "decision": "none",
+          "id": "geometry-unanswerable-radius",
+          "label": "none",
+          "margin_ppm": 58554,
+          "outcome": "correct_none",
+          "top_anchor": "src/geometry/shapes.rs#area_of_circle",
+          "top_score": "7.018074"
+        },
+        {
+          "decision": "none",
+          "id": "geometry-unanswerable-security",
+          "label": "none",
+          "margin_ppm": 0,
+          "outcome": "correct_none",
+          "top_anchor": "",
+          "top_score": "0.000000"
+        },
+        {
+          "decision": "none",
+          "id": "geometry-unanswerable-token",
+          "label": "none",
+          "margin_ppm": 0,
+          "outcome": "correct_none",
+          "top_anchor": "",
+          "top_score": "0.000000"
+        }
+      ],
+      "held_out": "geometry",
+      "metrics": {
+        "answerable": 3,
+        "correct_directs": 3,
+        "correct_nones": 3,
+        "covered": 3,
+        "mean_reciprocal_rank_ppm": 1000000,
+        "none_confusion": {
+          "answerable_abstained": 0,
+          "answerable_answered": 3,
+          "unanswerable_abstained": 3,
+          "unanswerable_answered": 0
+        },
+        "top_one_recall_ppm": 1000000,
+        "top_three_recall_ppm": 1000000,
+        "wrong_directs": 0
+      },
+      "thresholds": {
+        "direct_at_least": 30723125,
+        "direct_margin_at_least_ppm": 181211,
+        "none_below": 20770970
+      }
+    },
+    {
+      "cases": [
+        {
+          "decision": "direct",
+          "id": "http-apply-middleware",
+          "label": "direct",
+          "margin_ppm": 793859,
+          "outcome": "correct_direct",
+          "top_anchor": "src/http/middleware.rs#apply_middleware",
+          "top_score": "61.337614"
+        },
+        {
+          "decision": "direct",
+          "id": "http-backoff-delay",
+          "label": "direct",
+          "margin_ppm": 822061,
+          "outcome": "correct_direct",
+          "top_anchor": "src/http/retry.rs#backoff_delay",
+          "top_score": "45.437515"
+        },
+        {
+          "decision": "candidates",
+          "id": "http-find-route",
+          "label": "direct",
+          "margin_ppm": 350552,
+          "outcome": "covered_candidates",
+          "top_anchor": "src/http/router.rs#find_route",
+          "top_score": "30.943444"
+        },
+        {
+          "decision": "direct",
+          "id": "http-rate-limit",
+          "label": "direct",
+          "margin_ppm": 842980,
+          "outcome": "correct_direct",
+          "top_anchor": "src/http/middleware.rs#rate_limit",
+          "top_score": "57.468915"
+        },
+        {
+          "decision": "direct",
+          "id": "http-retry-backoff",
+          "label": "direct",
+          "margin_ppm": 356775,
+          "outcome": "correct_direct",
+          "top_anchor": "src/http/retry.rs#retry_with_backoff",
+          "top_score": "49.982821"
+        },
+        {
+          "decision": "candidates",
+          "id": "http-route-pattern-ambiguous",
+          "label": "candidates",
+          "margin_ppm": 137137,
+          "outcome": "covered_candidates",
+          "top_anchor": "src/http/router.rs#add_route",
+          "top_score": "31.807804"
+        },
+        {
+          "decision": "none",
+          "id": "http-unanswerable-key",
+          "label": "none",
+          "margin_ppm": 200599,
+          "outcome": "correct_none",
+          "top_anchor": "src/http/router.rs#add_route",
+          "top_score": "6.268491"
+        },
+        {
+          "decision": "none",
+          "id": "http-unanswerable-request",
+          "label": "none",
+          "margin_ppm": 863146,
+          "outcome": "correct_none",
+          "top_anchor": "src/http/middleware.rs#apply_middleware",
+          "top_score": "9.023740"
+        }
+      ],
+      "held_out": "http",
+      "metrics": {
+        "answerable": 6,
+        "correct_directs": 4,
+        "correct_nones": 2,
+        "covered": 6,
+        "mean_reciprocal_rank_ppm": 1000000,
+        "none_confusion": {
+          "answerable_abstained": 0,
+          "answerable_answered": 6,
+          "unanswerable_abstained": 2,
+          "unanswerable_answered": 0
+        },
+        "top_one_recall_ppm": 1000000,
+        "top_three_recall_ppm": 1000000,
+        "wrong_directs": 0
+      },
+      "thresholds": {
+        "direct_at_least": 31880211,
+        "direct_margin_at_least_ppm": 148189,
+        "none_below": 20770970
+      }
+    },
+    {
+      "cases": [
+        {
+          "decision": "direct",
+          "id": "storage-cache-eviction",
+          "label": "direct",
+          "margin_ppm": 387244,
+          "outcome": "correct_direct",
+          "top_anchor": "src/store/cache.rs#evict",
+          "top_score": "53.493280"
+        },
+        {
+          "decision": "direct",
+          "id": "storage-deserialize-entry",
+          "label": "direct",
+          "margin_ppm": 497091,
+          "outcome": "correct_direct",
+          "top_anchor": "src/store/serialize.rs#deserialize_entry",
+          "top_score": "48.006234"
+        },
+        {
+          "decision": "direct",
+          "id": "storage-remove-key",
+          "label": "direct",
+          "margin_ppm": 382872,
+          "outcome": "correct_direct",
+          "top_anchor": "src/store/kv.rs#remove",
+          "top_score": "34.478460"
+        },
+        {
+          "decision": "direct",
+          "id": "storage-serialize-entry",
+          "label": "direct",
+          "margin_ppm": 292970,
+          "outcome": "correct_direct",
+          "top_anchor": "src/store/serialize.rs#serialize_entry",
+          "top_score": "65.800633"
+        },
+        {
+          "decision": "none",
+          "id": "storage-unanswerable-bytes",
+          "label": "none",
+          "margin_ppm": 164871,
+          "outcome": "correct_none",
+          "top_anchor": "src/store/serialize.rs#deserialize_entry",
+          "top_score": "9.631818"
+        },
+        {
+          "decision": "none",
+          "id": "storage-unanswerable-token",
+          "label": "none",
+          "margin_ppm": 0,
+          "outcome": "correct_none",
+          "top_anchor": "",
+          "top_score": "0.000000"
+        },
+        {
+          "decision": "candidates",
+          "id": "storage-wire-ambiguous",
+          "label": "candidates",
+          "margin_ppm": 70588,
+          "outcome": "covered_candidates",
+          "top_anchor": "src/store/serialize.rs#serialize_entry",
+          "top_score": "30.502807"
+        }
+      ],
+      "held_out": "storage",
+      "metrics": {
+        "answerable": 5,
+        "correct_directs": 4,
+        "correct_nones": 2,
+        "covered": 5,
+        "mean_reciprocal_rank_ppm": 1000000,
+        "none_confusion": {
+          "answerable_abstained": 0,
+          "answerable_answered": 5,
+          "unanswerable_abstained": 2,
+          "unanswerable_answered": 0
+        },
+        "top_one_recall_ppm": 1000000,
+        "top_three_recall_ppm": 1000000,
+        "wrong_directs": 0
+      },
+      "thresholds": {
+        "direct_at_least": 30943444,
+        "direct_margin_at_least_ppm": 181211,
+        "none_below": 20991289
+      }
+    },
+    {
+      "cases": [
+        {
+          "decision": "direct",
+          "id": "wide-dispatch-entry",
+          "label": "direct",
+          "margin_ppm": 491378,
+          "outcome": "correct_direct",
+          "top_anchor": "src/wide/dispatch.rs#dispatch_event",
+          "top_score": "72.851843"
+        },
+        {
+          "decision": "candidates",
+          "id": "wide-handled-event",
+          "label": "candidates",
+          "margin_ppm": 0,
+          "outcome": "covered_candidates",
+          "top_anchor": "src/wide/handlers.rs#handle_event_01",
+          "top_score": "46.591279"
+        },
+        {
+          "decision": "direct",
+          "id": "wide-record-audit",
+          "label": "direct",
+          "margin_ppm": 919207,
+          "outcome": "correct_direct",
+          "top_anchor": "src/wide/dispatch.rs#record_event",
+          "top_score": "75.308093"
+        },
+        {
+          "decision": "none",
+          "id": "wide-unanswerable-kind",
+          "label": "none",
+          "margin_ppm": 991445,
+          "outcome": "correct_none",
+          "top_anchor": "src/wide/dispatch.rs#dispatch_event",
+          "top_score": "6.713401"
+        },
+        {
+          "decision": "none",
+          "id": "wide-unanswerable-src",
+          "label": "none",
+          "margin_ppm": 0,
+          "outcome": "correct_none",
+          "top_anchor": "src/wide/dispatch.rs#Event",
+          "top_score": "0.029499"
+        }
+      ],
+      "held_out": "wide",
+      "metrics": {
+        "answerable": 3,
+        "correct_directs": 2,
+        "correct_nones": 2,
+        "covered": 3,
+        "mean_reciprocal_rank_ppm": 1000000,
+        "none_confusion": {
+          "answerable_abstained": 0,
+          "answerable_answered": 3,
+          "unanswerable_abstained": 2,
+          "unanswerable_answered": 0
+        },
+        "top_one_recall_ppm": 1000000,
+        "top_three_recall_ppm": 1000000,
+        "wrong_directs": 0
+      },
+      "thresholds": {
+        "direct_at_least": 30723125,
+        "direct_margin_at_least_ppm": 181211,
+        "none_below": 20770970
+      }
+    }
+  ],
+  "profile_version": 1,
+  "scoring_digest": "692ec76afa1ac0f4f10b5c1adfaad43a752a9021bc20e5159e8128d92db63eb8",
+  "shipped": {
+    "metrics": {
+      "answerable": 24,
+      "correct_directs": 20,
+      "correct_nones": 11,
+      "covered": 24,
+      "mean_reciprocal_rank_ppm": 1000000,
+      "none_confusion": {
+        "answerable_abstained": 0,
+        "answerable_answered": 24,
+        "unanswerable_abstained": 11,
+        "unanswerable_answered": 0
+      },
+      "top_one_recall_ppm": 1000000,
+      "top_three_recall_ppm": 1000000,
+      "wrong_directs": 0
+    },
+    "thresholds": {
+      "direct_at_least": 30723125,
+      "direct_margin_at_least_ppm": 181211,
+      "none_below": 20770970
+    }
+  }
+}

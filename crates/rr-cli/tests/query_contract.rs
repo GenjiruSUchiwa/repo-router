@@ -42,6 +42,67 @@ fn setup_test_repo() -> TempDir {
     temp
 }
 
+/// A repository whose definitions carry enough prose for the lexical fallback
+/// to have something to rank.
+fn setup_lexical_repo() -> TempDir {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+
+    run_cmd(root, "git", &["init"]);
+    run_cmd(root, "git", &["config", "user.email", "test@example.com"]);
+    run_cmd(root, "git", &["config", "user.name", "Tester"]);
+
+    let auth = root.join("src").join("auth");
+    let store = root.join("src").join("store");
+    fs::create_dir_all(&auth).unwrap();
+    fs::create_dir_all(&store).unwrap();
+
+    fs::write(
+        auth.join("session.rs"),
+        b"/// Creates a session for a caller that has already been authenticated.\n\
+          pub fn create_session(user: UserId) -> Session {\n    \
+          Session::new(user)\n\
+          }\n\
+          \n\
+          /// Ends a session and forgets everything it held.\n\
+          pub fn end_session(session: Session) {}\n",
+    )
+    .unwrap();
+
+    fs::write(
+        store.join("serialize.rs"),
+        b"/// Encodes an entry into its wire representation.\n\
+          pub fn serialize_entry(entry: Entry) -> Vec<u8> {\n    \
+          Vec::new()\n\
+          }\n\
+          \n\
+          /// Decodes an entry from its wire representation.\n\
+          pub fn deserialize_entry(bytes: &[u8]) -> Entry {\n    \
+          Entry::default()\n\
+          }\n",
+    )
+    .unwrap();
+
+    run_cmd(root, "git", &["add", "."]);
+    run_cmd(root, "git", &["commit", "-m", "init"]);
+    let map = Command::new(env!("CARGO_BIN_EXE_rr"))
+        .current_dir(root)
+        .arg("map")
+        .output()
+        .unwrap();
+    assert!(map.status.success());
+    temp
+}
+
+fn query(repo: &TempDir, args: &[&str]) -> std::process::Output {
+    Command::new(env!("CARGO_BIN_EXE_rr"))
+        .current_dir(repo.path())
+        .arg("query")
+        .args(args)
+        .output()
+        .unwrap()
+}
+
 fn run_cmd(dir: &Path, program: &str, args: &[&str]) {
     let output = Command::new(program)
         .current_dir(dir)
@@ -210,7 +271,10 @@ fn test_query_json_none() {
     let val: serde_json::Value = serde_json::from_str(&stdout_str).unwrap();
     assert_eq!(val["v"], 1);
     assert_eq!(val["result"], "none");
-    assert_eq!(val["pipeline"], "exact");
+    assert_eq!(
+        val["pipeline"], "lexical",
+        "an exact miss falls through to the lexical pipeline, which owns the abstention"
+    );
     assert_eq!(val["reason"], "not_found");
     assert!(val.get("anchor").is_none());
     assert!(output.stderr.is_empty());
@@ -259,4 +323,94 @@ fn test_query_empty_error() {
     assert!(output.stdout.is_empty());
     let stderr_str = String::from_utf8(output.stderr).unwrap();
     assert!(stderr_str.starts_with("rr: query:"));
+}
+
+#[test]
+fn query_contract_lexical_direct_answers_a_natural_language_question() {
+    let repo = setup_lexical_repo();
+    let output = query(&repo, &["--json", "how do we create a session?"]);
+
+    assert_eq!(output.status.code(), Some(0));
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["v"], 1);
+    assert_eq!(value["result"], "direct");
+    assert_eq!(value["pipeline"], "lexical");
+    assert_eq!(value["anchor"]["path"], "src/auth/session.rs");
+    assert_eq!(value["anchor"]["symbol"], "create_session");
+    let confidence = value["confidence"].as_f64().unwrap();
+    assert!(
+        (0.0..1.0).contains(&confidence),
+        "a lexical answer reports its normalized margin, never the certainty of an exact \
+         match: {confidence}"
+    );
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
+fn query_contract_lexical_direct_prints_one_anchor_line() {
+    let repo = setup_lexical_repo();
+    let output = query(&repo, &["how do we create a session?"]);
+
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "FINAL SOURCE ANCHOR (copy exactly): src/auth/session.rs#create_session\n",
+        "the text contract is identical whichever pipeline answered"
+    );
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
+fn query_contract_lexical_candidates_carry_no_confidence() {
+    let repo = setup_lexical_repo();
+    let output = query(&repo, &["--json", "encode an entry to bytes"]);
+
+    assert_eq!(output.status.code(), Some(2));
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["result"], "candidates");
+    assert_eq!(value["pipeline"], "lexical");
+    let candidates = value["candidates"].as_array().unwrap();
+    assert!(
+        (1..=3).contains(&candidates.len()),
+        "the public contract carries at most three candidates, got {}",
+        candidates.len()
+    );
+    assert!(candidates
+        .iter()
+        .all(|candidate| candidate["confidence"].is_null()));
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
+fn query_contract_lexical_abstains_on_incidental_evidence() {
+    let repo = setup_lexical_repo();
+    let output = query(&repo, &["quantum flux capacitor"]);
+
+    assert_eq!(output.status.code(), Some(3));
+    let output = query(&repo, &["--json", "quantum flux capacitor"]);
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["result"], "none");
+    assert_eq!(value["pipeline"], "lexical");
+    assert_eq!(value["reason"], "not_found");
+    assert!(value.get("anchor").is_none());
+    assert!(value.get("confidence").is_none());
+
+    let output = query(&repo, &["--json", "the wire representation"]);
+    assert_eq!(output.status.code(), Some(3));
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        value["reason"], "low_confidence",
+        "a query whose words are indexed but whose best match is too weak abstains for a \
+         different reason than one whose words are unknown"
+    );
+}
+
+#[test]
+fn query_contract_lexical_repeats_byte_for_byte_across_processes() {
+    let repo = setup_lexical_repo();
+    let first = query(&repo, &["--json", "how do we create a session?"]).stdout;
+    for run in 0..4 {
+        let again = query(&repo, &["--json", "how do we create a session?"]).stdout;
+        assert_eq!(first, again, "run {run} printed a different answer");
+    }
 }

@@ -7,7 +7,7 @@ use tempfile::NamedTempFile;
 
 use crate::index::Snapshot;
 
-pub const SNAPSHOT_SCHEMA_VERSION: u32 = 1;
+pub const SNAPSHOT_SCHEMA_VERSION: u32 = 2;
 pub const SNAPSHOT_MAGIC: [u8; 8] = *b"RRIDX\0\0\0";
 const HEADER_LEN: usize = 8 + 4 + 8 + 32;
 
@@ -21,6 +21,7 @@ pub enum RebuildReason {
     TrailingBytes,
     LexicalMismatch,
     BuildVersionMismatch { found: u32 },
+    RankingProfileMismatch { found: u32 },
     InvalidInvariant,
 }
 
@@ -184,6 +185,15 @@ fn decode(bytes: &[u8]) -> LoadOutcome {
             found: snapshot.meta.build_version,
         });
     }
+    if !snapshot
+        .meta
+        .ranking
+        .accepts(&crate::ranking::DEFAULT_RANKING_PROFILE)
+    {
+        return LoadOutcome::NeedsRebuild(RebuildReason::RankingProfileMismatch {
+            found: snapshot.meta.ranking.profile_version,
+        });
+    }
     if snapshot.validate().is_err() {
         return LoadOutcome::NeedsRebuild(RebuildReason::InvalidInvariant);
     }
@@ -225,14 +235,10 @@ mod tests {
     }
     #[test]
     fn lexical_profile_mismatch_needs_rebuild() {
-        let (mut snapshot, _) = crate::index::SnapshotBuilder::new(crate::index::SnapshotMeta {
-            repo_head_oid: None,
-            no_git: true,
-            lexical_profile: crate::lex::lexical_profile(),
-            build_version: crate::index::BUILD_VERSION,
-        })
-        .build(Vec::new())
-        .unwrap();
+        let (mut snapshot, _) =
+            crate::index::SnapshotBuilder::new(crate::index::SnapshotMeta::new(None, true))
+                .build(Vec::new())
+                .unwrap();
         snapshot.meta.lexical_profile.algorithm += 1;
         let payload = postcard::to_allocvec(&snapshot).unwrap();
         let bytes = encode(&payload).unwrap();
@@ -243,14 +249,10 @@ mod tests {
     }
     #[test]
     fn build_version_mismatch_needs_rebuild() {
-        let (mut snapshot, _) = crate::index::SnapshotBuilder::new(crate::index::SnapshotMeta {
-            repo_head_oid: None,
-            no_git: true,
-            lexical_profile: crate::lex::lexical_profile(),
-            build_version: crate::index::BUILD_VERSION,
-        })
-        .build(Vec::new())
-        .unwrap();
+        let (mut snapshot, _) =
+            crate::index::SnapshotBuilder::new(crate::index::SnapshotMeta::new(None, true))
+                .build(Vec::new())
+                .unwrap();
         snapshot.meta.build_version += 1;
         let payload = postcard::to_allocvec(&snapshot).unwrap();
         let bytes = encode(&payload).unwrap();
@@ -260,16 +262,26 @@ mod tests {
         ));
     }
     #[test]
+    fn ranking_profile_mismatch_needs_rebuild() {
+        let (mut snapshot, _) =
+            crate::index::SnapshotBuilder::new(crate::index::SnapshotMeta::new(None, true))
+                .build(Vec::new())
+                .unwrap();
+        snapshot.meta.ranking.scoring_digest[0] ^= 0xFF;
+        let payload = postcard::to_allocvec(&snapshot).unwrap();
+        let bytes = encode(&payload).unwrap();
+        assert!(matches!(
+            decode(&bytes),
+            LoadOutcome::NeedsRebuild(RebuildReason::RankingProfileMismatch { .. })
+        ));
+    }
+    #[test]
     fn store_round_trips_empty_snapshot() {
         let directory = tempfile::tempdir().unwrap();
-        let (snapshot, _) = crate::index::SnapshotBuilder::new(crate::index::SnapshotMeta {
-            repo_head_oid: None,
-            no_git: true,
-            lexical_profile: crate::lex::lexical_profile(),
-            build_version: crate::index::BUILD_VERSION,
-        })
-        .build(Vec::new())
-        .unwrap();
+        let (snapshot, _) =
+            crate::index::SnapshotBuilder::new(crate::index::SnapshotMeta::new(None, true))
+                .build(Vec::new())
+                .unwrap();
         let store = SnapshotStore::new(directory.path());
         store.write(&snapshot).unwrap();
         let loaded = store.load().unwrap();

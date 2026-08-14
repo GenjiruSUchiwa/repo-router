@@ -67,7 +67,10 @@ pub enum LexicalField {
 }
 
 impl LexicalField {
-    pub const ALL: [Self; 10] = [
+    /// Number of lexical fields; the canonical declaration order is [`Self::ALL`].
+    pub const COUNT: usize = 10;
+
+    pub const ALL: [Self; Self::COUNT] = [
         Self::Name,
         Self::Qualified,
         Self::Path,
@@ -79,6 +82,27 @@ impl LexicalField {
         Self::Caller,
         Self::Import,
     ];
+
+    /// Position of this field in the canonical declaration order.
+    ///
+    /// This ordinal is the single source of truth for every per-field array in
+    /// the crate: postings, field lengths, corpus statistics, and ranking
+    /// parameters are all indexed by it.
+    #[must_use]
+    pub const fn index(self) -> usize {
+        match self {
+            Self::Name => 0,
+            Self::Qualified => 1,
+            Self::Path => 2,
+            Self::Signature => 3,
+            Self::Body => 4,
+            Self::Documentation => 5,
+            Self::Attribute => 6,
+            Self::Callee => 7,
+            Self::Caller => 8,
+            Self::Import => 9,
+        }
+    }
 
     #[must_use]
     pub const fn as_str(self) -> &'static str {
@@ -340,6 +364,14 @@ pub fn query_terms<L: TermLookup + ?Sized>(query: &str, lookup: &L) -> QueryTerm
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_field_ordinals_match_declaration_order() {
+        for (position, field) in LexicalField::ALL.into_iter().enumerate() {
+            assert_eq!(field.index(), position, "{field} ordinal");
+        }
+        assert_eq!(LexicalField::ALL.len(), LexicalField::COUNT);
+    }
 
     #[test]
     fn test_term_id_from_index() {

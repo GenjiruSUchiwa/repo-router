@@ -4,8 +4,9 @@ use smallvec::SmallVec;
 use unicode_ident::{is_xid_continue, is_xid_start};
 
 use crate::index::{FileId, Snapshot, SymbolId};
-use crate::lex::{query_terms, TermId};
+use crate::lex::{query_terms, QueryTerms, TermId};
 use crate::path::RelPath;
+use crate::ranking::{route_lexical, RankingProfile, RankingScratch};
 use crate::result::{Candidate, Confidence, NoneReason, Pipeline, QueryResult, TargetId};
 use crate::Result;
 
@@ -39,7 +40,8 @@ pub struct ExactAtom<'a> {
 pub struct ParsedQuery<'a> {
     pub raw: &'a str,
     pub exact_atoms: SmallVec<[ExactAtom<'a>; 4]>,
-    pub terms: SmallVec<[TermId; 8]>,
+    /// Normalized, deduplicated query terms shared by both pipelines.
+    pub terms: QueryTerms,
     pub path: Option<&'a RelPath>,
 }
 
@@ -62,7 +64,7 @@ pub fn parse_query<'a>(snapshot: &Snapshot, request: QueryRequest<'a>) -> Result
         });
     }
 
-    let terms = query_terms(raw, snapshot).into_iter().collect();
+    let terms = query_terms(raw, snapshot);
 
     let cleaned_tokens: Vec<&str> = tokenize_whitespace(raw)
         .into_iter()
@@ -370,7 +372,6 @@ fn disambiguate_candidates(
     let remaining_query_terms: SmallVec<[TermId; 8]> = query
         .terms
         .iter()
-        .copied()
         .filter(|term| !atom_terms.as_slice().contains(term))
         .collect();
 
@@ -475,6 +476,35 @@ fn lookup_exact_qualified<'a>(snapshot: &'a Snapshot, key: &str) -> Option<&'a [
 
 fn lookup_exact_name<'a>(snapshot: &'a Snapshot, key: &str) -> Option<&'a [SymbolId]> {
     lookup_route(&snapshot.exact_names, &snapshot.strings, key)
+}
+
+/// Routes one parsed query through the whole pipeline: exact first, lexical
+/// only on an exact miss.
+///
+/// Precedence lives here rather than in a caller so no consumer can invert it:
+/// a [`ExactOutcome::Direct`] or [`ExactOutcome::Candidates`] outcome is final.
+///
+/// A `--path` qualifier is honored only by exact routing, which owns it. When a
+/// path-qualified query misses, this abstains instead of ranking the whole
+/// repository, because a lexical answer from another file would silently
+/// contradict the qualifier the caller asked for.
+///
+/// # Errors
+/// Returns [`crate::Error::Ranking`] when the lexical fallback cannot compute a
+/// route; the index is never partially answered.
+pub fn route_query(
+    snapshot: &Snapshot,
+    query: &ParsedQuery<'_>,
+    profile: &RankingProfile,
+    scratch: &mut RankingScratch,
+) -> Result<QueryResult> {
+    match route_exact(snapshot, query) {
+        ExactOutcome::Miss if query.path.is_none() => {
+            let (result, _evidence) = route_lexical(snapshot, &query.terms, profile, scratch)?;
+            Ok(result)
+        }
+        outcome => Ok(finish_exact(outcome)),
+    }
 }
 
 #[must_use]

@@ -40,5 +40,10 @@ harness = false
 [[bench]]
 name = "query"
 harness = false
+
+[[bench]]
+name = "ranking"
+harness = false
+
 [lints]
 workspace = true
