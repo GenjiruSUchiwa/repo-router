@@ -492,7 +492,6 @@ impl Facts {
     /// # Errors
     /// Returns [`Error::InvalidFacts`] or [`Error::InvalidLocalDefId`] when
     /// invariants fail.
-    #[allow(dead_code)]
     pub(crate) fn from_parts(
         defs: Vec<Def>,
         references: Vec<Reference>,
@@ -510,7 +509,6 @@ impl Facts {
     }
 
     /// Builds degraded facts from a lexical scan. Always valid by construction.
-    #[allow(dead_code)]
     #[must_use]
     pub(crate) fn degraded(
         lexical_idents: Vec<String>,
@@ -639,7 +637,6 @@ fn validate_owner(owner: Option<LocalDefId>, span: Span, defs: &[Def]) -> Result
 
 /// Chooses the contained definition with the smallest byte length; ties use the
 /// lowest sorted [`LocalDefId`].
-#[allow(dead_code)]
 #[must_use]
 pub(crate) fn nearest_owner(span: Span, defs: &[Def]) -> Option<LocalDefId> {
     let mut best: Option<(u32, LocalDefId)> = None;
