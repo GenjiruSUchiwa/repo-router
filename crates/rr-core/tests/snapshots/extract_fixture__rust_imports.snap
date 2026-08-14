@@ -1,0 +1,117 @@
+---
+source: crates/rr-core/tests/extract_fixture.rs
+expression: "to_snapshot(\"imports.rs\", &source, &facts)"
+---
+path: imports.rs
+status: complete
+defs:
+  - name: block_local
+    local_qualified: ~
+    kind: function
+    visibility: private
+    start_line: 10
+    end_line: 13
+    signature: fn block_local()
+    body_preview: z
+    test_explicit: false
+    test_cfg: false
+    doc_idents: []
+    attribute_idents: []
+  - name: holder
+    local_qualified: ~
+    kind: module
+    visibility: private
+    start_line: 15
+    end_line: 17
+    signature: mod holder
+    body_preview: ""
+    test_explicit: false
+    test_cfg: false
+    doc_idents: []
+    attribute_idents: []
+references: []
+imports:
+  - kind: Use
+    path: "crate::a::b"
+    alias: ~
+    is_public: false
+    is_glob: false
+    owner: ~
+  - kind: Use
+    path: "crate::a"
+    alias: ~
+    is_public: false
+    is_glob: false
+    owner: ~
+  - kind: Use
+    path: "crate::a::b"
+    alias: ~
+    is_public: false
+    is_glob: false
+    owner: ~
+  - kind: Use
+    path: "crate::a::c"
+    alias: d
+    is_public: false
+    is_glob: false
+    owner: ~
+  - kind: Use
+    path: "crate::a::nested::e"
+    alias: ~
+    is_public: false
+    is_glob: false
+    owner: ~
+  - kind: Use
+    path: "crate::a::nested::*"
+    alias: ~
+    is_public: false
+    is_glob: true
+    owner: ~
+  - kind: Use
+    path: "crate::internal::Client"
+    alias: ApiClient
+    is_public: true
+    is_glob: false
+    owner: ~
+  - kind: ExternCrate
+    path: alloc
+    alias: allocator
+    is_public: false
+    is_glob: false
+    owner: ~
+  - kind: Use
+    path: "super::x"
+    alias: ~
+    is_public: false
+    is_glob: false
+    owner: ~
+  - kind: Use
+    path: "self::y"
+    alias: ~
+    is_public: false
+    is_glob: false
+    owner: ~
+  - kind: Use
+    path: a
+    alias: _
+    is_public: false
+    is_glob: false
+    owner: ~
+  - kind: Use
+    path: "crate::a::b"
+    alias: ~
+    is_public: false
+    is_glob: false
+    owner: ~
+  - kind: Use
+    path: "crate::z"
+    alias: ~
+    is_public: false
+    is_glob: false
+    owner: block_local
+  - kind: Use
+    path: "crate::inside_mod::Item"
+    alias: ~
+    is_public: false
+    is_glob: false
+    owner: ~

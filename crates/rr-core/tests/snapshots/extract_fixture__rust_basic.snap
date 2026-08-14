@@ -1,0 +1,304 @@
+---
+source: crates/rr-core/tests/extract_fixture.rs
+expression: snapshots
+---
+src/auth/mod.rs:
+  path: src/auth/mod.rs
+  status: complete
+  defs:
+    - name: token
+      local_qualified: ~
+      kind: module
+      visibility: public
+      start_line: 1
+      end_line: 1
+      signature: pub mod token;
+      body_preview: ""
+      test_explicit: false
+      test_cfg: false
+      doc_idents: []
+      attribute_idents: []
+  references: []
+  imports: []
+src/auth/token.rs:
+  path: src/auth/token.rs
+  status: complete
+  defs:
+    - name: Claims
+      local_qualified: ~
+      kind: struct
+      visibility: public
+      start_line: 3
+      end_line: 6
+      signature: pub struct Claims
+      body_preview: sub String exp
+      test_explicit: false
+      test_cfg: false
+      doc_idents: []
+      attribute_idents: []
+    - name: decode_jwt
+      local_qualified: ~
+      kind: function
+      visibility: public
+      start_line: 8
+      end_line: 17
+      signature: "pub fn decode_jwt(token: &str) -> Option<Claims>"
+      body_preview: token None Claims sub exp
+      test_explicit: false
+      test_cfg: false
+      doc_idents: []
+      attribute_idents: []
+    - name: now
+      local_qualified: ~
+      kind: function
+      visibility: public
+      start_line: 19
+      end_line: 21
+      signature: pub fn now() -> u64
+      body_preview: ""
+      test_explicit: false
+      test_cfg: false
+      doc_idents: []
+      attribute_idents: []
+    - name: verify_token
+      local_qualified: ~
+      kind: function
+      visibility: public
+      start_line: 23
+      end_line: 29
+      signature: "pub fn verify_token(token: &str) -> bool"
+      body_preview: Some claims token claims exp claims sub
+      test_explicit: false
+      test_cfg: false
+      doc_idents: []
+      attribute_idents: []
+    - name: refresh_token
+      local_qualified: ~
+      kind: function
+      visibility: public
+      start_line: 31
+      end_line: 39
+      signature: "pub fn refresh_token(token: &str) -> Option<String>"
+      body_preview: token claims token _user claims sub None
+      test_explicit: false
+      test_cfg: false
+      doc_idents: []
+      attribute_idents: []
+  references:
+    - name: is_empty
+      qualified: ~
+      kind: MethodCall
+      line: 9
+      owner: decode_jwt
+    - name: Some
+      qualified: ~
+      kind: Call
+      line: 12
+      owner: decode_jwt
+    - name: to_string
+      qualified: ~
+      kind: MethodCall
+      line: 13
+      owner: decode_jwt
+    - name: now
+      qualified: ~
+      kind: Call
+      line: 14
+      owner: decode_jwt
+    - name: decode_jwt
+      qualified: ~
+      kind: Call
+      line: 24
+      owner: verify_token
+    - name: now
+      qualified: ~
+      kind: Call
+      line: 25
+      owner: verify_token
+    - name: find_user
+      qualified: ~
+      kind: Call
+      line: 25
+      owner: verify_token
+    - name: is_some
+      qualified: ~
+      kind: MethodCall
+      line: 25
+      owner: verify_token
+    - name: verify_token
+      qualified: ~
+      kind: Call
+      line: 32
+      owner: refresh_token
+    - name: decode_jwt
+      qualified: ~
+      kind: Call
+      line: 33
+      owner: refresh_token
+    - name: find_user
+      qualified: ~
+      kind: Call
+      line: 34
+      owner: refresh_token
+    - name: Some
+      qualified: ~
+      kind: Call
+      line: 35
+      owner: refresh_token
+    - name: format
+      qualified: ~
+      kind: MacroCall
+      line: 35
+      owner: refresh_token
+  imports:
+    - kind: Use
+      path: "crate::db::users::find_user"
+      alias: ~
+      is_public: false
+      is_glob: false
+      owner: ~
+src/db/mod.rs:
+  path: src/db/mod.rs
+  status: complete
+  defs:
+    - name: users
+      local_qualified: ~
+      kind: module
+      visibility: public
+      start_line: 1
+      end_line: 1
+      signature: pub mod users;
+      body_preview: ""
+      test_explicit: false
+      test_cfg: false
+      doc_idents: []
+      attribute_idents: []
+  references: []
+  imports: []
+src/db/users.rs:
+  path: src/db/users.rs
+  status: complete
+  defs:
+    - name: User
+      local_qualified: ~
+      kind: struct
+      visibility: public
+      start_line: 1
+      end_line: 4
+      signature: pub struct User
+      body_preview: id String name String
+      test_explicit: false
+      test_cfg: false
+      doc_idents: []
+      attribute_idents: []
+    - name: find_user
+      local_qualified: ~
+      kind: function
+      visibility: public
+      start_line: 6
+      end_line: 15
+      signature: "pub fn find_user(id: &str) -> Option<User>"
+      body_preview: id User id id name None
+      test_explicit: false
+      test_cfg: false
+      doc_idents: []
+      attribute_idents: []
+  references:
+    - name: Some
+      qualified: ~
+      kind: Call
+      line: 8
+      owner: find_user
+    - name: to_string
+      qualified: ~
+      kind: MethodCall
+      line: 9
+      owner: find_user
+    - name: to_string
+      qualified: ~
+      kind: MethodCall
+      line: 10
+      owner: find_user
+  imports: []
+src/main.rs:
+  path: src/main.rs
+  status: complete
+  defs:
+    - name: auth
+      local_qualified: ~
+      kind: module
+      visibility: private
+      start_line: 1
+      end_line: 1
+      signature: mod auth;
+      body_preview: ""
+      test_explicit: false
+      test_cfg: false
+      doc_idents: []
+      attribute_idents: []
+    - name: db
+      local_qualified: ~
+      kind: module
+      visibility: private
+      start_line: 2
+      end_line: 2
+      signature: mod db;
+      body_preview: ""
+      test_explicit: false
+      test_cfg: false
+      doc_idents: []
+      attribute_idents: []
+    - name: main
+      local_qualified: ~
+      kind: function
+      visibility: private
+      start_line: 6
+      end_line: 10
+      signature: fn main()
+      body_preview: token is_valid token
+      test_explicit: false
+      test_cfg: false
+      doc_idents: []
+      attribute_idents: []
+  references:
+    - name: verify_token
+      qualified: ~
+      kind: Call
+      line: 8
+      owner: main
+    - name: println
+      qualified: ~
+      kind: MacroCall
+      line: 9
+      owner: main
+  imports:
+    - kind: Use
+      path: "auth::token::verify_token"
+      alias: ~
+      is_public: false
+      is_glob: false
+      owner: ~
+tests/token_test.rs:
+  path: tests/token_test.rs
+  status: complete
+  defs:
+    - name: test_token_dummy
+      local_qualified: ~
+      kind: function
+      visibility: private
+      start_line: 1
+      end_line: 4
+      signature: "#[test] fn test_token_dummy()"
+      body_preview: ""
+      test_explicit: true
+      test_cfg: false
+      doc_idents: []
+      attribute_idents:
+        - test
+  references:
+    - name: assert_eq
+      qualified: ~
+      kind: MacroCall
+      line: 3
+      owner: test_token_dummy
+  imports: []

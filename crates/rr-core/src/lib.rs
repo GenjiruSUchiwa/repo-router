@@ -1,16 +1,21 @@
 #![deny(unsafe_code)]
 
 pub mod cache;
+pub mod facts;
 pub mod lang;
 pub mod oid;
+pub mod parser;
 pub mod path;
 pub mod walk;
 
-pub use cache::{
-    CacheKey, CacheOutcome, CacheStats, FactCache, EXTRACTOR_VERSION, FACT_SCHEMA_VERSION,
+pub use cache::{CacheKey, CacheOutcome, CacheStats, FactCache};
+pub use facts::{
+    Def, DefKind, DegradedReason, Facts, Import, ImportKind, LocalDefId, ParseStatus, Reference,
+    ReferenceKind, Span, TestSignals, Visibility, FACT_SCHEMA_VERSION,
 };
 pub use lang::Lang;
 pub use oid::{HashAlgo, Oid, OidError};
+pub use parser::EXTRACTOR_VERSION;
 pub use path::{RelPath, RelPathError};
 pub use walk::{discover, is_generated, SourceFile, WalkCfg, DEFAULT_EXCLUDES};
 
@@ -31,6 +36,37 @@ pub enum Error {
     },
     #[error("Cache serialization error: {0}")]
     CacheSerialization(#[from] postcard::Error),
+    #[error("invalid span byte order: {start_byte}..{end_byte}")]
+    InvalidSpanByteOrder { start_byte: u32, end_byte: u32 },
+    #[error("invalid span line range: {start_line}..{end_line}")]
+    InvalidSpanLineRange { start_line: u32, end_line: u32 },
+    #[error("span {start_byte}..{end_byte} exceeds source length {len}")]
+    SpanOutOfBounds {
+        start_byte: u32,
+        end_byte: u32,
+        len: usize,
+    },
+    #[error("span offset {offset} is not a UTF-8 character boundary")]
+    SpanNotCharBoundary { offset: u32 },
+    #[error("span line metadata does not match source")]
+    SpanLineMismatch,
+    #[error("invalid facts: {reason}")]
+    InvalidFacts { reason: &'static str },
+    #[error("invalid local definition id {id}; definition count is {definitions}")]
+    InvalidLocalDefId { id: u32, definitions: usize },
+    #[error("Tree-sitter language setup failed for {lang}: {message}")]
+    ExtractorLanguage { lang: Lang, message: String },
+    #[error("Tree-sitter query failed for {lang} at {row}:{column}: {message}")]
+    ExtractorQuery {
+        lang: Lang,
+        row: usize,
+        column: usize,
+        message: String,
+    },
+    #[error("Tree-sitter query capture contract is incomplete: missing {capture}")]
+    ExtractorQueryContract { capture: &'static str },
+    #[error("Rust extraction invariant failed: {message}")]
+    ExtractionInvariant { message: &'static str },
 }
 
 /// A specialized [`Result`](std::result::Result) type for `rr-core` operations.

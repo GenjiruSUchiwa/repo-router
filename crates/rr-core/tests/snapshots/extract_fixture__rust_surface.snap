@@ -1,0 +1,627 @@
+---
+source: crates/rr-core/tests/extract_fixture.rs
+expression: "to_snapshot(\"surface.rs\", &source, &facts)"
+---
+path: surface.rs
+status: complete
+defs:
+  - name: free_function
+    local_qualified: ~
+    kind: function
+    visibility: public
+    start_line: 3
+    end_line: 7
+    signature: "/// Docs for a free function. #[inline] pub fn free_function(value: u32) -> u32"
+    body_preview: value
+    test_explicit: false
+    test_cfg: false
+    doc_idents:
+      - Docs
+      - for
+      - a
+      - free
+      - function
+    attribute_idents:
+      - inline
+  - name: SurfaceStruct
+    local_qualified: ~
+    kind: struct
+    visibility: public
+    start_line: 9
+    end_line: 12
+    signature: /// Struct docs. pub struct SurfaceStruct
+    body_preview: field
+    test_explicit: false
+    test_cfg: false
+    doc_idents:
+      - Struct
+      - docs
+    attribute_idents: []
+  - name: SurfaceEnum
+    local_qualified: ~
+    kind: enum
+    visibility: public
+    start_line: 14
+    end_line: 18
+    signature: pub enum SurfaceEnum
+    body_preview: Unit Tuple Record value
+    test_explicit: false
+    test_cfg: false
+    doc_idents: []
+    attribute_idents: []
+  - name: SurfaceUnion
+    local_qualified: ~
+    kind: union
+    visibility: public
+    start_line: 20
+    end_line: 23
+    signature: pub union SurfaceUnion
+    body_preview: a b
+    test_explicit: false
+    test_cfg: false
+    doc_idents: []
+    attribute_idents: []
+  - name: SurfaceTrait
+    local_qualified: ~
+    kind: trait
+    visibility: public
+    start_line: 25
+    end_line: 32
+    signature: pub trait SurfaceTrait
+    body_preview: ""
+    test_explicit: false
+    test_cfg: false
+    doc_idents: []
+    attribute_idents: []
+  - name: Item
+    local_qualified: "SurfaceTrait::Item"
+    kind: associated-type
+    visibility: private
+    start_line: 26
+    end_line: 26
+    signature: type Item;
+    body_preview: ""
+    test_explicit: false
+    test_cfg: false
+    doc_idents: []
+    attribute_idents: []
+  - name: TRAIT_CONST
+    local_qualified: "SurfaceTrait::TRAIT_CONST"
+    kind: const
+    visibility: private
+    start_line: 27
+    end_line: 27
+    signature: "const TRAIT_CONST: u32;"
+    body_preview: ""
+    test_explicit: false
+    test_cfg: false
+    doc_idents: []
+    attribute_idents: []
+  - name: required
+    local_qualified: "SurfaceTrait::required"
+    kind: trait-method
+    visibility: private
+    start_line: 28
+    end_line: 28
+    signature: fn required(&self);
+    body_preview: ""
+    test_explicit: false
+    test_cfg: false
+    doc_idents: []
+    attribute_idents: []
+  - name: defaulted
+    local_qualified: "SurfaceTrait::defaulted"
+    kind: trait-method
+    visibility: private
+    start_line: 29
+    end_line: 31
+    signature: fn defaulted(&self)
+    body_preview: ""
+    test_explicit: false
+    test_cfg: false
+    doc_idents: []
+    attribute_idents: []
+  - name: SurfaceAlias
+    local_qualified: ~
+    kind: type-alias
+    visibility: public
+    start_line: 34
+    end_line: 34
+    signature: pub type SurfaceAlias = SurfaceStruct;
+    body_preview: SurfaceStruct
+    test_explicit: false
+    test_cfg: false
+    doc_idents: []
+    attribute_idents: []
+  - name: SURFACE_CONST
+    local_qualified: ~
+    kind: const
+    visibility: public
+    start_line: 36
+    end_line: 36
+    signature: "pub const SURFACE_CONST: u32 = 7;"
+    body_preview: ""
+    test_explicit: false
+    test_cfg: false
+    doc_idents: []
+    attribute_idents: []
+  - name: SURFACE_STATIC
+    local_qualified: ~
+    kind: static
+    visibility: public
+    start_line: 37
+    end_line: 37
+    signature: "pub static SURFACE_STATIC: u32 = 9;"
+    body_preview: ""
+    test_explicit: false
+    test_cfg: false
+    doc_idents: []
+    attribute_idents: []
+  - name: nested
+    local_qualified: ~
+    kind: module
+    visibility: public
+    start_line: 39
+    end_line: 68
+    signature: pub mod nested
+    body_preview: NestedService NestedService
+    test_explicit: false
+    test_cfg: false
+    doc_idents: []
+    attribute_idents: []
+  - name: nested_free
+    local_qualified: "nested::nested_free"
+    kind: function
+    visibility: public
+    start_line: 40
+    end_line: 42
+    signature: pub fn nested_free()
+    body_preview: ""
+    test_explicit: false
+    test_cfg: false
+    doc_idents: []
+    attribute_idents: []
+  - name: NestedService
+    local_qualified: "nested::NestedService"
+    kind: struct
+    visibility: public
+    start_line: 44
+    end_line: 44
+    signature: pub struct NestedService;
+    body_preview: ""
+    test_explicit: false
+    test_cfg: false
+    doc_idents: []
+    attribute_idents: []
+  - name: inherent
+    local_qualified: "nested::NestedService::inherent"
+    kind: method
+    visibility: public
+    start_line: 47
+    end_line: 49
+    signature: pub fn inherent(&self)
+    body_preview: ""
+    test_explicit: false
+    test_cfg: false
+    doc_idents: []
+    attribute_idents: []
+  - name: NestedTrait
+    local_qualified: "nested::NestedTrait"
+    kind: trait
+    visibility: public
+    start_line: 52
+    end_line: 54
+    signature: pub trait NestedTrait
+    body_preview: ""
+    test_explicit: false
+    test_cfg: false
+    doc_idents: []
+    attribute_idents: []
+  - name: method
+    local_qualified: "nested::NestedTrait::method"
+    kind: trait-method
+    visibility: private
+    start_line: 53
+    end_line: 53
+    signature: fn method(&self);
+    body_preview: ""
+    test_explicit: false
+    test_cfg: false
+    doc_idents: []
+    attribute_idents: []
+  - name: method
+    local_qualified: "nested::<NestedService as NestedTrait>::method"
+    kind: method
+    visibility: private
+    start_line: 57
+    end_line: 59
+    signature: fn method(&self)
+    body_preview: ""
+    test_explicit: false
+    test_cfg: false
+    doc_idents: []
+    attribute_idents: []
+  - name: outer
+    local_qualified: "nested::outer"
+    kind: function
+    visibility: private
+    start_line: 62
+    end_line: 67
+    signature: fn outer()
+    body_preview: ""
+    test_explicit: false
+    test_cfg: false
+    doc_idents: []
+    attribute_idents: []
+  - name: inner
+    local_qualified: "nested::outer::inner"
+    kind: function
+    visibility: private
+    start_line: 63
+    end_line: 65
+    signature: fn inner()
+    body_preview: ""
+    test_explicit: false
+    test_cfg: false
+    doc_idents: []
+    attribute_idents: []
+  - name: inherent_method
+    local_qualified: "SurfaceStruct::inherent_method"
+    kind: method
+    visibility: public
+    start_line: 71
+    end_line: 73
+    signature: pub fn inherent_method(&self)
+    body_preview: field
+    test_explicit: false
+    test_cfg: false
+    doc_idents: []
+    attribute_idents: []
+  - name: Item
+    local_qualified: "<SurfaceStruct as SurfaceTrait>::Item"
+    kind: type-alias
+    visibility: private
+    start_line: 77
+    end_line: 77
+    signature: type Item = u32;
+    body_preview: ""
+    test_explicit: false
+    test_cfg: false
+    doc_idents: []
+    attribute_idents: []
+  - name: TRAIT_CONST
+    local_qualified: "<SurfaceStruct as SurfaceTrait>::TRAIT_CONST"
+    kind: const
+    visibility: private
+    start_line: 78
+    end_line: 78
+    signature: "const TRAIT_CONST: u32 = 1;"
+    body_preview: ""
+    test_explicit: false
+    test_cfg: false
+    doc_idents: []
+    attribute_idents: []
+  - name: required
+    local_qualified: "<SurfaceStruct as SurfaceTrait>::required"
+    kind: method
+    visibility: private
+    start_line: 79
+    end_line: 81
+    signature: fn required(&self)
+    body_preview: ""
+    test_explicit: false
+    test_cfg: false
+    doc_idents: []
+    attribute_idents: []
+  - name: surface_macro
+    local_qualified: ~
+    kind: macro
+    visibility: private
+    start_line: 84
+    end_line: 88
+    signature: macro_rules! surface_macro
+    body_preview: ""
+    test_explicit: false
+    test_cfg: false
+    doc_idents: []
+    attribute_idents: []
+  - name: méthode
+    local_qualified: ~
+    kind: function
+    visibility: private
+    start_line: 90
+    end_line: 94
+    signature: /// Unicode definition. fn méthode()
+    body_preview: valeur valeur
+    test_explicit: false
+    test_cfg: false
+    doc_idents:
+      - Unicode
+      - definition
+    attribute_idents: []
+  - name: tests
+    local_qualified: ~
+    kind: module
+    visibility: private
+    start_line: 96
+    end_line: 113
+    signature: "#[cfg(test)] mod tests"
+    body_preview: ""
+    test_explicit: false
+    test_cfg: true
+    doc_idents: []
+    attribute_idents:
+      - cfg
+      - test
+  - name: unit_test_surface
+    local_qualified: "tests::unit_test_surface"
+    kind: function
+    visibility: private
+    start_line: 100
+    end_line: 103
+    signature: "#[test] fn unit_test_surface()"
+    body_preview: free_function
+    test_explicit: true
+    test_cfg: true
+    doc_idents: []
+    attribute_idents:
+      - test
+  - name: tokio_style
+    local_qualified: "tests::tokio_style"
+    kind: function
+    visibility: private
+    start_line: 105
+    end_line: 106
+    signature: "#[tokio::test] async fn tokio_style()"
+    body_preview: ""
+    test_explicit: true
+    test_cfg: true
+    doc_idents: []
+    attribute_idents:
+      - tokio
+      - test
+  - name: rstest_style
+    local_qualified: "tests::rstest_style"
+    kind: function
+    visibility: private
+    start_line: 108
+    end_line: 109
+    signature: "#[rstest] fn rstest_style()"
+    body_preview: ""
+    test_explicit: true
+    test_cfg: true
+    doc_idents: []
+    attribute_idents:
+      - rstest
+  - name: test_case_style
+    local_qualified: "tests::test_case_style"
+    kind: function
+    visibility: private
+    start_line: 111
+    end_line: 112
+    signature: "#[test_case] fn test_case_style()"
+    body_preview: ""
+    test_explicit: true
+    test_cfg: true
+    doc_idents: []
+    attribute_idents:
+      - test_case
+  - name: calls_surface
+    local_qualified: ~
+    kind: function
+    visibility: private
+    start_line: 115
+    end_line: 125
+    signature: fn calls_surface()
+    body_preview: value value
+    test_explicit: false
+    test_cfg: false
+    doc_idents: []
+    attribute_idents: []
+  - name: module
+    local_qualified: ~
+    kind: module
+    visibility: private
+    start_line: 127
+    end_line: 129
+    signature: mod module
+    body_preview: ""
+    test_explicit: false
+    test_cfg: false
+    doc_idents: []
+    attribute_idents: []
+  - name: free_function
+    local_qualified: "module::free_function"
+    kind: function
+    visibility: public
+    start_line: 128
+    end_line: 128
+    signature: "pub fn free_function(_v: u32)"
+    body_preview: ""
+    test_explicit: false
+    test_cfg: false
+    doc_idents: []
+    attribute_idents: []
+  - name: scope_a
+    local_qualified: ~
+    kind: function
+    visibility: private
+    start_line: 132
+    end_line: 135
+    signature: fn scope_a()
+    body_preview: ""
+    test_explicit: false
+    test_cfg: false
+    doc_idents: []
+    attribute_idents: []
+  - name: helper
+    local_qualified: "scope_a::helper"
+    kind: function
+    visibility: private
+    start_line: 133
+    end_line: 133
+    signature: fn helper()
+    body_preview: ""
+    test_explicit: false
+    test_cfg: false
+    doc_idents: []
+    attribute_idents: []
+  - name: scope_b
+    local_qualified: ~
+    kind: function
+    visibility: private
+    start_line: 137
+    end_line: 140
+    signature: fn scope_b()
+    body_preview: ""
+    test_explicit: false
+    test_cfg: false
+    doc_idents: []
+    attribute_idents: []
+  - name: helper
+    local_qualified: "scope_b::helper"
+    kind: function
+    visibility: private
+    start_line: 138
+    end_line: 138
+    signature: fn helper()
+    body_preview: ""
+    test_explicit: false
+    test_cfg: false
+    doc_idents: []
+    attribute_idents: []
+  - name: foreign_surface
+    local_qualified: ~
+    kind: function
+    visibility: private
+    start_line: 143
+    end_line: 143
+    signature: "fn foreign_surface(x: i32) -> i32;"
+    body_preview: ""
+    test_explicit: false
+    test_cfg: false
+    doc_idents: []
+    attribute_idents: []
+references:
+  - name: saturating_add
+    qualified: ~
+    kind: MethodCall
+    line: 6
+    owner: free_function
+  - name: required
+    qualified: ~
+    kind: MethodCall
+    line: 30
+    owner: defaulted
+  - name: free_function
+    qualified: "crate::free_function"
+    kind: Call
+    line: 41
+    owner: nested_free
+  - name: nested_free
+    qualified: ~
+    kind: Call
+    line: 48
+    owner: inherent
+  - name: NestedTrait
+    qualified: NestedTrait
+    kind: Implementation
+    line: 56
+    owner: nested
+  - name: inherent
+    qualified: ~
+    kind: MethodCall
+    line: 58
+    owner: method
+  - name: nested_free
+    qualified: ~
+    kind: Call
+    line: 64
+    owner: inner
+  - name: inner
+    qualified: ~
+    kind: Call
+    line: 66
+    owner: outer
+  - name: free_function
+    qualified: ~
+    kind: Call
+    line: 72
+    owner: inherent_method
+  - name: SurfaceTrait
+    qualified: SurfaceTrait
+    kind: Implementation
+    line: 76
+    owner: ~
+  - name: inherent_method
+    qualified: ~
+    kind: MethodCall
+    line: 80
+    owner: required
+  - name: assert_eq
+    qualified: ~
+    kind: MacroCall
+    line: 102
+    owner: unit_test_surface
+  - name: free_function
+    qualified: ~
+    kind: Call
+    line: 116
+    owner: calls_surface
+  - name: free_function
+    qualified: "module::free_function"
+    kind: Call
+    line: 117
+    owner: calls_surface
+  - name: free_function
+    qualified: ~
+    kind: Call
+    line: 118
+    owner: calls_surface
+  - name: inherent_method
+    qualified: "SurfaceStruct::inherent_method"
+    kind: Call
+    line: 119
+    owner: calls_surface
+  - name: inherent_method
+    qualified: ~
+    kind: MethodCall
+    line: 120
+    owner: calls_surface
+  - name: println
+    qualified: ~
+    kind: MacroCall
+    line: 121
+    owner: calls_surface
+  - name: surface_macro
+    qualified: "crate::surface_macro"
+    kind: MacroCall
+    line: 122
+    owner: calls_surface
+  - name: method
+    qualified: ~
+    kind: MethodCall
+    line: 123
+    owner: calls_surface
+  - name: Some
+    qualified: ~
+    kind: Call
+    line: 124
+    owner: calls_surface
+  - name: helper
+    qualified: ~
+    kind: Call
+    line: 134
+    owner: scope_a
+  - name: helper
+    qualified: ~
+    kind: Call
+    line: 139
+    owner: scope_b
+imports:
+  - kind: Use
+    path: "super::*"
+    alias: ~
+    is_public: false
+    is_glob: true
+    owner: ~

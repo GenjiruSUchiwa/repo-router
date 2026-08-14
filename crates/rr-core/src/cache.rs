@@ -10,19 +10,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
+use crate::facts::FACT_SCHEMA_VERSION;
 use crate::lang::Lang;
 use crate::oid::Oid;
+use crate::parser::EXTRACTOR_VERSION;
 use crate::{Error, Result};
-
-/// Version identifier for the fact extractor logic.
-///
-/// Incrementing this constant naturally invalidates all existing cache entries.
-pub const EXTRACTOR_VERSION: u32 = 1;
-
-/// Version identifier for the fact data schema.
-///
-/// Incrementing this constant naturally invalidates all existing cache entries.
-pub const FACT_SCHEMA_VERSION: u32 = 1;
 
 /// Composite cache key identifying facts extracted from a specific file content.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -252,7 +244,7 @@ mod tests {
     fn cache_key_file_name_format() {
         let oid = Oid::from_hex(SHA1_HEX).unwrap();
         let key = CacheKey::new(oid, Lang::Rust);
-        assert_eq!(key.file_name(), format!("{SHA1_HEX}-rust-1-1.bin"));
+        assert_eq!(key.file_name(), format!("{SHA1_HEX}-rust-2-1.bin"));
     }
 
     #[test]
