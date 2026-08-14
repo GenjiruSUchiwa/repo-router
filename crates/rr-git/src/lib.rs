@@ -6,9 +6,13 @@
 //! Provides fast Git object identifier computation, Git blob hashing, repository discovery,
 //! and index-based OID resolution with zero content reads on clean files.
 
+pub mod content;
+pub mod map;
 pub mod oid;
 pub mod repo;
 
+pub use content::{acquire_non_git, AcquiredContent, ContentProbe, ContentRepresentation};
+pub use map::build_map;
 pub use oid::{hash_blob, HashAlgo, Oid, OidError};
 pub use repo::{oid_of, GitRepo};
 
@@ -24,6 +28,10 @@ pub enum Error {
     /// Git index reading or opening failure.
     #[error("Git index error: {0}")]
     Index(#[from] Box<gix::worktree::open_index::Error>),
+    #[error("core error: {0}")]
+    Core(#[from] rr_core::Error),
+    #[error("content acquisition failed: {0}")]
+    Content(String),
     /// Git object identifier validation failure.
     #[error("OID error: {0}")]
     Oid(#[from] OidError),
