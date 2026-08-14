@@ -437,6 +437,8 @@ pub enum RankingError {
     InvalidCorpusStats { reason: &'static str },
     #[error("corrupt postings: {reason}")]
     InvalidPostings { reason: &'static str },
+    #[error("invalid query terms: {reason}")]
+    InvalidQuery { reason: &'static str },
     #[error("query term {term} is outside the snapshot lexicon of {terms} terms")]
     TermOutOfRange { term: usize, terms: usize },
     #[error("symbol {symbol} is outside the snapshot of {symbols} symbols")]
@@ -512,11 +514,15 @@ struct Retained {
 }
 
 impl Ord for Retained {
-    /// Orders **worst first**, so a max-heap evicts the least promising member.
+    /// Orders **best first**: this is the retention key
+    /// `(rarest_df ascending, matched_terms descending, SymbolId ascending)`
+    /// exactly, so the most promising member is the `Ordering::Less` one, and
+    /// the order is total because symbol ids are unique.
     ///
-    /// The retention key is `(rarest_df ascending, matched_terms descending,
-    /// SymbolId ascending)`; this is its exact reversal, and it is total because
-    /// symbol ids are unique.
+    /// [`retain`] therefore holds the members in a **max**-heap, whose root is
+    /// the worst member kept and the only one a new arrival may displace.
+    /// Reversing this comparison would silently make the cap keep the least
+    /// promising union members instead of the best ones.
     fn cmp(&self, other: &Self) -> Ordering {
         self.rarest_df
             .cmp(&other.rarest_df)
@@ -634,12 +640,16 @@ pub fn rank<'scratch>(
 /// pseudo-probability to it would misrepresent that.
 ///
 /// # Errors
-/// Returns [`RankingError::Arithmetic`] if the margin cannot be represented as a
-/// public confidence.
+/// Returns [`RankingError::InvalidProfile`] if `profile` violates a load-time
+/// invariant — notably a `result_limit` above [`RESULT_LIMIT`], which would
+/// build a candidate list the public v1 contract cannot carry — or
+/// [`RankingError::Arithmetic`] if the margin cannot be represented as a public
+/// confidence.
 pub fn decide(
     ranked: &[RankedSymbol],
     profile: &RankingProfile,
 ) -> Result<QueryResult, RankingError> {
+    profile.validate()?;
     let thresholds = profile.thresholds;
     let Some(top) = ranked.first() else {
         return Ok(none(NoneReason::NotFound));
@@ -705,7 +715,7 @@ fn load_query_terms(query: &QueryTerms, scratch: &mut RankingScratch) -> Result<
     scratch.terms.extend(query.iter());
     scratch.terms.sort_unstable();
     if scratch.terms.windows(2).any(|pair| pair[0] == pair[1]) {
-        return Err(RankingError::InvalidPostings {
+        return Err(RankingError::InvalidQuery {
             reason: "query terms are not deduplicated",
         });
     }
@@ -1276,11 +1286,15 @@ mod tests {
     #[test]
     fn ranking_profile_validation_rejects_every_invalid_parameter() {
         type Mutation = fn(&mut RankingProfile);
-        let cases: [(&str, Mutation); 7] = [
+        let cases: [(&str, Mutation); 8] = [
             ("negative boost", |p| p.fields[0].boost = -1.0),
             ("non-finite boost", |p| p.fields[3].boost = f64::NAN),
             ("negative k1", |p| p.fields[1].k1 = -0.1),
             ("b above one", |p| p.fields[2].b = 1.5),
+            ("direct answer below the abstention floor", |p| {
+                p.thresholds.none_below = Score::from_millionths(10);
+                p.thresholds.direct_at_least = Score::from_millionths(9);
+            }),
             ("zero candidate limit", |p| p.candidate_limit = 0),
             ("limits inverted", |p| {
                 p.candidate_limit = 2;
@@ -1299,6 +1313,20 @@ mod tests {
                 "{label} must be rejected"
             );
         }
+    }
+
+    #[test]
+    fn ranking_decide_rejects_an_invalid_profile() {
+        let mut profile = DEFAULT_RANKING_PROFILE;
+        profile.result_limit = 4;
+        assert!(
+            matches!(
+                decide(&[], &profile),
+                Err(RankingError::InvalidProfile { .. })
+            ),
+            "a public entry point must reject a profile it cannot honour, \
+             even on the empty ranking that answers without reading it"
+        );
     }
 
     #[test]
@@ -1393,7 +1421,7 @@ mod tests {
     }
 
     #[test]
-    fn ranking_retention_key_orders_worst_first() {
+    fn ranking_retention_key_orders_best_first() {
         let best = Retained {
             rarest_df: 1,
             matched_terms: 2,

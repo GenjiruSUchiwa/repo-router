@@ -1,7 +1,9 @@
 # Self-review — lexical ranking (#8)
 
 Written against the implementation in `crates/rr-core/src/ranking.rs` and its test
-suites. Nothing here was produced by the repository's code-review tooling.
+suites. Everything above the last section was found by hand, without the
+repository's code-review tooling; the last section records what a subsequent
+tooling pass added, kept separate so the two provenances stay distinguishable.
 
 ## Defects found and fixed
 
@@ -111,7 +113,8 @@ documentation so the next corpus edit does not reintroduce it.
   A size-normalized decision statistic would fix it.
 - **The candidate cap can drop the true top-scorer.** Retention orders by
   `(rarest_df, matched_terms, SymbolId)`, not by score. Inherent to the issue's
-  bounded design; `candidates_dropped` at least makes it observable.
+  bounded design; `candidates_dropped` records it, though only inside `rr-core`
+  — see the last section.
 - **Scoring dominates the cost, not the merge.** ~197 µs for 12 000 postings is
   64 candidates × 5 terms × 10 fields of binary search back into the posting
   lists. Carrying each stream's cursor into scoring, or scoring inside the merge,
@@ -161,3 +164,38 @@ holds the corpus loader, the observation pass, two threshold fits, the metrics,
 the JSON report, and the tests. It reads in order and each piece is small, but if
 it grows again it should be split into a `calibration/` support module with the
 tests kept separate.
+
+## What the tooling pass added afterwards
+
+A `/code-review high --fix` run over the whole branch found no defect producing a
+wrong or panicking answer on a valid index. It did find four things worth fixing,
+none of which the hand review above had caught:
+
+1. **`Ord for Retained` documented the opposite of what it implements.** The
+   comment claimed the ordering was the *exact reversal* of the retention key,
+   worst first. It is the retention key itself, best first; correctness rests on
+   `retain` evicting the max-heap root, which is the worst member kept. The
+   comment was the trap, not the code: a maintainer trusting it would reverse the
+   comparison and the cap would keep the 64 *least* promising union members with
+   nothing failing. Reworded, and the unit test renamed to
+   `ranking_retention_key_orders_best_first` so the name states the real claim.
+2. **`decide` never validated its profile.** It is `pub` and re-exported, so a
+   caller could hand it a `result_limit` above `RESULT_LIMIT` and get a candidate
+   list the v1 contract cannot carry. Now validates first, pinned by
+   `ranking_decide_rejects_an_invalid_profile`.
+3. **A query-side defect was reported as index corruption.** Duplicated query
+   terms returned `InvalidPostings { "corrupt postings" }`, which sends an
+   operator to re-map their repository over a fault in the caller. Now
+   `RankingError::InvalidQuery`.
+4. **`compute_corpus_stats` walked the symbol arena ten times.** One pass per
+   field, run on every snapshot load through `Snapshot::validate`. Now one pass
+   accumulating all ten field counters.
+
+The threshold-consistency check from defect 4 above also had no test of its own —
+`ranking_profile_validation_rejects_every_invalid_parameter` covered seven of
+`validate`'s eight rules. It now covers all eight.
+
+One finding is left unfixed: `route_query` discards the `RankingEvidence` that
+carries `candidates_dropped`, so cap truncation is observable inside `rr-core` but
+silent end to end. Surfacing it would extend the v1 output contract, which is a
+decision for the contract, not a fix for this branch.

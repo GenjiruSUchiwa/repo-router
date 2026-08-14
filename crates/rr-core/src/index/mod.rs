@@ -471,18 +471,22 @@ impl Snapshot {
     /// result once so ranking reads it in constant time, and validation proves
     /// the stored copy still equals the recomputation.
     ///
+    /// Every field is accumulated in one pass over the symbols, because this
+    /// runs on every snapshot load as part of [`Snapshot::validate`]: one pass
+    /// per field would walk the symbol arena ten times over.
+    ///
     /// # Errors
     /// Returns [`Error::SnapshotInvariant`] if a field's total term frequency
     /// overflows `u64`.
     pub fn compute_corpus_stats(&self) -> Result<CorpusStats> {
         let mut corpus = CorpusStats::EMPTY;
-        for field in LexicalField::ALL {
-            let stats = &mut corpus.fields[field.index()];
-            for symbol in &self.symbols {
+        for symbol in &self.symbols {
+            for field in LexicalField::ALL {
                 let length = symbol.field_lengths.get(field);
                 if length == 0 {
                     continue;
                 }
+                let stats = &mut corpus.fields[field.index()];
                 stats.document_count += 1;
                 stats.total_term_frequency = stats
                     .total_term_frequency
