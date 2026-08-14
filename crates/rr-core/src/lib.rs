@@ -9,6 +9,7 @@ pub mod oid;
 pub mod parser;
 pub mod path;
 pub mod query;
+pub mod ranking;
 pub mod render;
 pub mod result;
 pub mod snapshot;
@@ -30,8 +31,14 @@ pub use oid::{HashAlgo, Oid, OidError};
 pub use parser::EXTRACTOR_VERSION;
 pub use path::{RelPath, RelPathError};
 pub use query::{
-    finish_exact, parse_query, route_exact, ExactAtom, ExactAtomKind, ExactOutcome, ParsedQuery,
-    QueryRequest,
+    finish_exact, parse_query, route_exact, route_query, ExactAtom, ExactAtomKind, ExactOutcome,
+    ParsedQuery, QueryRequest,
+};
+pub use ranking::{
+    decide, rank, route_lexical, CorpusStats, DecisionThresholds, FieldParams, FieldStats,
+    MarginPpm, RankedSymbol, RankingError, RankingEvidence, RankingProfile, RankingScratch,
+    RankingStamp, Score, CANDIDATE_LIMIT, DEFAULT_RANKING_PROFILE, RANKING_PROFILE_VERSION,
+    RESULT_LIMIT,
 };
 pub use render::{decode_anchor, encode_anchor, render_json, render_text};
 pub use result::{
@@ -67,6 +74,8 @@ pub enum Error {
     IdSpaceExhausted(&'static str),
     #[error("snapshot invariant violated: {reason}")]
     SnapshotInvariant { reason: &'static str },
+    #[error("lexical ranking failed: {0}")]
+    Ranking(#[from] ranking::RankingError),
 
     #[error("invalid span byte order: {start_byte}..{end_byte}")]
     InvalidSpanByteOrder { start_byte: u32, end_byte: u32 },

@@ -1,0 +1,35 @@
+{"id":"auth-create-session","repository":"auth","query":"how do we create a session?","label":"direct","anchors":["src/auth/session.rs#create_session"]}
+{"id":"auth-decode-token","repository":"auth","query":"decode a raw token payload into claims","label":"direct","anchors":["src/auth/token.rs#decode_token"]}
+{"id":"auth-destroy-session","repository":"auth","query":"destroy the session for an id","label":"direct","anchors":["src/auth/session.rs#destroy_session"]}
+{"id":"auth-hash-password","repository":"auth","query":"how do we hash a password?","label":"direct","anchors":["src/auth/password.rs#hash_password"]}
+{"id":"auth-password-ambiguous","repository":"auth","query":"password","label":"candidates","anchors":["src/auth/password.rs#hash_password","src/auth/password.rs#verify_password"]}
+{"id":"auth-repeated-terms","repository":"auth","query":"token token verification verification","label":"direct","anchors":["src/auth/token.rs#verify_token"]}
+{"id":"auth-token-verification","repository":"auth","query":"where is token verification handled?","label":"direct","anchors":["src/auth/token.rs#verify_token"]}
+{"id":"auth-unanswerable-geometry","repository":"auth","query":"dot product of two vectors","label":"none","anchors":[]}
+{"id":"auth-unanswerable-payload","repository":"auth","query":"which payload is compressed?","label":"none","anchors":[]}
+{"id":"geometry-circle-area","repository":"geometry","query":"how is the area of a circle measured?","label":"direct","anchors":["src/geometry/shapes.rs#area_of_circle"]}
+{"id":"geometry-circle-perimeter","repository":"geometry","query":"perimeter of a circle","label":"direct","anchors":["src/geometry/shapes.rs#perimeter_of_circle"]}
+{"id":"geometry-normalize-vector","repository":"geometry","query":"how do we normalize a vector to unit length?","label":"direct","anchors":["src/geometry/vector.rs#normalize_vector"]}
+{"id":"geometry-unanswerable-radius","repository":"geometry","query":"how is the radius rounded?","label":"none","anchors":[]}
+{"id":"geometry-unanswerable-security","repository":"geometry","query":"security logic","label":"none","anchors":[]}
+{"id":"geometry-unanswerable-token","repository":"geometry","query":"where is token verification handled?","label":"none","anchors":[]}
+{"id":"http-apply-middleware","repository":"http","query":"how do we apply middleware to a request?","label":"direct","anchors":["src/http/middleware.rs#apply_middleware"]}
+{"id":"http-backoff-delay","repository":"http","query":"delay before the next attempt","label":"direct","anchors":["src/http/retry.rs#backoff_delay"]}
+{"id":"http-find-route","repository":"http","query":"which route is registered for a request path?","label":"direct","anchors":["src/http/router.rs#find_route"]}
+{"id":"http-rate-limit","repository":"http","query":"reject a request whose rate limit budget is spent","label":"direct","anchors":["src/http/middleware.rs#rate_limit"]}
+{"id":"http-retry-backoff","repository":"http","query":"retry a failed request with exponential backoff","label":"direct","anchors":["src/http/retry.rs#retry_with_backoff"]}
+{"id":"http-route-pattern-ambiguous","repository":"http","query":"route pattern in the table","label":"candidates","anchors":["src/http/router.rs#add_route","src/http/router.rs#find_route"]}
+{"id":"http-unanswerable-key","repository":"http","query":"which handler stores the value for a key?","label":"none","anchors":[]}
+{"id":"http-unanswerable-request","repository":"http","query":"request","label":"none","anchors":[]}
+{"id":"storage-cache-eviction","repository":"storage","query":"which entry does the cache evict when it is full?","label":"direct","anchors":["src/store/cache.rs#evict"]}
+{"id":"storage-deserialize-entry","repository":"storage","query":"deserialization of a stored entry","label":"direct","anchors":["src/store/serialize.rs#deserialize_entry"]}
+{"id":"storage-remove-key","repository":"storage","query":"how do i remove a key?","label":"direct","anchors":["src/store/kv.rs#remove"]}
+{"id":"storage-serialize-entry","repository":"storage","query":"where is an entry serialized to bytes?","label":"direct","anchors":["src/store/serialize.rs#serialize_entry"]}
+{"id":"storage-unanswerable-bytes","repository":"storage","query":"how are the bytes compressed?","label":"none","anchors":[]}
+{"id":"storage-unanswerable-token","repository":"storage","query":"where is token verification handled?","label":"none","anchors":[]}
+{"id":"storage-wire-ambiguous","repository":"storage","query":"wire representation of an entry","label":"candidates","anchors":["src/store/serialize.rs#deserialize_entry","src/store/serialize.rs#serialize_entry"]}
+{"id":"wide-dispatch-entry","repository":"wide","query":"event dispatch entry point","label":"direct","anchors":["src/wide/dispatch.rs#dispatch_event"]}
+{"id":"wide-handled-event","repository":"wide","query":"how is an event handled?","label":"candidates","anchors":["src/wide/handlers.rs#handle_event_01","src/wide/handlers.rs#handle_event_02","src/wide/handlers.rs#handle_event_03"]}
+{"id":"wide-record-audit","repository":"wide","query":"record an event in the audit log","label":"direct","anchors":["src/wide/dispatch.rs#record_event"]}
+{"id":"wide-unanswerable-kind","repository":"wide","query":"which kind is escalated?","label":"none","anchors":[]}
+{"id":"wide-unanswerable-src","repository":"wide","query":"src","label":"none","anchors":[]}

@@ -8,7 +8,6 @@ use rr_core::index::{
     WorkerStats,
 };
 use rr_core::lang::Lang;
-use rr_core::lex::lexical_profile;
 use rr_core::parser::RustExtractor;
 use rr_core::walk::{discover, SourceFile, WalkCfg};
 use rr_core::FactCache;
@@ -70,12 +69,7 @@ pub fn build_map(root: &Path, threads: usize) -> Result<BuildReport> {
         .map(GitRepo::head_oid)
         .transpose()?
         .flatten();
-    let meta = SnapshotMeta {
-        repo_head_oid: head,
-        no_git,
-        lexical_profile: lexical_profile(),
-        build_version: rr_core::index::BUILD_VERSION,
-    };
+    let meta = SnapshotMeta::new(head, no_git);
     let (snapshot, counts) = SnapshotBuilder::new(meta).build(inputs)?;
     let stats = BuildStats {
         files: u32::try_from(snapshot.files.len())
