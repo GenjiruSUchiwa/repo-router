@@ -608,6 +608,64 @@ fn test_fuzz_and_regression_seeds() {
     }
 }
 
+#[test]
+#[allow(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
+fn test_isolated_performance_benchmark() {
+    let sample = "AuthService_validate_and_verifyToken_XMLHttpRequest2_sha256Digest";
+    let iterations = 100_000usize;
+
+    let start = std::time::Instant::now();
+    let mut total_lexemes = 0usize;
+    for _ in 0..iterations {
+        for_each_lexeme(sample, |_| {
+            total_lexemes += 1;
+            Ok(())
+        })
+        .unwrap();
+    }
+    let elapsed = start.elapsed();
+    let nanos_per_op = elapsed.as_nanos() as f64 / iterations as f64;
+    let ops_per_sec = (iterations as f64 / elapsed.as_secs_f64()) as usize;
+    let bytes_processed = sample.len() * iterations;
+    let mb_per_sec = (bytes_processed as f64 / (1024.0 * 1024.0)) / elapsed.as_secs_f64();
+
+    assert!(total_lexemes > 0);
+    assert_eq!(total_lexemes, 12 * iterations);
+    let mut lexicon = Lexicon::new();
+    let mut out = SmallVec::<[FieldTerm; 32]>::with_capacity(32);
+    append_source_terms(
+        LexicalField::Name,
+        InputKind::Identifier,
+        "token verification verify auth service validate",
+        &mut lexicon,
+        &mut out,
+    )
+    .unwrap();
+
+    let query_iterations = 50_000usize;
+    let query_start = std::time::Instant::now();
+    let mut query_terms_count = 0usize;
+    for _ in 0..query_iterations {
+        let q = query_terms("where is token verification handled?", &lexicon);
+        query_terms_count += q.len();
+    }
+    let query_elapsed = query_start.elapsed();
+    let query_nanos = query_elapsed.as_nanos() as f64 / query_iterations as f64;
+    let query_ops = (query_iterations as f64 / query_elapsed.as_secs_f64()) as usize;
+
+    assert!(query_terms_count > 0);
+    assert_eq!(query_terms_count, 3 * query_iterations);
+    println!(
+        "\n================ ISOLATED PERFORMANCE BENCHMARK ================\n\
+         [Tokenizer raw ASCII]   : {nanos_per_op:.2} ns/op | {ops_per_sec} ops/sec | {mb_per_sec:.2} MB/s\n\
+         [Query terms pipeline]  : {query_nanos:.2} ns/query | {query_ops} queries/sec\n\
+         ================================================================"
+    );
+}
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(500))]
 
