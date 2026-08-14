@@ -6,44 +6,36 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
-/// Error returned when parsing or creating an invalid [`RelPath`].
+/// Error produced when parsing or validating a [`RelPath`].
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum RelPathError {
     #[error("relative path cannot be empty")]
     Empty,
     #[error("path is not relative to root: {0}")]
     NotRelative(String),
-    #[error("path contains invalid component (e.g. '..'): {0}")]
+    #[error("path contains invalid component: {0}")]
     InvalidComponent(String),
 }
 
-/// A normalized, repo-relative path using `/` as separator.
-///
-/// Invariants:
-/// - Never empty.
-/// - Never starts with `/` or `./`.
-/// - Never contains `..` components.
-/// - Uses `/` (forward slash) on all platforms for snapshot determinism.
+/// A normalized relative path using `/` as separator.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(into = "String", try_from = "String")]
 pub struct RelPath(String);
 
 impl RelPath {
-    /// Creates a new [`RelPath`] from a string slice, normalizing separators.
+    /// Creates a [`RelPath`] from a string slice, normalizing separators.
     ///
     /// # Errors
-    /// Returns [`RelPathError::Empty`] if the path is empty, or [`RelPathError::InvalidComponent`]
-    /// if the path contains illegal segments such as `..` or root prefixes.
+    /// Returns [`RelPathError`] on empty paths or invalid components (e.g. `..`).
     pub fn new(path: impl AsRef<str>) -> Result<Self, RelPathError> {
         let raw = path.as_ref();
         Self::from_relative_path(Path::new(raw))
     }
 
-    /// Creates a new [`RelPath`] by stripping `root` from `full_path`.
+    /// Strips `root` from `full_path` and returns a [`RelPath`].
     ///
     /// # Errors
-    /// Returns [`RelPathError::NotRelative`] if `full_path` is not inside `root`,
-    /// or [`RelPathError::Empty`] / [`RelPathError::InvalidComponent`] on invalid components.
+    /// Returns [`RelPathError::NotRelative`] if `full_path` is outside `root`, or on invalid components.
     pub fn from_path(root: &Path, full_path: &Path) -> Result<Self, RelPathError> {
         let relative = match full_path.strip_prefix(root) {
             Ok(rel) => rel,
@@ -58,11 +50,10 @@ impl RelPath {
         Self::from_relative_path(relative)
     }
 
-    /// Creates a new [`RelPath`] from a relative [`Path`].
+    /// Creates a [`RelPath`] from a relative [`Path`].
     ///
     /// # Errors
-    /// Returns [`RelPathError::Empty`] if the path is empty, or [`RelPathError::InvalidComponent`]
-    /// if the path contains non-normal components such as `..` or root prefixes.
+    /// Returns [`RelPathError`] on empty paths, root prefixes, or `..` components.
     pub fn from_relative_path(path: &Path) -> Result<Self, RelPathError> {
         if path.as_os_str().is_empty() {
             return Err(RelPathError::Empty);
@@ -105,7 +96,7 @@ impl RelPath {
         Path::new(&self.0)
     }
 
-    /// Converts to a standard [`PathBuf`].
+    /// Converts to a [`PathBuf`].
     #[inline]
     #[must_use]
     pub fn to_path_buf(&self) -> PathBuf {
@@ -118,13 +109,13 @@ impl RelPath {
         self.0.rsplit('/').next()
     }
 
-    /// Returns the file extension, if any, matching [`std::path::Path::extension`].
+    /// Returns the file extension, if any.
     #[must_use]
     pub fn extension(&self) -> Option<&str> {
         self.as_path().extension().and_then(|e| e.to_str())
     }
 
-    /// Returns the parent directory as a [`RelPath`], or `None` if at root.
+    /// Returns the parent directory, or `None` if at root.
     #[must_use]
     pub fn parent(&self) -> Option<Self> {
         let idx = self.0.rfind('/')?;

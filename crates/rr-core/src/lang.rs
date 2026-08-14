@@ -3,7 +3,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-/// Programming and markup languages recognized by `repo-router`.
+/// Programming languages recognized by `repo-router`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Lang {
@@ -84,7 +84,7 @@ impl Lang {
         }
     }
 
-    /// Returns a static lowercase identifier for the language.
+    /// Returns the lowercase language identifier.
     #[must_use]
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -118,7 +118,7 @@ impl Lang {
         }
     }
 
-    /// Returns the canonical display name of the language.
+    /// Returns the display name of the language.
     #[must_use]
     pub fn name(&self) -> &'static str {
         match self {
