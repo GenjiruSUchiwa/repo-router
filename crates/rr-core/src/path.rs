@@ -25,7 +25,7 @@ pub enum RelPathError {
 /// - Never contains `..` components.
 /// - Uses `/` (forward slash) on all platforms for snapshot determinism.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(transparent)]
+#[serde(into = "String", try_from = "String")]
 pub struct RelPath(String);
 
 impl RelPath {
@@ -33,10 +33,10 @@ impl RelPath {
     ///
     /// # Errors
     /// Returns [`RelPathError::Empty`] if the path is empty, or [`RelPathError::InvalidComponent`]
-    /// if the path contains illegal segments such as `..`.
+    /// if the path contains illegal segments such as `..` or root prefixes.
     pub fn new(path: impl AsRef<str>) -> Result<Self, RelPathError> {
         let raw = path.as_ref();
-        Self::normalize_str(raw)
+        Self::from_relative_path(Path::new(raw))
     }
 
     /// Creates a new [`RelPath`] by stripping `root` from `full_path`.
@@ -93,33 +93,6 @@ impl RelPath {
         Ok(Self(parts.join("/")))
     }
 
-    /// Normalizes a string representation into a valid [`RelPath`].
-    fn normalize_str(raw: &str) -> Result<Self, RelPathError> {
-        let trimmed = raw.trim();
-        if trimmed.is_empty() {
-            return Err(RelPathError::Empty);
-        }
-
-        // Split by either '/' or '\'
-        let mut parts = Vec::new();
-        for segment in trimmed.split(['/', '\\']) {
-            let seg = segment.trim();
-            if seg.is_empty() || seg == "." {
-                continue;
-            }
-            if seg == ".." {
-                return Err(RelPathError::InvalidComponent(raw.to_string()));
-            }
-            parts.push(seg);
-        }
-
-        if parts.is_empty() {
-            return Err(RelPathError::Empty);
-        }
-
-        Ok(Self(parts.join("/")))
-    }
-
     /// Returns the normalized relative path as a string slice.
     #[inline]
     #[must_use]
@@ -147,16 +120,10 @@ impl RelPath {
         self.0.rsplit('/').next()
     }
 
-    /// Returns the file extension, if any.
+    /// Returns the file extension, if any, matching [`std::path::Path::extension`].
     #[must_use]
     pub fn extension(&self) -> Option<&str> {
-        let name = self.file_name()?;
-        let ext = name.rsplit('.').next()?;
-        if ext == name {
-            None
-        } else {
-            Some(ext)
-        }
+        self.as_path().extension().and_then(|e| e.to_str())
     }
 
     /// Returns the parent directory as a [`RelPath`], or `None` if at root.
@@ -194,13 +161,6 @@ impl Borrow<str> for RelPath {
     #[inline]
     fn borrow(&self) -> &str {
         &self.0
-    }
-}
-
-impl Borrow<Path> for RelPath {
-    #[inline]
-    fn borrow(&self) -> &Path {
-        self.as_path()
     }
 }
 
@@ -267,6 +227,17 @@ impl From<&RelPath> for PathBuf {
         PathBuf::from(&rel.0)
     }
 }
+impl From<RelPath> for String {
+    fn from(rel: RelPath) -> Self {
+        rel.0
+    }
+}
+
+impl From<&RelPath> for String {
+    fn from(rel: &RelPath) -> Self {
+        rel.0.clone()
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -282,15 +253,11 @@ mod tests {
 
         let p2 = RelPath::new("./src/auth/token.rs").unwrap();
         assert_eq!(p2.as_str(), "src/auth/token.rs");
-
-        let p3 = RelPath::new("src\\auth\\token.rs").unwrap();
-        assert_eq!(p3.as_str(), "src/auth/token.rs");
     }
 
     #[test]
     fn test_invalid_rel_paths() {
         assert_eq!(RelPath::new("").unwrap_err(), RelPathError::Empty);
-        assert_eq!(RelPath::new("   ").unwrap_err(), RelPathError::Empty);
         assert_eq!(
             RelPath::new("../foo.rs").unwrap_err(),
             RelPathError::InvalidComponent("../foo.rs".to_string())
@@ -298,6 +265,10 @@ mod tests {
         assert_eq!(
             RelPath::new("src/../../foo.rs").unwrap_err(),
             RelPathError::InvalidComponent("src/../../foo.rs".to_string())
+        );
+        assert_eq!(
+            RelPath::new("/etc/passwd").unwrap_err(),
+            RelPathError::InvalidComponent("/etc/passwd".to_string())
         );
     }
 
@@ -310,12 +281,45 @@ mod tests {
     }
 
     #[test]
-    fn test_extension() {
+    fn test_constructor_equality_and_spaces() {
+        let raw = "folder with spaces/file with space.rs";
+        let from_new = RelPath::new(raw).unwrap();
+        let from_path = RelPath::from_relative_path(Path::new(raw)).unwrap();
+        assert_eq!(from_new, from_path);
+        assert_eq!(from_new.as_str(), raw);
+    }
+
+    #[test]
+    fn test_extension_matching_std() {
         assert_eq!(RelPath::new("file.rs").unwrap().extension(), Some("rs"));
+        assert_eq!(RelPath::new(".gitignore").unwrap().extension(), None);
         assert_eq!(RelPath::new("Dockerfile").unwrap().extension(), None);
         assert_eq!(
             RelPath::new("archive.tar.gz").unwrap().extension(),
             Some("gz")
         );
+    }
+
+    #[test]
+    fn test_serde_validation_on_deserialize() {
+        // Valid path deserialization
+        let json_valid = r#""src/main.rs""#;
+        let parsed: RelPath = serde_json::from_str(json_valid).unwrap();
+        assert_eq!(parsed.as_str(), "src/main.rs");
+
+        // Invalid path: parent traversal
+        let json_invalid_traversal = r#""../../etc/passwd""#;
+        let err_traversal = serde_json::from_str::<RelPath>(json_invalid_traversal);
+        assert!(err_traversal.is_err(), "deserializing '../..' must fail");
+
+        // Invalid path: empty string
+        let json_empty = r#""""#;
+        let err_empty = serde_json::from_str::<RelPath>(json_empty);
+        assert!(err_empty.is_err(), "deserializing empty path must fail");
+
+        // Invalid path: absolute path
+        let json_absolute = r#""/root/file.rs""#;
+        let err_abs = serde_json::from_str::<RelPath>(json_absolute);
+        assert!(err_abs.is_err(), "deserializing absolute path must fail");
     }
 }

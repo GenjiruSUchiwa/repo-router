@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 /// Programming and markup languages recognized by `repo-router`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "lowercase")]
 pub enum Lang {
     Rust,
     Python,
@@ -175,5 +175,57 @@ mod tests {
 
         assert_eq!(Lang::from_path(Path::new("src/main.rs")), Some(Lang::Rust));
         assert_eq!(Lang::from_path(Path::new("app/index.tsx")), Some(Lang::Tsx));
+    }
+
+    #[test]
+    fn test_serde_serialization_matches_as_str() {
+        let all_languages = [
+            Lang::Rust,
+            Lang::Python,
+            Lang::TypeScript,
+            Lang::Tsx,
+            Lang::JavaScript,
+            Lang::Jsx,
+            Lang::Go,
+            Lang::Java,
+            Lang::CSharp,
+            Lang::C,
+            Lang::Cpp,
+            Lang::Ruby,
+            Lang::Php,
+            Lang::Swift,
+            Lang::Kotlin,
+            Lang::Scala,
+            Lang::Zig,
+            Lang::Lua,
+            Lang::Shell,
+            Lang::Toml,
+            Lang::Json,
+            Lang::Yaml,
+            Lang::Markdown,
+            Lang::Html,
+            Lang::Css,
+            Lang::Sql,
+            Lang::Proto,
+        ];
+
+        for lang in all_languages {
+            let serialized = serde_json::to_string(&lang).unwrap();
+            assert_eq!(
+                serialized,
+                format!("\"{}\"", lang.as_str()),
+                "serialized string must match as_str for {:?}",
+                lang
+            );
+
+            let deserialized: Lang = serde_json::from_str(&serialized).unwrap();
+            assert_eq!(deserialized, lang);
+        }
+
+        assert_eq!(
+            serde_json::to_string(&Lang::TypeScript).unwrap(),
+            "\"typescript\""
+        );
+        assert_eq!(serde_json::to_string(&Lang::CSharp).unwrap(), "\"csharp\"");
     }
 }

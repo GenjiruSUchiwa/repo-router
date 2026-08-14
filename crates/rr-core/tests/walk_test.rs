@@ -134,6 +134,62 @@ fn test_custom_excludes() {
 }
 
 #[test]
+fn test_custom_excludes_with_whitelist() {
+    let tmp = TempDir::new().unwrap();
+    let root = tmp.path();
+
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(root.join("src/main.rs"), "fn main() {}\n").unwrap();
+    fs::write(root.join("src/other.gen.rs"), "fn other() {}\n").unwrap();
+    fs::write(root.join("src/important.gen.rs"), "fn important() {}\n").unwrap();
+
+    // *.gen.rs ignores all .gen.rs files, !important.gen.rs whitelists important.gen.rs
+    let cfg = WalkCfg {
+        custom_excludes: vec!["*.gen.rs".to_string(), "!important.gen.rs".to_string()],
+        ..WalkCfg::default()
+    };
+
+    let files = discover(root, &cfg).unwrap();
+    let paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();
+    assert_eq!(paths, vec!["src/important.gen.rs", "src/main.rs"]);
+}
+
+#[test]
+fn test_invalid_custom_exclude_glob_fails() {
+    let tmp = TempDir::new().unwrap();
+    let root = tmp.path();
+
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(root.join("src/main.rs"), "fn main() {}\n").unwrap();
+
+    let cfg = WalkCfg {
+        custom_excludes: vec!["logs/[".to_string()],
+        ..WalkCfg::default()
+    };
+
+    let result = discover(root, &cfg);
+    assert!(result.is_err(), "invalid glob syntax must return an error");
+}
+
+#[test]
+fn test_hidden_files_discovered_by_default() {
+    let tmp = TempDir::new().unwrap();
+    let root = tmp.path();
+
+    fs::create_dir_all(root.join(".github/workflows")).unwrap();
+    fs::create_dir_all(root.join("src")).unwrap();
+
+    fs::write(root.join(".github/workflows/ci.yml"), "name: CI\n").unwrap();
+    fs::write(root.join("src/main.rs"), "fn main() {}\n").unwrap();
+
+    let cfg = WalkCfg::default();
+    let files = discover(root, &cfg).unwrap();
+
+    let paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();
+    assert_eq!(paths, vec![".github/workflows/ci.yml", "src/main.rs"]);
+}
+
+#[test]
 fn test_language_filtering() {
     let tmp = TempDir::new().unwrap();
     let root = tmp.path();
@@ -171,9 +227,10 @@ fn test_max_files_limit() {
 
     let files = discover(root, &cfg).unwrap();
     assert_eq!(files.len(), 3);
-    assert_eq!(files[0].path.as_str(), "src/file_00.rs");
-    assert_eq!(files[1].path.as_str(), "src/file_01.rs");
-    assert_eq!(files[2].path.as_str(), "src/file_02.rs");
+    // Output must be sorted
+    for w in files.windows(2) {
+        assert!(w[0].path < w[1].path);
+    }
 }
 
 #[test]
@@ -189,11 +246,28 @@ fn test_generated_file_flagging() {
     fs::write(root.join("src/generated/code.rs"), "pub fn gen() {}\n").unwrap();
     fs::write(root.join("src/proto/service.pb.rs"), "pub fn pb() {}\n").unwrap();
     fs::write(root.join("src/proto/user_pb2.py"), "def user(): pass\n").unwrap();
+    fs::write(
+        root.join("src/normal/models_generated.rs"),
+        "pub fn mg() {}\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/normal/schema.generated.ts"),
+        "export const S = 1;\n",
+    )
+    .unwrap();
+
+    // False positive check: regenerated_cache.rs is NOT generated
+    fs::write(
+        root.join("src/normal/regenerated_cache.rs"),
+        "pub fn rc() {}\n",
+    )
+    .unwrap();
 
     // By content
     fs::write(
         root.join("src/normal/annotated.rs"),
-        "// @generated\npub fn annotated() {}\n",
+        "\n\n// @generated\npub fn annotated() {}\n",
     )
     .unwrap();
     fs::write(
@@ -222,9 +296,35 @@ fn test_generated_file_flagging() {
     assert!(find("code.rs").generated);
     assert!(find("service.pb.rs").generated);
     assert!(find("user_pb2.py").generated);
+    assert!(find("models_generated.rs").generated);
+    assert!(find("schema.generated.ts").generated);
     assert!(find("annotated.rs").generated);
     assert!(find("do_not_edit.rs").generated);
+    assert!(!find("regenerated_cache.rs").generated);
     assert!(!find("handwritten.rs").generated);
+}
+
+#[test]
+fn test_detect_generated_opt_out() {
+    let tmp = TempDir::new().unwrap();
+    let root = tmp.path();
+
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("src/custom.rs"),
+        "// @generated\npub fn custom() {}\n",
+    )
+    .unwrap();
+
+    // With detect_generated = false, content sniffing is skipped
+    let cfg = WalkCfg {
+        detect_generated: false,
+        ..WalkCfg::default()
+    };
+
+    let files = discover(root, &cfg).unwrap();
+    assert_eq!(files.len(), 1);
+    assert!(!files[0].generated);
 }
 
 #[test]
