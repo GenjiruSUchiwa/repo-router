@@ -121,6 +121,7 @@ fn test_exact_routing_unique_symbol_direct() {
         QueryResult::Direct {
             candidate,
             pipeline,
+            ..
         } => {
             assert_eq!(pipeline, Pipeline::Exact);
             assert_eq!(candidate.confidence, Some(Confidence::ONE));
@@ -146,6 +147,7 @@ fn test_exact_routing_unique_file_direct() {
         QueryResult::Direct {
             candidate,
             pipeline,
+            ..
         } => {
             assert_eq!(pipeline, Pipeline::Exact);
             assert_eq!(candidate.confidence, Some(Confidence::ONE));
@@ -171,6 +173,7 @@ fn test_exact_routing_path_filter() {
         QueryResult::Direct {
             candidate,
             pipeline,
+            ..
         } => {
             assert_eq!(pipeline, Pipeline::Exact);
             assert_eq!(candidate.confidence, Some(Confidence::ONE));
@@ -234,6 +237,7 @@ fn test_disambiguation_positive_context_overlap() {
         QueryResult::Direct {
             candidate,
             pipeline,
+            ..
         } => {
             assert_eq!(pipeline, Pipeline::Exact);
             assert_eq!(candidate.confidence, Some(Confidence::ONE));
@@ -266,6 +270,7 @@ fn test_disambiguation_query_path_qualifier() {
         QueryResult::Direct {
             candidate,
             pipeline,
+            ..
         } => {
             assert_eq!(pipeline, Pipeline::Exact);
             assert_eq!(candidate.confidence, Some(Confidence::ONE));

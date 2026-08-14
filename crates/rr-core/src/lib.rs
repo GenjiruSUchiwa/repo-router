@@ -1,6 +1,7 @@
 #![deny(unsafe_code)]
 
 pub mod cache;
+pub mod content;
 pub mod facts;
 pub mod index;
 pub mod lang;
@@ -13,9 +14,11 @@ pub mod ranking;
 pub mod render;
 pub mod result;
 pub mod snapshot;
+pub mod verify;
 pub mod walk;
 
 pub use cache::{CacheKey, CacheOutcome, CacheStats, FactCache};
+pub use content::AcquiredContent;
 pub use facts::{
     Def, DefKind, DegradedReason, Facts, Import, ImportKind, LocalDefId, ParseStatus, Reference,
     ReferenceKind, Span, TestSignals, Visibility, FACT_SCHEMA_VERSION,
@@ -47,6 +50,12 @@ pub use render::{
 pub use result::{
     resolve_anchor, AnchorRef, Candidate, Confidence, LineRange, NoneReason, Pipeline, QueryResult,
     TargetId,
+};
+pub use verify::{
+    finish_source, resolve_indexed_source, verify_source, AcquiredSource, ContentPathState,
+    IndexedContentIdentity, IndexedSource, PendingPacket, PendingSource, Revalidation,
+    SourcePacket, SourceResult, SourceStatus, MAX_SOURCE_BYTES, MAX_SOURCE_LINES,
+    MAX_VERIFIED_CONTENT_BYTES, SOURCE_CONTEXT_AFTER, SOURCE_CONTEXT_BEFORE,
 };
 pub use walk::{discover, is_generated, SourceFile, WalkCfg, DEFAULT_EXCLUDES};
 
@@ -96,6 +105,8 @@ pub enum Error {
     SpanLineMismatch,
     #[error("invalid facts: {reason}")]
     InvalidFacts { reason: &'static str },
+    #[error("indexed content is not valid source: {reason}")]
+    CorruptSource { reason: &'static str },
     #[error("invalid local definition id {id}; definition count is {definitions}")]
     InvalidLocalDefId { id: u32, definitions: usize },
     #[error("Tree-sitter language setup failed for {lang}: {message}")]

@@ -6,6 +6,7 @@ use crate::index::Snapshot;
 use crate::path::RelPath;
 use crate::ranking::RankingEvidence;
 use crate::result::{resolve_anchor, Confidence, NoneReason, Pipeline, QueryResult};
+use crate::verify::{SourcePacket, SourceResult, SourceStatus};
 use crate::{Error, Result};
 
 #[must_use]
@@ -145,10 +146,16 @@ pub fn render_text_explained(
 fn render_answer_text(snapshot: &Snapshot, result: &QueryResult) -> Result<String> {
     result.validate()?;
     match result {
-        QueryResult::Direct { candidate, .. } => {
+        QueryResult::Direct {
+            candidate, source, ..
+        } => {
             let anchor = resolve_anchor(snapshot, candidate.target)?;
             let encoded = encode_anchor(anchor.path, anchor.symbol);
-            Ok(format!("FINAL SOURCE ANCHOR (copy exactly): {encoded}\n"))
+            let mut out = format!("FINAL SOURCE ANCHOR (copy exactly): {encoded}\n");
+            if let Some(source) = source {
+                write_source_text(&mut out, anchor.path, source)?;
+            }
+            Ok(out)
         }
         QueryResult::Candidates { candidates, .. } => {
             let mut out = String::from("source candidates:\n");
@@ -169,6 +176,100 @@ fn render_answer_text(snapshot: &Snapshot, result: &QueryResult) -> Result<Strin
     }
 }
 
+/// Appends the source packet or refusal to the text answer.
+///
+/// Every marker is printed straight from a packet field: the renderer performs
+/// no arithmetic of its own, so text and JSON cannot disagree about what was
+/// served. The content is followed by one structural LF that is not part of the
+/// source, which is what `SOURCE FINAL NEWLINE` distinguishes it from.
+fn write_source_text(out: &mut String, path: &str, source: &SourceResult) -> Result<()> {
+    let path = encode_anchor(path, None);
+    match source {
+        SourceResult::Served(packet) => {
+            write_served_source_text(out, &path, packet);
+            Ok(())
+        }
+        SourceResult::Refused {
+            status: SourceStatus::Stale,
+        } => {
+            let _ = writeln!(
+                out,
+                "STALE SOURCE (no content returned): {path} changed since indexing; run `rr refresh`"
+            );
+            Ok(())
+        }
+        SourceResult::Refused {
+            status: SourceStatus::Verified,
+        } => Err(Error::SnapshotInvariant {
+            reason: "a refused source cannot carry the verified status",
+        }),
+        SourceResult::Refused { status } => {
+            let _ = writeln!(
+                out,
+                "SOURCE REFUSED ({}; no content returned): {path} {}",
+                status.as_str(),
+                refusal_detail(*status)
+            );
+            Ok(())
+        }
+    }
+}
+
+fn write_served_source_text(out: &mut String, path: &str, packet: &SourcePacket) {
+    let span = packet.span();
+    let (window_start, window_end) = packet.served_lines();
+    let _ = writeln!(
+        out,
+        "SOURCE SPAN (verified): {path}:{}-{}",
+        span.start_line(),
+        span.end_line()
+    );
+    let _ = writeln!(out, "SOURCE WINDOW: {path}:{window_start}-{window_end}");
+    let _ = writeln!(
+        out,
+        "SOURCE REPRESENTATION: {}",
+        packet.representation().as_str()
+    );
+    if packet.complete() {
+        out.push_str("SOURCE COMPLETE\n");
+    } else {
+        let _ = writeln!(
+            out,
+            "SOURCE TRUNCATED ({} anchor lines, {} anchor bytes omitted)",
+            packet.omitted_anchor_lines(),
+            packet.omitted_anchor_bytes()
+        );
+    }
+    if packet.context_clipped() {
+        out.push_str("SOURCE CONTEXT CLIPPED\n");
+    }
+    out.push_str(if packet.ends_with_newline() {
+        "SOURCE FINAL NEWLINE: present\n"
+    } else {
+        "SOURCE FINAL NEWLINE: absent\n"
+    });
+    out.push_str("---\n");
+    out.push_str(packet.content());
+    out.push('\n');
+}
+
+/// The stable explanation attached to each expected refusal.
+///
+/// `rr refresh` is suggested only where refreshing the index is what actually
+/// resolves the refusal; a size or line-length refusal survives a refresh.
+const fn refusal_detail(status: SourceStatus) -> &'static str {
+    match status {
+        SourceStatus::Missing => "no longer exists; run `rr refresh`",
+        SourceStatus::Symlink | SourceStatus::NotRegular => {
+            "is not a regular source file; run `rr refresh`"
+        }
+        SourceStatus::TooLarge => "is larger than the 16 MiB verification limit",
+        SourceStatus::LineTooLong => "has a line larger than the 64 KiB source limit",
+        SourceStatus::Raced => "changed during verification; retry or run `rr refresh`",
+        SourceStatus::Stale | SourceStatus::Verified => "",
+    }
+}
+
 #[derive(Debug, Serialize, PartialEq)]
 #[serde(tag = "result", rename_all = "snake_case")]
 enum JsonResponse<'a> {
@@ -177,6 +278,8 @@ enum JsonResponse<'a> {
         pipeline: Pipeline,
         anchor: JsonAnchor<'a>,
         confidence: f32,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        source: Option<&'a SourceResult>,
     },
     Candidates {
         v: u32,
@@ -248,9 +351,9 @@ pub fn render_json_explained(
     render_json_envelope(snapshot, result, Some(JsonExplain(evidence.copied())))
 }
 
-fn render_json_envelope(
-    snapshot: &Snapshot,
-    result: &QueryResult,
+fn render_json_envelope<'a>(
+    snapshot: &'a Snapshot,
+    result: &'a QueryResult,
     explain: Option<JsonExplain>,
 ) -> Result<String> {
     result.validate()?;
@@ -258,6 +361,7 @@ fn render_json_envelope(
         QueryResult::Direct {
             candidate,
             pipeline,
+            source,
         } => {
             let anchor = resolve_anchor(snapshot, candidate.target)?;
             let lines = anchor.lines.map(|l| [l.start(), l.end()]);
@@ -276,6 +380,7 @@ fn render_json_envelope(
                     lines,
                 },
                 confidence,
+                source: source.as_ref(),
             }
         }
         QueryResult::Candidates {

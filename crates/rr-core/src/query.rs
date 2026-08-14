@@ -519,6 +519,7 @@ pub fn finish_exact(outcome: ExactOutcome) -> QueryResult {
         ExactOutcome::Direct(candidate) => QueryResult::Direct {
             candidate,
             pipeline: Pipeline::Exact,
+            source: None,
         },
         ExactOutcome::Candidates(candidates) => QueryResult::Candidates {
             candidates,

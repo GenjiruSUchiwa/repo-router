@@ -124,6 +124,95 @@
       ],
       "$comment": "Present only when --explain is passed, and null when the query routed exactly and read no posting list. Optional, so every response that validated before this member existed still validates."
     },
+    "ContentRepresentation": {
+      "type": "string",
+      "enum": ["git-canonical", "raw-no-git"],
+      "$comment": "Whether the verified identity is a Git-canonical blob OID or a local content hash taken outside a repository."
+    },
+    "Span": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start_byte", "end_byte", "start_line", "end_line"],
+      "properties": {
+        "start_byte": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "end_byte": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "start_line": { "type": "integer", "minimum": 1, "maximum": 4294967295 },
+        "end_line": { "type": "integer", "minimum": 1, "maximum": 4294967295 }
+      },
+      "$comment": "The anchor's own span in the verified content, exactly as indexed: never clamped, normalized, or re-derived for output."
+    },
+    "VerifiedSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "representation",
+        "span",
+        "requested_lines",
+        "served_lines",
+        "complete",
+        "context_clipped",
+        "omitted_anchor_lines",
+        "omitted_anchor_bytes",
+        "ends_with_newline",
+        "content"
+      ],
+      "properties": {
+        "status": { "const": "verified" },
+        "representation": { "$ref": "#/$defs/ContentRepresentation" },
+        "span": { "$ref": "#/$defs/Span" },
+        "requested_lines": {
+          "$ref": "#/$defs/LineRange",
+          "$comment": "The window selection set out to produce: the anchor plus up to three context lines on each side that exist, or the anchor alone once a budget truncated it, since context is never asked for in that case."
+        },
+        "served_lines": {
+          "$ref": "#/$defs/LineRange",
+          "$comment": "The window actually present in content. Narrower than requested_lines exactly when a budget cut it."
+        },
+        "complete": {
+          "type": "boolean",
+          "$comment": "True when every anchor line is present. Context omitted by a budget does not make an anchor incomplete."
+        },
+        "context_clipped": {
+          "type": "boolean",
+          "$comment": "True when a context line that exists was dropped by a budget. Independent of complete: a truncated anchor reports truncation alone."
+        },
+        "omitted_anchor_lines": { "type": "integer", "minimum": 0 },
+        "omitted_anchor_bytes": { "type": "integer", "minimum": 0 },
+        "ends_with_newline": {
+          "type": "boolean",
+          "$comment": "Whether content itself ends with a line feed. Text output appends one structural LF regardless."
+        },
+        "content": { "type": "string" }
+      }
+    },
+    "RefusedSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "stale",
+            "missing",
+            "symlink",
+            "not-regular",
+            "too-large",
+            "line-too-long",
+            "raced"
+          ]
+        }
+      },
+      "$comment": "A refusal carries its status and nothing else: no content, preview, current OID, or relocated line number. Content OIDs are verification internals and never appear in query output."
+    },
+    "Source": {
+      "oneOf": [
+        { "$ref": "#/$defs/VerifiedSource" },
+        { "$ref": "#/$defs/RefusedSource" }
+      ],
+      "$comment": "Present only when --source is passed and routing returned one direct anchor."
+    },
     "DirectResult": {
       "type": "object",
       "additionalProperties": false,
@@ -145,6 +234,9 @@
         },
         "confidence": {
           "$ref": "#/$defs/Confidence"
+        },
+        "source": {
+          "$ref": "#/$defs/Source"
         },
         "explain": {
           "$ref": "#/$defs/Explain"

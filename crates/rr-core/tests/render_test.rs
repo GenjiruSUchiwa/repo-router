@@ -83,6 +83,7 @@ fn test_render_text_contracts() {
             Some(Confidence::ONE),
         ),
         pipeline: Pipeline::Exact,
+        source: None,
     };
     let text_direct_sym = render_text(&snapshot, &direct_sym).unwrap();
     assert_eq!(
@@ -93,6 +94,7 @@ fn test_render_text_contracts() {
     let direct_file = QueryResult::Direct {
         candidate: Candidate::new(TargetId::File(snapshot.files[0].id), Some(Confidence::ONE)),
         pipeline: Pipeline::Exact,
+        source: None,
     };
     let text_direct_file = render_text(&snapshot, &direct_file).unwrap();
     assert_eq!(
@@ -142,6 +144,7 @@ fn test_render_json_contracts() {
             Some(Confidence::ONE),
         ),
         pipeline: Pipeline::Exact,
+        source: None,
     };
     let json_direct_sym = render_json(&snapshot, &direct_sym).unwrap();
     assert!(json_direct_sym.ends_with('\n'));
@@ -158,6 +161,7 @@ fn test_render_json_contracts() {
     let direct_file = QueryResult::Direct {
         candidate: Candidate::new(TargetId::File(snapshot.files[0].id), Some(Confidence::ONE)),
         pipeline: Pipeline::Exact,
+        source: None,
     };
     let json_direct_file = render_json(&snapshot, &direct_file).unwrap();
     let val_file: serde_json::Value = serde_json::from_str(&json_direct_file).unwrap();
@@ -194,6 +198,7 @@ fn test_invalid_result_invariants_fail_before_rendering() {
     let missing_confidence = QueryResult::Direct {
         candidate: Candidate::new(TargetId::File(snapshot.files[0].id), None),
         pipeline: Pipeline::Exact,
+        source: None,
     };
     assert!(render_text(&snapshot, &missing_confidence).is_err());
     assert!(render_json(&snapshot, &missing_confidence).is_err());

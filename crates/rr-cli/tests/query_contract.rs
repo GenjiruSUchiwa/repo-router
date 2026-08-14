@@ -524,7 +524,10 @@ fn query_contract_json_carries_exactly_the_members_the_schema_declares() {
     let schema = published_schema();
 
     for (shape, args) in [
-        ("DirectResult", vec!["--json", "--explain", DIRECT_QUESTION]),
+        (
+            "DirectResult",
+            vec!["--json", "--explain", "--source", DIRECT_QUESTION],
+        ),
         (
             "CandidatesResult",
             vec!["--json", "--explain", "encode an entry to bytes"],
@@ -544,4 +547,270 @@ fn query_contract_json_carries_exactly_the_members_the_schema_declares() {
              against and nothing else compares the two"
         );
     }
+}
+
+// --- `--source` -------------------------------------------------------------
+
+const TOKEN_ANCHOR: &str = "FINAL SOURCE ANCHOR (copy exactly): src/auth/token.rs#verify_token";
+
+fn token_path(repo: &TempDir) -> std::path::PathBuf {
+    repo.path().join("src/auth/token.rs")
+}
+
+fn stdout_of(output: &std::process::Output) -> String {
+    String::from_utf8(output.stdout.clone()).unwrap()
+}
+
+/// The `source` member of a direct JSON response.
+fn source_of(output: &std::process::Output) -> serde_json::Value {
+    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    response["source"].clone()
+}
+
+#[test]
+fn query_contract_source_returns_the_verified_anchor_and_its_context() {
+    let repo = setup_test_repo();
+
+    let output = query(&repo, &["--source", "verify_token"]);
+
+    assert_eq!(output.status.code(), Some(0));
+    assert!(output.stderr.is_empty());
+    assert_eq!(
+        stdout_of(&output),
+        format!(
+            "{TOKEN_ANCHOR}\n\
+             SOURCE SPAN (verified): src/auth/token.rs:1-1\n\
+             SOURCE WINDOW: src/auth/token.rs:1-1\n\
+             SOURCE REPRESENTATION: git-canonical\n\
+             SOURCE COMPLETE\n\
+             SOURCE FINAL NEWLINE: present\n\
+             ---\n\
+             pub fn verify_token() -> bool {{ true }}\n\n"
+        ),
+        "the anchor line, the verification markers, one separator, and the \
+         canonical bytes followed by exactly one structural newline"
+    );
+}
+
+#[test]
+fn query_contract_source_is_absent_unless_it_was_asked_for() {
+    let repo = setup_test_repo();
+
+    let response: serde_json::Value =
+        serde_json::from_slice(&query(&repo, &["--json", "verify_token"]).stdout).unwrap();
+
+    assert!(
+        response.get("source").is_none(),
+        "a query without --source must not carry the member at all"
+    );
+}
+
+#[test]
+fn query_contract_verified_source_json_carries_the_schema_members() {
+    let repo = setup_test_repo();
+    let schema = published_schema();
+
+    let output = query(&repo, &["--json", "--source", "verify_token"]);
+    let source = source_of(&output);
+
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(
+        rendered_members(&source),
+        declared_members(&schema, "VerifiedSource")
+    );
+    assert_eq!(source["status"], "verified");
+    assert_eq!(source["representation"], "git-canonical");
+    assert_eq!(
+        source["content"],
+        "pub fn verify_token() -> bool { true }\n"
+    );
+    assert_eq!(source["complete"], true);
+    assert_eq!(source["ends_with_newline"], true);
+    assert_eq!(source["omitted_anchor_lines"], 0);
+    assert_eq!(source["omitted_anchor_bytes"], 0);
+}
+
+#[test]
+fn query_contract_changed_source_is_stale_with_no_content() {
+    let repo = setup_test_repo();
+    fs::write(
+        token_path(&repo),
+        b"pub fn verify_token() -> bool { false }\n",
+    )
+    .unwrap();
+
+    let text = query(&repo, &["--source", "verify_token"]);
+    let json = query(&repo, &["--json", "--source", "verify_token"]);
+
+    assert_eq!(text.status.code(), Some(4));
+    assert_eq!(json.status.code(), Some(4));
+    assert_eq!(
+        stdout_of(&text),
+        format!(
+            "{TOKEN_ANCHOR}\n\
+             STALE SOURCE (no content returned): src/auth/token.rs changed since indexing; \
+             run `rr refresh`\n"
+        )
+    );
+    assert_eq!(source_of(&json), serde_json::json!({"status": "stale"}));
+}
+
+#[test]
+fn query_contract_replaced_binary_source_is_stale_and_never_decoded() {
+    let repo = setup_test_repo();
+    fs::write(token_path(&repo), [0x00, 0xff, 0xfe, 0x00, 0x41]).unwrap();
+
+    let output = query(&repo, &["--json", "--source", "verify_token"]);
+
+    assert_eq!(output.status.code(), Some(4));
+    assert_eq!(
+        source_of(&output),
+        serde_json::json!({"status": "stale"}),
+        "staleness is decided before content is decoded, so replaced binary \
+         bytes are never described or previewed"
+    );
+}
+
+#[test]
+fn query_contract_every_refusal_reports_its_own_state() {
+    type Replace = fn(&Path) -> std::io::Result<()>;
+
+    let schema = published_schema();
+    let declared: Vec<String> = schema["$defs"]["RefusedSource"]["properties"]["status"]["enum"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|status| status.as_str().unwrap().to_owned())
+        .collect();
+
+    let replacements: [(&str, &str, Replace); 3] = [
+        ("missing", "no longer exists; run `rr refresh`", |path| {
+            fs::remove_file(path)
+        }),
+        (
+            "symlink",
+            "is not a regular source file; run `rr refresh`",
+            |path| {
+                fs::remove_file(path)?;
+                std::os::unix::fs::symlink("elsewhere.rs", path)
+            },
+        ),
+        (
+            "not-regular",
+            "is not a regular source file; run `rr refresh`",
+            |path| {
+                fs::remove_file(path)?;
+                fs::create_dir(path)
+            },
+        ),
+    ];
+
+    for (status, detail, replace) in replacements {
+        assert!(declared.contains(&status.to_owned()), "{status} undeclared");
+        let repo = setup_test_repo();
+        replace(&token_path(&repo)).unwrap();
+
+        let text = query(&repo, &["--source", "verify_token"]);
+        let json = query(&repo, &["--json", "--source", "verify_token"]);
+
+        assert_eq!(text.status.code(), Some(4), "{status} exit code");
+        assert_eq!(
+            stdout_of(&text),
+            format!(
+                "{TOKEN_ANCHOR}\n\
+                 SOURCE REFUSED ({status}; no content returned): src/auth/token.rs {detail}\n"
+            )
+        );
+        assert_eq!(
+            source_of(&json),
+            serde_json::json!({ "status": status }),
+            "a refusal carries its status and nothing else"
+        );
+    }
+}
+
+#[test]
+fn query_contract_source_never_reaches_candidates_or_no_match() {
+    let repo = setup_lexical_repo();
+
+    for (args, code) in [
+        (vec!["--json", "--source", "encode an entry to bytes"], 2),
+        (vec!["--json", "--source", "quantum flux capacitor"], 3),
+    ] {
+        let output = query(&repo, &args);
+        let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+
+        assert_eq!(output.status.code(), Some(code));
+        assert!(
+            response.get("source").is_none(),
+            "only a single direct anchor may carry source"
+        );
+    }
+}
+
+#[test]
+fn query_contract_an_oversized_anchor_reports_exactly_what_it_omitted() {
+    let repo = setup_test_repo();
+    let body = (0..200).fold(String::new(), |mut body, n| {
+        use std::fmt::Write as _;
+        let _ = writeln!(body, "    let v{n} = {n};");
+        body
+    });
+    let long = format!("pub fn verify_token() -> bool {{\n{body}    true\n}}\n");
+    fs::write(token_path(&repo), long.as_bytes()).unwrap();
+    run_cmd(repo.path(), "git", &["add", "."]);
+    run_cmd(repo.path(), "git", &["commit", "-m", "grow"]);
+    let map = Command::new(env!("CARGO_BIN_EXE_rr"))
+        .current_dir(repo.path())
+        .arg("map")
+        .output()
+        .unwrap();
+    assert!(map.status.success());
+
+    let output = query(&repo, &["--json", "--source", "verify_token"]);
+    let source = source_of(&output);
+
+    // The anchor is the whole 203-line function; only its first 120 lines fit.
+    let served: Vec<u64> = serde_json::from_value(source["served_lines"].clone()).unwrap();
+    let omitted_bytes: usize = long.lines().skip(120).map(|line| line.len() + 1).sum();
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(served, vec![1, 120]);
+    assert_eq!(source["complete"], false);
+    assert_eq!(source["omitted_anchor_lines"], 83);
+    assert_eq!(source["omitted_anchor_bytes"], omitted_bytes as u64);
+    assert_eq!(
+        source["content"].as_str().unwrap().lines().count(),
+        120,
+        "a truncated packet still ends on a whole line"
+    );
+    let text = stdout_of(&query(&repo, &["--source", "verify_token"]));
+    assert!(text.contains(&format!(
+        "SOURCE TRUNCATED (83 anchor lines, {omitted_bytes} anchor bytes omitted)"
+    )));
+    assert!(
+        !text.contains("SOURCE CONTEXT CLIPPED"),
+        "a truncated anchor never asked for context, so none was clipped"
+    );
+}
+
+#[test]
+fn query_contract_an_unreadable_source_is_an_execution_error() {
+    let repo = setup_test_repo();
+    let path = token_path(&repo);
+    fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o000)).unwrap();
+    if fs::read(&path).is_ok() {
+        return; // running as root, where the permission bits mean nothing.
+    }
+
+    let output = query(&repo, &["--json", "--source", "verify_token"]);
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty(), "no partial object on stdout");
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert_eq!(stderr.lines().count(), 1);
+    assert!(stderr.starts_with("rr: query: acquire source for src/auth/token.rs"));
+    assert!(
+        !stderr.contains("verify_token"),
+        "no content in the message"
+    );
 }

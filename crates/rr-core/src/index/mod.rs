@@ -68,6 +68,21 @@ pub enum ContentRepresentation {
     RawNoGit,
 }
 
+impl ContentRepresentation {
+    /// The published spelling, identical to the serde name.
+    ///
+    /// Text output cannot go through serde (postcard encodes this enum by
+    /// variant index, so its serde impl is snapshot-format-critical), so the
+    /// two spellings are pinned together by a test instead.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::GitCanonical => "git-canonical",
+            Self::RawNoGit => "raw-no-git",
+        }
+    }
+}
+
 /// Advisory build metadata and mode flags.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct SnapshotMeta {
@@ -848,6 +863,17 @@ mod validate {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn representation_spelling_matches_its_serde_name() {
+        for representation in [
+            ContentRepresentation::GitCanonical,
+            ContentRepresentation::RawNoGit,
+        ] {
+            let json = serde_json::to_string(&representation).unwrap_or_default();
+            assert_eq!(json, format!("\"{}\"", representation.as_str()));
+        }
+    }
 
     #[test]
     fn field_lengths_round_trip_through_canonical_ordinals() {

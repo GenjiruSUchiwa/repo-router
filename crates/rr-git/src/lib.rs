@@ -10,8 +10,12 @@ pub mod content;
 pub mod map;
 pub mod oid;
 pub mod repo;
+mod safe_open;
 
-pub use content::{acquire_non_git, AcquiredContent, ContentProbe, ContentRepresentation};
+pub use content::{
+    acquire_for_source, acquire_non_git, revalidate_source, AcquireOutcome, AcquiredContent,
+    ContentProbe, ContentRepresentation,
+};
 pub use map::build_map;
 pub use oid::{hash_blob, HashAlgo, Oid, OidError};
 pub use repo::{oid_of, GitRepo};

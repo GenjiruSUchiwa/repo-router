@@ -1,6 +1,5 @@
 //! Git repository interaction and index-based OID lookup.
 
-use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use gix::bstr::ByteSlice;
@@ -153,20 +152,14 @@ impl GitRepo {
     /// Returns `Ok(None)` when the filter pipeline cannot be constructed or applied,
     /// in which case the caller should hash the raw bytes instead.
     fn filtered_blob_oid(&self, rel: &RelPath, full_path: &Path) -> Result<Option<Oid>> {
-        let Ok((mut pipeline, index)) = self.repo.filter_pipeline(None) else {
-            return Ok(None);
-        };
-
         let file = std::fs::File::open(full_path).map_err(Error::Io)?;
-
-        let Ok(mut converted) = pipeline.convert_to_git(file, Path::new(rel.as_str()), &index)
-        else {
-            return Ok(None);
-        };
-
-        let mut content = Vec::new();
-        converted.read_to_end(&mut content).map_err(Error::Io)?;
-        Ok(Some(hash_blob(&content, self.algo)))
+        match self.convert_to_git(file, rel) {
+            Ok(content) => Ok(Some(hash_blob(&content, self.algo))),
+            // An unavailable pipeline or a failing filter is not fatal here:
+            // the caller hashes the raw bytes instead. Read failures still are.
+            Err(Error::Content(_)) => Ok(None),
+            Err(other) => Err(other),
+        }
     }
 }
 
