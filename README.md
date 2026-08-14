@@ -8,7 +8,7 @@
 
 Coding agents burn their context window running `grep` and reading whole files. `rr` aims for the opposite:
 
-- **Minimal context by default** — an answer fits in a few lines; full source is only read on demand (`--source`), bounded and hash-verified.
+- **Minimal context by default** — an answer fits in a few lines; source reading remains a separate, verified capability.
 - **Exact before fuzzy** — exact routing (symbol, path) first; lexical ranking (per-field BM25) second; deliberate **abstention** when confidence is low, rather than a plausible-but-wrong answer.
 - **Deterministic and incremental** — Git-OID-addressed index, atomic snapshots, fast git-gated `refresh`. No LLM in the retrieval loop.
 - **Agent-friendly contracts** — stable dual text/JSON output, committed and greppable `MAP.md`/`SYMBOLS.md`, and `rr init` to install the navigation contract (including a SKILL.md for Claude Code).
@@ -18,8 +18,7 @@ Coding agents burn their context window running `grep` and reading whole files. 
 | Command | Role |
 |---|---|
 | `rr map` | Index the repository (gitignore-aware traversal, Tree-sitter, fingerprints) |
-| `rr query <q>` | Answer: definitions, references, imports — text or `--json` |
-| `rr query --source` | Return the exact source span, hash-verified, refused if stale |
+| `rr query [--json] [--path <PATH>] <QUERY>` | Exact symbol/file query routing (text or versioned JSON v1) |
 | `rr refresh` | Update the index incrementally (git-gated) |
 | `rr route` | Committable cache of resolved routes |
 | `rr impact <sym>` | Change impact radius (transitive callers) |
@@ -33,7 +32,7 @@ Bootstrap phase. The V1 plan is **14 issues across 5 milestones** — see the [i
 
 - **M0 Bootstrap** — workspace, CI, hygiene (done)
 - **M1 Indexing** — traversal, OID cache, Tree-sitter (Rust first), fingerprints, snapshot
-- **M2 Query** — `query`, ranking + abstention, `--source`, `refresh`
+- **M2 Query** — exact query contract; ranking, verified source, and refresh land in later slices.
 - **M3 Agent interface** — `MAP.md`/`SYMBOLS.md`, `rr route`, `rr init`
 - **M4 Impact & quality** — `impact`, `check`, frozen corpus and benchmarks
 

@@ -608,7 +608,7 @@ Command examples:
 ```bash
 radar query "verify_token"
 radar query "where is token verification handled?"
-radar query "how does verify_token work?" --source
+radar query "how does verify_token work?"
 ```
 
 ## 11.1 Query normalization
@@ -921,7 +921,6 @@ Required V0/V1 commands:
 ```bash
 radar map
 radar query <query>
-radar query <query> --source
 radar status
 radar doctor
 ```
@@ -942,69 +941,65 @@ radar map --clean
 Default query:
 
 ```text
-FINAL SOURCE ANCHOR
-src/auth/token.rs#verify_token
+FINAL SOURCE ANCHOR (copy exactly): src/auth/token.rs#verify_token
 ```
 
-With source:
+Direct file:
 
 ```text
-FINAL SOURCE ANCHOR
-src/auth/token.rs#verify_token
-verified source span: lines 41-68
-
-41 pub fn verify_token(token: &str) -> Result<Claims> {
-...
-68 }
+FINAL SOURCE ANCHOR (copy exactly): src/auth/token.rs
 ```
 
-Ambiguous:
+Candidates (ambiguous):
 
 ```text
-SOURCE CANDIDATES
-1. src/auth/token.rs#verify_token
-2. src/api/auth.rs#verify_token
+source candidates:
+1. src/auth/session.rs#Session
+2. src/session.rs#Session
 ```
 
-## 16.2 JSON output
+Not found:
+
+```text
+NO ANCHOR (index has no match); try: rr map
+```
+
+Low confidence (lexical handoff):
+
+```text
+NO ANCHOR (confidence too low); refine the query or use --path
+```
+
+## 16.2 JSON output (v1)
 
 ```bash
-radar query "token verification" --json
+rr query "verify_token" --json
 ```
 
-Suggested schema:
+Direct:
 
 ```json
-{
-  "status": "direct",
-  "query": "token verification",
-  "confidence": 0.94,
-  "anchor": {
-    "path": "src/auth/token.rs",
-    "symbol": "verify_token",
-    "start_line": 41,
-    "end_line": 68,
-    "verified": true
-  }
-}
+{"v":1,"result":"direct","pipeline":"exact","anchor":{"path":"src/auth/token.rs","symbol":"verify_token","lines":[9,15]},"confidence":1.0}
 ```
 
-Ambiguous:
+Candidates:
 
 ```json
-{
-  "status": "candidates",
-  "query": "token verification",
-  "candidates": [
-    {
-      "path": "src/auth/token.rs",
-      "symbol": "verify_token",
-      "score": 0.82
-    }
-  ]
-}
+{"v":1,"result":"candidates","pipeline":"exact","candidates":[{"anchor":{"path":"src/auth/session.rs","symbol":"Session","lines":[4,18]},"confidence":null},{"anchor":{"path":"src/session.rs","symbol":"Session","lines":[7,21]},"confidence":null}]}
 ```
 
+None:
+
+```json
+{"v":1,"result":"none","pipeline":"exact","reason":"not_found"}
+```
+
+Exit codes:
+- `0`: direct
+- `1`: execution / I/O / snapshot error
+- `2`: candidates
+- `3`: none
+- `4`: reserved for #9 stale-source refusal
 Do not expose unstable internal ranking internals unless `--debug` is used.
 
 ---
@@ -1022,10 +1017,9 @@ If Radar is available, use it before broad repository searches.
 
 Prefer:
 
-    radar query "<question>" --source
+    radar query "<question>"
 
-Use the returned source anchor and verified source span before reading
-whole files or performing recursive searches.
+Use the returned source anchor before reading whole files or performing recursive searches.
 
 Only fall back to ripgrep/find/LSP/native repository exploration when
 Radar does not return enough information.
@@ -1307,15 +1301,13 @@ Tree-sitter parsing
 definitions
 exact symbol index
 source anchors
-hash verification
---source
 ```
 
 Acceptance example:
 
 ```bash
 radar map
-radar query verify_token --source
+radar query verify_token
 ```
 
 works end-to-end on fixture repos.
@@ -1605,7 +1597,7 @@ A V1 is useful when all of the following are true:
 3. `radar query <exact-symbol>` returns the correct definition anchor.
 4. Basic natural-language code-location queries return the expected definition in top 3 on a frozen test corpus.
 5. Ambiguous symbols return candidates rather than arbitrary direct answers.
-6. `radar query ... --source` never returns a stale span after source edits.
+6. The future source capability never returns a stale span after source edits.
 7. Default output is intentionally small.
 8. `--json` is stable enough for agents/tools.
 9. The binary runs natively on macOS ARM64.

@@ -1928,6 +1928,8 @@ dependencies = [
  "libc",
  "rr-core",
  "rr-git",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]
@@ -1948,6 +1950,7 @@ dependencies = [
  "thiserror",
  "tree-sitter",
  "tree-sitter-rust",
+ "unicode-ident",
  "unicode-normalization",
 ]
 

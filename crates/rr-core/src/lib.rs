@@ -7,10 +7,11 @@ pub mod lang;
 pub mod lex;
 pub mod oid;
 pub mod parser;
-pub mod snapshot;
-
 pub mod path;
-
+pub mod query;
+pub mod render;
+pub mod result;
+pub mod snapshot;
 pub mod walk;
 
 pub use cache::{CacheKey, CacheOutcome, CacheStats, FactCache};
@@ -22,12 +23,21 @@ pub use lang::Lang;
 pub use lex::TermId as LexTermId;
 pub use lex::{
     append_source_terms, lexical_profile, query_terms, FieldTerm, InputKind, LexicalField,
-    LexicalProfile, Lexicon, LEXICAL_VERSION,
+    LexicalProfile, Lexicon, TermLookup, LEXICAL_VERSION,
 };
 pub use oid::{HashAlgo, Oid, OidError};
 
 pub use parser::EXTRACTOR_VERSION;
 pub use path::{RelPath, RelPathError};
+pub use query::{
+    finish_exact, parse_query, route_exact, ExactAtom, ExactAtomKind, ExactOutcome, ParsedQuery,
+    QueryRequest,
+};
+pub use render::{decode_anchor, encode_anchor, render_json, render_text};
+pub use result::{
+    resolve_anchor, AnchorRef, Candidate, Confidence, LineRange, NoneReason, Pipeline, QueryResult,
+    TargetId,
+};
 pub use walk::{discover, is_generated, SourceFile, WalkCfg, DEFAULT_EXCLUDES};
 
 /// Core error types for `rr-core`.
@@ -37,6 +47,8 @@ pub enum Error {
     Io(#[from] std::io::Error),
     #[error("Ignore error: {0}")]
     Ignore(#[from] ignore::Error),
+    #[error("invalid query: {reason}")]
+    InvalidQuery { reason: &'static str },
     #[error("Invalid relative path: {0}")]
     InvalidRelPath(#[from] RelPathError),
     #[error("Cache I/O error at {path}: {source}")]

@@ -173,6 +173,20 @@ pub struct Lexicon {
     indices: HashMap<Arc<str>, TermId>,
 }
 
+/// Looks up canonical terms without prescribing the backing index.
+pub trait TermLookup {
+    fn get(&self, canonical: &str) -> Option<TermId>;
+}
+
+impl TermLookup for Lexicon {
+    fn get(&self, canonical: &str) -> Option<TermId> {
+        // Explicit inherent-method call: `self.get(canonical)` would resolve to
+        // this trait method (infinite recursion) if the inherent `get` were
+        // ever renamed.
+        Lexicon::get(self, canonical)
+    }
+}
+
 impl Serialize for Lexicon {
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
@@ -296,21 +310,21 @@ pub fn append_source_terms(
 }
 
 #[must_use]
-pub fn query_terms(query: &str, lexicon: &Lexicon) -> QueryTerms {
+pub fn query_terms<L: TermLookup + ?Sized>(query: &str, lookup: &L) -> QueryTerms {
     let mut out = SmallVec::<[TermId; 8]>::new();
     let _ = split::for_each_lexeme(query, |lexeme| {
         if stop::is_stop_word(lexeme) {
             return Ok(());
         }
 
-        if let Some(term_id) = lexicon.get(lexeme) {
+        if let Some(term_id) = lookup.get(lexeme) {
             if !out.contains(&term_id) {
                 out.push(term_id);
             }
         }
 
         if let Some(short_stem) = stem::stem_lookup(lexeme) {
-            if let Some(short_id) = lexicon.get(short_stem) {
+            if let Some(short_id) = lookup.get(short_stem) {
                 if !out.contains(&short_id) {
                     out.push(short_id);
                 }
