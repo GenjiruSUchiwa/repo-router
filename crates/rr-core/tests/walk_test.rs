@@ -107,6 +107,27 @@ fn test_default_exclusions() {
 }
 
 #[test]
+fn test_rr_directory_excluded() {
+    let tmp = TempDir::new().unwrap();
+    let root = tmp.path();
+
+    let rr_facts = root.join(".rr").join("local").join("facts").join("95");
+    fs::create_dir_all(&rr_facts).unwrap();
+    fs::write(rr_facts.join("sample.bin"), b"cached facts binary").unwrap();
+    fs::write(root.join(".rr").join("config.toml"), b"cache config").unwrap();
+
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(root.join("src/lib.rs"), "pub fn hello() {}\n").unwrap();
+
+    let cfg = WalkCfg::default();
+    let files = discover(root, &cfg).unwrap();
+
+    let paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();
+    assert_eq!(paths, vec!["src/lib.rs"]);
+    assert!(!files.iter().any(|f| f.path.as_str().starts_with(".rr")));
+}
+
+#[test]
 fn test_custom_excludes() {
     let tmp = TempDir::new().unwrap();
     let root = tmp.path();
