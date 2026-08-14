@@ -8,6 +8,15 @@ repository.workspace = true
 
 [dependencies]
 thiserror = { workspace = true }
+gix = { version = "0.86.0", default-features = false, features = ["index", "sha1"] }
+sha1 = { workspace = true }
+sha2 = { workspace = true }
+serde = { workspace = true }
+rr-core = { path = "../rr-core" }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+tempfile = { workspace = true }
 
 [lints]
 workspace = true
