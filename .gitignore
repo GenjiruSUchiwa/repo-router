@@ -1,3 +1,15 @@
 target/
 .rr/local/
 *.tar.gz
+
+# Fichiers/dossiers spécifiques aux agents IA — ne jamais committer
+.claude/
+.agents/
+.cursor/
+.aider*
+.codex/
+.mcp.json
+CLAUDE.md
+CLAUDE.local.md
+AGENTS.md
+GEMINI.md
