@@ -10,7 +10,7 @@ use output::Output;
 use rr_core::path::RelPath;
 use rr_core::query::{parse_query, route_query, QueryRequest};
 use rr_core::ranking::{RankingScratch, DEFAULT_RANKING_PROFILE};
-use rr_core::render::{render_json, render_text};
+use rr_core::render::{render_json, render_json_explained, render_text, render_text_explained};
 use rr_core::snapshot::{LoadOutcome, SnapshotStore};
 use rr_git::{build_map, GitRepo};
 
@@ -43,6 +43,10 @@ enum Commands {
         path: Option<RelPath>,
         #[arg(long)]
         json: bool,
+        /// Report the work the ranker did, including whether the candidate cap
+        /// discarded members it could not tell apart from the ones it kept.
+        #[arg(long)]
+        explain: bool,
         query: String,
     },
 }
@@ -74,7 +78,12 @@ fn main() -> ExitCode {
                 ExitCode::from(1)
             }
         },
-        Commands::Query { path, json, query } => match run_query(path.as_ref(), json, &query) {
+        Commands::Query {
+            path,
+            json,
+            explain,
+            query,
+        } => match run_query(path.as_ref(), json, explain, &query) {
             Ok(code) => ExitCode::from(code),
             Err(err) => {
                 eprintln!("rr: query: {err:#}");
@@ -140,7 +149,12 @@ fn run_map(root: Option<PathBuf>, threads: Option<usize>, verbose: bool) -> anyh
     Ok(())
 }
 
-fn run_query(path: Option<&RelPath>, json: bool, query_str: &str) -> anyhow::Result<u8> {
+fn run_query(
+    path: Option<&RelPath>,
+    json: bool,
+    explain: bool,
+    query_str: &str,
+) -> anyhow::Result<u8> {
     let current_dir = std::env::current_dir().context("resolve current directory")?;
     let canonical = current_dir
         .canonicalize()
@@ -182,14 +196,17 @@ fn run_query(path: Option<&RelPath>, json: bool, query_str: &str) -> anyhow::Res
     let request = QueryRequest::new(query_str, path);
     let parsed = parse_query(&snapshot, request).map_err(anyhow::Error::new)?;
     let mut scratch = RankingScratch::new();
-    let result = route_query(&snapshot, &parsed, &DEFAULT_RANKING_PROFILE, &mut scratch)
-        .map_err(anyhow::Error::new)?;
+    let (result, evidence) =
+        route_query(&snapshot, &parsed, &DEFAULT_RANKING_PROFILE, &mut scratch)
+            .map_err(anyhow::Error::new)?;
 
-    let rendered = if json {
-        render_json(&snapshot, &result).map_err(|err| anyhow::anyhow!("{err}"))?
-    } else {
-        render_text(&snapshot, &result).map_err(|err| anyhow::anyhow!("{err}"))?
-    };
+    let rendered = match (json, explain) {
+        (true, false) => render_json(&snapshot, &result),
+        (true, true) => render_json_explained(&snapshot, &result, evidence.as_ref()),
+        (false, false) => render_text(&snapshot, &result),
+        (false, true) => render_text_explained(&snapshot, &result, evidence.as_ref()),
+    }
+    .map_err(|err| anyhow::anyhow!("{err}"))?;
 
     Output::print_raw(&rendered).context("write query result")?;
     Ok(result.exit_code())

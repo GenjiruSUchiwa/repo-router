@@ -464,6 +464,20 @@ pub struct RankingEvidence {
     pub candidates_scored: u16,
     /// Union members the cap discarded; truncation is never silent.
     pub candidates_dropped: u64,
+    /// Whether the cap fell inside a group of members it could not tell apart.
+    ///
+    /// The retention key ranks on `(rarest_df, matched_terms)` and breaks the
+    /// remaining ties on `SymbolId`, which carries no evidence at all — it is
+    /// the order the files happened to be indexed in. When the worst retained
+    /// member ranks equal to a discarded one, the cap chose between them on
+    /// that arbitrary tie-break, so a discarded member could have outscored
+    /// every candidate that survived.
+    ///
+    /// This is the counter to read, not [`RankingEvidence::candidates_dropped`]:
+    /// discarding thousands of clearly weaker members is the design working,
+    /// while cutting through a tie means the answer is one of several the
+    /// ranker had no basis to choose between.
+    pub cap_cut_a_tie: bool,
     /// Query terms that opened at least one posting stream.
     pub effective_query_terms: u16,
 }
@@ -511,6 +525,16 @@ struct Retained {
     rarest_df: u32,
     matched_terms: u16,
     symbol: SymbolId,
+}
+
+impl Retained {
+    /// The part of the retention key that carries evidence.
+    ///
+    /// `SymbolId` is excluded: it only makes the order total, and two members
+    /// sharing this pair are ones the cap has no evidence to choose between.
+    const fn signal(self) -> (u32, u16) {
+        (self.rarest_df, self.matched_terms)
+    }
 }
 
 impl Ord for Retained {
@@ -787,6 +811,13 @@ fn inverse_document_frequency(
 ///
 /// The union is never materialized: only the bounded retention heap and the
 /// per-symbol stream group are held at once.
+///
+/// [`RankingEvidence::cap_cut_a_tie`] is decided exactly while holding only the
+/// single best member the cap discarded. Every discarded member ranks at or
+/// below the retention root of the moment it was discarded, and that root only
+/// improves as the merge proceeds, so every discarded member ranks at or below
+/// the final root. The best discarded member therefore ties the final root
+/// exactly when some discarded member does.
 fn merge_candidates(
     snapshot: &Snapshot,
     profile: &RankingProfile,
@@ -810,6 +841,7 @@ fn merge_candidates(
     }
 
     let limit = usize::from(profile.candidate_limit);
+    let mut best_discarded: Option<Retained> = None;
     while let Some(Reverse(head)) = merge.peek().copied() {
         let symbol = head.symbol;
         group.clear();
@@ -837,7 +869,7 @@ fn merge_candidates(
             seen[usize::from(stream_at(streams, index)?.term_slot)] = false;
         }
         evidence.candidates_before_cap += 1;
-        retain(
+        let discarded = retain(
             retained,
             limit,
             Retained {
@@ -846,6 +878,9 @@ fn merge_candidates(
                 symbol,
             },
         );
+        if let Some(discarded) = discarded {
+            best_discarded = Some(best_discarded.map_or(discarded, |best| best.min(discarded)));
+        }
 
         for &index in group.iter() {
             let stream = streams
@@ -868,6 +903,11 @@ fn merge_candidates(
             }
         }
     }
+
+    evidence.cap_cut_a_tie = match (best_discarded, retained.peek()) {
+        (Some(discarded), Some(worst_kept)) => discarded.signal() == worst_kept.signal(),
+        _ => false,
+    };
     Ok(())
 }
 
@@ -875,15 +915,21 @@ fn merge_candidates(
 ///
 /// The heap orders by the retention key, so its root is the worst member held
 /// and is the only one a new arrival can displace.
-fn retain(heap: &mut BinaryHeap<Retained>, limit: usize, candidate: Retained) {
+///
+/// Returns the member this call discarded, which is the arriving candidate when
+/// it cannot displace the root, and the root itself when it can. Below the
+/// limit nothing is discarded.
+fn retain(heap: &mut BinaryHeap<Retained>, limit: usize, candidate: Retained) -> Option<Retained> {
     if heap.len() < limit {
         heap.push(candidate);
-        return;
+        return None;
     }
-    if heap.peek().is_some_and(|worst| candidate < *worst) {
+    let root = *heap.peek()?;
+    if candidate < root {
         heap.pop();
         heap.push(candidate);
     }
+    Some(root.max(candidate))
 }
 
 /// Scores every retained symbol and sorts by `(Score descending, SymbolId ascending)`.
@@ -1467,5 +1513,30 @@ mod tests {
             .collect::<Vec<_>>();
         kept.sort_unstable();
         assert_eq!(kept, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn ranking_retention_returns_the_member_it_discarded() {
+        let member = |rarest_df: u32, id: u32| Retained {
+            rarest_df,
+            matched_terms: 1,
+            symbol: SymbolId::from_index(id),
+        };
+        let mut heap = BinaryHeap::new();
+        assert_eq!(
+            retain(&mut heap, 1, member(5, 0)),
+            None,
+            "a heap below its limit discards nothing"
+        );
+        assert_eq!(
+            retain(&mut heap, 1, member(9, 1)),
+            Some(member(9, 1)),
+            "a member that cannot displace the root is the one discarded"
+        );
+        assert_eq!(
+            retain(&mut heap, 1, member(2, 2)),
+            Some(member(5, 0)),
+            "a member that displaces the root discards the root"
+        );
     }
 }

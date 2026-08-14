@@ -16,8 +16,8 @@ use rr_core::index::Snapshot;
 use rr_core::lex::LexicalField;
 use rr_core::query::{parse_query, route_query, QueryRequest};
 use rr_core::ranking::{
-    decide, rank, DecisionThresholds, FieldParams, MarginPpm, RankingError, RankingProfile,
-    RankingScratch, RankingStamp, Score, DEFAULT_RANKING_PROFILE,
+    decide, rank, DecisionThresholds, FieldParams, MarginPpm, RankingError, RankingEvidence,
+    RankingProfile, RankingScratch, RankingStamp, Score, DEFAULT_RANKING_PROFILE,
 };
 use rr_core::result::{NoneReason, Pipeline, QueryResult};
 use support::{fixture_snapshot, synthetic_snapshot};
@@ -63,6 +63,26 @@ fn top_score(snapshot: &mut Snapshot, query: &str, profile: &RankingProfile) -> 
     let mut scratch = RankingScratch::new();
     let (ranked, _evidence) = rank(snapshot, &parsed.terms, profile, &mut scratch).unwrap();
     ranked.first().map(|entry| entry.score)
+}
+
+/// The work counters of one query, under a profile the snapshot is restamped for.
+fn evidence_of(snapshot: &mut Snapshot, query: &str, profile: &RankingProfile) -> RankingEvidence {
+    snapshot.meta.ranking = RankingStamp::of(profile);
+    let parsed = parse_query(snapshot, QueryRequest::new(query, None)).unwrap();
+    let mut scratch = RankingScratch::new();
+    let (_ranked, evidence) = rank(snapshot, &parsed.terms, profile, &mut scratch).unwrap();
+    evidence
+}
+
+/// The default profile with the candidate cap lowered to `candidate_limit`.
+fn capped(candidate_limit: u16) -> RankingProfile {
+    let profile = RankingProfile {
+        candidate_limit,
+        result_limit: u8::try_from(candidate_limit).unwrap_or(u8::MAX).min(3),
+        ..DEFAULT_RANKING_PROFILE
+    };
+    profile.validate().unwrap();
+    profile
 }
 
 #[test]
@@ -411,7 +431,8 @@ fn ranking_scoring_never_ranks_an_exact_ambiguity() {
     let mut scratch = RankingScratch::new();
     let parsed = parse_query(&snapshot, QueryRequest::new("shared_name", None)).unwrap();
 
-    let result = route_query(&snapshot, &parsed, &DEFAULT_RANKING_PROFILE, &mut scratch).unwrap();
+    let (result, _) =
+        route_query(&snapshot, &parsed, &DEFAULT_RANKING_PROFILE, &mut scratch).unwrap();
     let pipeline = match &result {
         QueryResult::Direct { pipeline, .. }
         | QueryResult::Candidates { pipeline, .. }
@@ -451,5 +472,75 @@ fn ranking_scoring_abstains_on_a_repository_with_nothing_to_rank() {
             pipeline: Pipeline::Lexical,
         },
         "an index with nothing in it must abstain rather than fail"
+    );
+}
+
+#[test]
+fn ranking_cap_reports_a_cut_through_members_it_cannot_tell_apart() {
+    let sources: Vec<(String, String)> = (0..6)
+        .map(|index| {
+            (
+                format!("src/module_{index}.rs"),
+                format!("pub fn marker_{index}() {{}}\n"),
+            )
+        })
+        .collect();
+    let borrowed: Vec<(&str, &str)> = sources
+        .iter()
+        .map(|(path, code)| (path.as_str(), code.as_str()))
+        .collect();
+    let mut snapshot = synthetic_snapshot(&borrowed);
+    assert_eq!(snapshot.symbols.len(), 6, "one symbol per module");
+
+    let whole = evidence_of(&mut snapshot, "marker", &capped(6));
+    assert_eq!(
+        whole.candidates_before_cap, 6,
+        "every symbol carries marker"
+    );
+    assert_eq!(whole.candidates_dropped, 0);
+    assert!(
+        !whole.cap_cut_a_tie,
+        "a cap that discards nothing cannot have cut anything"
+    );
+
+    let cut = evidence_of(&mut snapshot, "marker", &capped(3));
+    assert_eq!(cut.candidates_dropped, 3);
+    assert!(
+        cut.cap_cut_a_tie,
+        "these six symbols share one term and one document frequency, so the retention key \
+         ranks them all equal and the three that survive were chosen by symbol id alone"
+    );
+}
+
+#[test]
+fn ranking_cap_reports_no_tie_when_it_cuts_below_a_clear_winner() {
+    let mut sources: Vec<(String, String)> = (0..5)
+        .map(|index| {
+            (
+                format!("src/module_{index}.rs"),
+                format!("pub fn marker_{index}() {{}}\n"),
+            )
+        })
+        .collect();
+    sources.push((
+        "src/sole.rs".to_owned(),
+        "pub fn zebra_marker() {}\n".to_owned(),
+    ));
+    let borrowed: Vec<(&str, &str)> = sources
+        .iter()
+        .map(|(path, code)| (path.as_str(), code.as_str()))
+        .collect();
+    let mut snapshot = synthetic_snapshot(&borrowed);
+
+    let evidence = evidence_of(&mut snapshot, "zebra marker", &capped(1));
+    assert_eq!(
+        evidence.candidates_before_cap, 6,
+        "all six symbols carry marker"
+    );
+    assert_eq!(evidence.candidates_dropped, 5);
+    assert!(
+        !evidence.cap_cut_a_tie,
+        "the retained symbol is the only one matching zebra, whose document frequency of one \
+         ranks it strictly above every discarded member: five drops, and none of them arbitrary"
     );
 }

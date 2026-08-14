@@ -113,8 +113,7 @@ documentation so the next corpus edit does not reintroduce it.
   A size-normalized decision statistic would fix it.
 - **The candidate cap can drop the true top-scorer.** Retention orders by
   `(rarest_df, matched_terms, SymbolId)`, not by score. Inherent to the issue's
-  bounded design; `candidates_dropped` records it, though only inside `rr-core`
-  — see the last section.
+  bounded design. Measured and surfaced afterwards — see the closing sections.
 - **Scoring dominates the cost, not the merge.** ~197 µs for 12 000 postings is
   64 candidates × 5 terms × 10 fields of binary search back into the posting
   lists. Carrying each stream's cursor into scoring, or scoring inside the merge,
@@ -195,7 +194,52 @@ The threshold-consistency check from defect 4 above also had no test of its own 
 `ranking_profile_validation_rejects_every_invalid_parameter` covered seven of
 `validate`'s eight rules. It now covers all eight.
 
-One finding is left unfixed: `route_query` discards the `RankingEvidence` that
-carries `candidates_dropped`, so cap truncation is observable inside `rr-core` but
-silent end to end. Surfacing it would extend the v1 output contract, which is a
-decision for the contract, not a fix for this branch.
+One finding was left unfixed on that branch: `route_query` discarded the
+`RankingEvidence` carrying `candidates_dropped`, so cap truncation was observable
+inside `rr-core` but silent end to end. Surfacing it extends the v1 output
+contract, which is a decision for the contract rather than a fix for a ranking
+branch. The next section is that decision.
+
+## Making truncation observable, and what measuring it showed
+
+Following the finding up produced a better one. `candidates_dropped` is the wrong
+number to surface: on the 10 001-symbol benchmark corpus, four of the five query
+shapes discard more than 1 900 union members each. Truncation is the normal case,
+not the exception, so a per-answer "truncated" flag would be true almost always
+and inform nobody.
+
+What actually threatens an answer is narrower. The retention key ranks on
+`(rarest_df, matched_terms)` and breaks the remaining ties on `SymbolId` — the
+order the files happened to be indexed in, which is not evidence about anything.
+When hundreds of union members share a document frequency and a match count, the
+cap keeps sixty-four of them by file order, and a discarded member could have
+outscored every candidate that survived. That is the case worth reporting, and it
+is not the same as "many were dropped":
+
+| benchmark query | dropped | arbitrary cut |
+|---|---|---|
+| `rare_term` | 0 | no |
+| `mixed_terms` | 3 736 | **yes** |
+| `ubiquitous_term` | 9 937 | **yes** |
+| `cap_overflow` | 1 936 | **yes** |
+| `eight_terms` | 5 537 | **yes** |
+
+So `RankingEvidence::cap_cut_a_tie` records whether the cap fell inside a group it
+could not tell apart. It is decided exactly while holding a single extra member:
+every discarded member ranks at or below the retention root of the moment it was
+discarded, and that root only improves, so the best discarded member ties the
+final root exactly when any discarded member does. The proof is in the
+`merge_candidates` documentation, since it is the reason one `Retained` is enough.
+
+`route_query` now returns the evidence alongside the result — a Rust API change
+with one caller and no effect on either output contract — and `rr query --explain`
+renders it. Default output is unchanged byte for byte, pinned by
+`query_contract_default_output_is_unchanged_by_the_explain_flag`. In text mode the
+diagnostic precedes the answer so the anchor stays the last line; in JSON it is
+one added member, `null` for an exact route, which reads no posting list and so
+has no cap to explain.
+
+`docs/query.schema.json` gained the optional member. Nothing compared the schema
+to the renderer before — a silent drift waiting to happen — so
+`query_contract_json_carries_exactly_the_members_the_schema_declares` now reads
+the published file and checks all three result shapes against it.

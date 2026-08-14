@@ -94,6 +94,36 @@
         }
       }
     },
+    "RankingEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "posting_hits_scanned",
+        "candidates_before_cap",
+        "candidates_scored",
+        "candidates_dropped",
+        "cap_cut_a_tie",
+        "effective_query_terms"
+      ],
+      "properties": {
+        "posting_hits_scanned": { "type": "integer", "minimum": 0 },
+        "candidates_before_cap": { "type": "integer", "minimum": 0 },
+        "candidates_scored": { "type": "integer", "minimum": 0 },
+        "candidates_dropped": { "type": "integer", "minimum": 0 },
+        "cap_cut_a_tie": {
+          "type": "boolean",
+          "$comment": "True when the candidate cap discarded a union member the retention key ranked equal to the worst member it kept. The survivors were then settled on symbol id, which is the order the files happened to be indexed in, so a discarded member could have outscored every answer shown."
+        },
+        "effective_query_terms": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "Explain": {
+      "oneOf": [
+        { "$ref": "#/$defs/RankingEvidence" },
+        { "type": "null" }
+      ],
+      "$comment": "Present only when --explain is passed, and null when the query routed exactly and read no posting list. Optional, so every response that validated before this member existed still validates."
+    },
     "DirectResult": {
       "type": "object",
       "additionalProperties": false,
@@ -115,6 +145,9 @@
         },
         "confidence": {
           "$ref": "#/$defs/Confidence"
+        },
+        "explain": {
+          "$ref": "#/$defs/Explain"
         }
       }
     },
@@ -141,6 +174,9 @@
           "items": {
             "$ref": "#/$defs/CandidateItem"
           }
+        },
+        "explain": {
+          "$ref": "#/$defs/Explain"
         }
       }
     },
@@ -163,6 +199,9 @@
         "reason": {
           "type": "string",
           "enum": ["not_found", "low_confidence"]
+        },
+        "explain": {
+          "$ref": "#/$defs/Explain"
         }
       }
     }

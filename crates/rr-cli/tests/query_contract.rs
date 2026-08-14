@@ -414,3 +414,134 @@ fn query_contract_lexical_repeats_byte_for_byte_across_processes() {
         assert_eq!(first, again, "run {run} printed a different answer");
     }
 }
+
+const DIRECT_QUESTION: &str = "how do we create a session?";
+const DIRECT_RESPONSE: &str = "{\"result\":\"direct\",\"v\":1,\"pipeline\":\"lexical\",\
+                               \"anchor\":{\"path\":\"src/auth/session.rs\",\
+                               \"symbol\":\"create_session\",\"lines\":[1,4]},\
+                               \"confidence\":0.465526}";
+
+#[test]
+fn query_contract_default_output_is_unchanged_by_the_explain_flag() {
+    let repo = setup_lexical_repo();
+    let plain = query(&repo, &["--json", DIRECT_QUESTION]).stdout;
+    assert_eq!(
+        String::from_utf8(plain).unwrap(),
+        format!("{DIRECT_RESPONSE}\n"),
+        "the v1 response carries no diagnostic member unless one was asked for, and the order \
+         of its members is as much a part of the contract as their values"
+    );
+
+    let explained = query(&repo, &["--json", "--explain", DIRECT_QUESTION]).stdout;
+    let explained = String::from_utf8(explained).unwrap();
+    let opening = DIRECT_RESPONSE.trim_end_matches('}');
+    assert!(
+        explained.starts_with(opening),
+        "asking for an explanation must leave every answer member where it was: {explained}"
+    );
+    assert_eq!(
+        &explained[opening.len()..],
+        ",\"explain\":{\"posting_hits_scanned\":13,\"candidates_before_cap\":2,\
+         \"candidates_scored\":2,\"candidates_dropped\":0,\"cap_cut_a_tie\":false,\
+         \"effective_query_terms\":2}}\n",
+        "the flag adds exactly one member, at the end"
+    );
+}
+
+#[test]
+fn query_contract_explain_precedes_the_anchor_in_text_mode() {
+    let repo = setup_lexical_repo();
+    let output = query(&repo, &["--explain", DIRECT_QUESTION]);
+
+    assert_eq!(output.status.code(), Some(0));
+    let text = String::from_utf8(output.stdout).unwrap();
+    let mut lines = text.lines();
+    assert_eq!(
+        lines.next(),
+        Some("explain: postings=13 union=2 scored=2 dropped=0 arbitrary_cut=no terms=2")
+    );
+    assert_eq!(
+        lines.next(),
+        Some("FINAL SOURCE ANCHOR (copy exactly): src/auth/session.rs#create_session"),
+        "the anchor stays the last line, so a caller reading the tail keeps working"
+    );
+    assert_eq!(lines.next(), None);
+}
+
+#[test]
+fn query_contract_explain_reports_an_exact_route_as_unranked() {
+    let repo = setup_lexical_repo();
+    let output = query(&repo, &["--explain", "create_session"]);
+
+    assert_eq!(output.status.code(), Some(0));
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        text.starts_with("explain: exact route, nothing ranked\n"),
+        "an exact match reads no posting list, so it has no candidate cap to explain: {text}"
+    );
+
+    let output = query(&repo, &["--json", "--explain", "create_session"]);
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["pipeline"], "exact");
+    assert!(
+        value["explain"].is_null(),
+        "the member is present and null rather than absent, so a consumer can tell an \
+         unranked route apart from a flag that was never passed: {value}"
+    );
+}
+
+/// The published schema, read from the repository rather than restated here.
+fn published_schema() -> serde_json::Value {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../docs/query.schema.json")
+        .canonicalize()
+        .unwrap();
+    serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap()
+}
+
+/// The member names the schema declares for one result shape.
+fn declared_members(schema: &serde_json::Value, shape: &str) -> Vec<String> {
+    let mut members: Vec<String> = schema["$defs"][shape]["properties"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .cloned()
+        .collect();
+    members.sort();
+    members
+}
+
+/// The member names one rendered response actually carries.
+fn rendered_members(response: &serde_json::Value) -> Vec<String> {
+    let mut members: Vec<String> = response.as_object().unwrap().keys().cloned().collect();
+    members.sort();
+    members
+}
+
+#[test]
+fn query_contract_json_carries_exactly_the_members_the_schema_declares() {
+    let repo = setup_lexical_repo();
+    let schema = published_schema();
+
+    for (shape, args) in [
+        ("DirectResult", vec!["--json", "--explain", DIRECT_QUESTION]),
+        (
+            "CandidatesResult",
+            vec!["--json", "--explain", "encode an entry to bytes"],
+        ),
+        (
+            "NoneResult",
+            vec!["--json", "--explain", "quantum flux capacitor"],
+        ),
+    ] {
+        let output = query(&repo, &args);
+        let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(
+            rendered_members(&response),
+            declared_members(&schema, shape),
+            "the {shape} the renderer produces must carry exactly the members \
+             docs/query.schema.json declares, since the schema is what consumers validate \
+             against and nothing else compares the two"
+        );
+    }
+}
