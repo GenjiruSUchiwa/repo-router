@@ -1,12 +1,16 @@
 mod output;
 
 use std::path::PathBuf;
+use std::process::ExitCode;
 use std::time::Instant;
 
 use anyhow::{bail, Context};
 use clap::{Parser, Subcommand};
 use output::Output;
-use rr_core::snapshot::SnapshotStore;
+use rr_core::path::RelPath;
+use rr_core::query::{finish_exact, parse_query, route_exact, QueryRequest};
+use rr_core::render::{render_json, render_text};
+use rr_core::snapshot::{LoadOutcome, SnapshotStore};
 use rr_git::{build_map, GitRepo};
 
 const VERSION_STR: &str = concat!(env!("CARGO_PKG_VERSION"), " (", env!("RR_GIT_HASH"), ")");
@@ -30,28 +34,53 @@ enum Commands {
         root: Option<PathBuf>,
         #[arg(long)]
         threads: Option<usize>,
-        #[arg(long)]
+        #[arg(long, short)]
         verbose: bool,
+    },
+    Query {
+        #[arg(long, value_name = "REL_PATH")]
+        path: Option<RelPath>,
+        #[arg(long)]
+        json: bool,
+        query: String,
     },
 }
 
-fn main() -> anyhow::Result<()> {
+fn main() -> ExitCode {
     #[cfg(unix)]
     unsafe {
         libc::signal(libc::SIGPIPE, libc::SIG_DFL);
     }
 
-    match Cli::parse().command {
+    let cli = Cli::parse();
+    match cli.command {
         Commands::Version => {
-            Output::print_version(env!("CARGO_PKG_VERSION"), env!("RR_GIT_HASH"))?;
+            if let Err(err) = Output::print_version(env!("CARGO_PKG_VERSION"), env!("RR_GIT_HASH"))
+            {
+                eprintln!("rr: {err}");
+                return ExitCode::from(1);
+            }
+            ExitCode::from(0)
         }
         Commands::Map {
             root,
             threads,
             verbose,
-        } => run_map(root, threads, verbose)?,
+        } => match run_map(root, threads, verbose) {
+            Ok(()) => ExitCode::from(0),
+            Err(err) => {
+                eprintln!("rr: {err:#}");
+                ExitCode::from(1)
+            }
+        },
+        Commands::Query { path, json, query } => match run_query(path.as_ref(), json, &query) {
+            Ok(code) => ExitCode::from(code),
+            Err(err) => {
+                eprintln!("rr: query: {err}");
+                ExitCode::from(1)
+            }
+        },
     }
-    Ok(())
 }
 
 fn run_map(root: Option<PathBuf>, threads: Option<usize>, verbose: bool) -> anyhow::Result<()> {
@@ -79,37 +108,85 @@ fn run_map(root: Option<PathBuf>, threads: Option<usize>, verbose: bool) -> anyh
         .checked_div(total_cache)
         .unwrap_or_default();
     let line = format!(
-        "rr map — {} files, {} symbols, {} unresolved refs, {} ambiguous refs, {} ms (cache {}%; {} hits, {} misses, {} corrupt; {} reparsed)",
+        "rr: mapped {} files ({} symbols, {} refs) in {:.2}s (cache: {}% hits)",
         report.stats.files,
         report.stats.symbols,
-        report.stats.unresolved_refs,
-        report.stats.ambiguous_refs,
-        started.elapsed().as_millis(),
-        cache_rate,
-        report.stats.cache_hits,
-        report.stats.cache_misses,
-        report.stats.cache_corrupt,
-        report.stats.reparsed,
+        report.stats.references,
+        started.elapsed().as_secs_f64(),
+        cache_rate
     );
     Output::print_text(&line)?;
     if verbose {
-        let details = format!(
-            "imports {} ({} unresolved, {} ambiguous), references {}, clean probes {}, clean blob reads {}, filtered/raw reads {}, parses {} (complete {}, recovered {}, degraded {}), content reads {}, cache write failures {}",
-            report.stats.imports,
-            report.stats.unresolved_imports,
-            report.stats.ambiguous_imports,
-            report.stats.references,
+        let stats = format!(
+            "  workers: {} clean probes, {} parses ({} complete, {} recovered, {} degraded)\n  cache: {} hits, {} misses, {} corrupt\n  references: {} unresolved, {} ambiguous\n  imports: {} unresolved, {} ambiguous",
             report.stats.clean_probes,
-            report.stats.clean_blob_reads,
-            report.stats.filtered_raw_reads,
             report.stats.parses,
             report.stats.complete,
             report.stats.recovered,
             report.stats.degraded,
-            report.stats.content_reads,
-            report.stats.cache_write_failures,
+            report.stats.cache_hits,
+            report.stats.cache_misses,
+            report.stats.cache_corrupt,
+            report.stats.unresolved_refs,
+            report.stats.ambiguous_refs,
+            report.stats.unresolved_imports,
+            report.stats.ambiguous_imports
         );
-        Output::print_text(&details)?;
+        Output::print_text(&stats)?;
     }
     Ok(())
+}
+
+fn run_query(path: Option<&RelPath>, json: bool, query_str: &str) -> anyhow::Result<u8> {
+    let current_dir = std::env::current_dir().context("resolve current directory")?;
+    let canonical = current_dir
+        .canonicalize()
+        .context("canonicalize current directory")?;
+    let git_repo = GitRepo::discover(&canonical).context("discover repository")?;
+
+    let (store_root, is_git, head_oid) = match &git_repo {
+        Some(repo) => {
+            let head = repo.head_oid().context("resolve HEAD commit")?;
+            (repo.workdir().to_path_buf(), true, head)
+        }
+        None => (canonical, false, None),
+    };
+
+    let store = SnapshotStore::new(&store_root);
+    let outcome = store.load().map_err(|err| anyhow::anyhow!("{err}"))?;
+
+    let snapshot = match outcome {
+        LoadOutcome::Ready(snap) => snap,
+        LoadOutcome::Missing => {
+            bail!("index missing; run 'rr map'");
+        }
+        LoadOutcome::NeedsRebuild(_) => {
+            bail!("index invalid; run 'rr map'");
+        }
+    };
+
+    if is_git {
+        if snapshot.meta.no_git {
+            bail!("index repository mismatch; run 'rr map'");
+        }
+        if snapshot.meta.repo_head_oid != head_oid {
+            bail!("index is stale; run 'rr refresh'");
+        }
+    } else if !snapshot.meta.no_git {
+        bail!("index repository mismatch; run 'rr map'");
+    }
+
+    let request = QueryRequest::new(query_str, path);
+    let parsed = parse_query(&snapshot, request).map_err(|err| anyhow::anyhow!("{err}"))?;
+    let exact_outcome = route_exact(&snapshot, &parsed);
+    let result = finish_exact(exact_outcome);
+
+    let rendered = if json {
+        render_json(&snapshot, &result).map_err(|err| anyhow::anyhow!("{err}"))?
+    } else {
+        render_text(&snapshot, &result).map_err(|err| anyhow::anyhow!("{err}"))?
+    };
+
+    Output::print_raw(&rendered).context("write query result")?;
+    Ok(result.exit_code())
 }

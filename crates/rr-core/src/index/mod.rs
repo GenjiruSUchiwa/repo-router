@@ -365,6 +365,19 @@ impl Snapshot {
     pub fn validate(&self) -> Result<()> {
         validate::snapshot(self)
     }
+
+    /// Builds a [`Lexicon`] from the terms and strings in this snapshot.
+    ///
+    /// # Errors
+    /// Returns [`Error::InvalidLexicon`] if the terms table is malformed.
+    pub fn lexicon(&self) -> Result<crate::lex::Lexicon> {
+        let term_strings: Vec<String> = self
+            .terms
+            .iter()
+            .map(|term| self.strings[term.text.index()].clone())
+            .collect();
+        crate::lex::Lexicon::try_from(term_strings)
+    }
 }
 
 #[allow(

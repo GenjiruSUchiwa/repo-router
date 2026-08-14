@@ -42,6 +42,17 @@ impl Output {
         let stdout = io::stdout().lock();
         Self::write_text(stdout, text)
     }
+
+    /// Writes raw output bytes to standard output without adding extra newlines.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`io::Error`] if writing or flushing fails.
+    pub fn print_raw(content: &str) -> io::Result<()> {
+        let mut stdout = io::stdout().lock();
+        stdout.write_all(content.as_bytes())?;
+        stdout.flush()
+    }
 }
 
 #[cfg(test)]

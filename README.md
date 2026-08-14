@@ -18,7 +18,7 @@ Coding agents burn their context window running `grep` and reading whole files. 
 | Command | Role |
 |---|---|
 | `rr map` | Index the repository (gitignore-aware traversal, Tree-sitter, fingerprints) |
-| `rr query <q>` | Answer: definitions, references, imports — text or `--json` |
+| `rr query [--json] [--path <PATH>] <QUERY>` | Exact and ranked symbol/file query routing (text or versioned JSON v1) |
 | `rr query --source` | Return the exact source span, hash-verified, refused if stale |
 | `rr refresh` | Update the index incrementally (git-gated) |
 | `rr route` | Committable cache of resolved routes |

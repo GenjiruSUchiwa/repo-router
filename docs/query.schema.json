@@ -1,0 +1,159 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/GenjiruSUchiwa/repo-router/main/docs/query.schema.json",
+  "title": "RepoRouterQueryResultV1",
+  "description": "Schema for repo-router query output v1",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/DirectResult"
+    },
+    {
+      "$ref": "#/$defs/CandidatesResult"
+    },
+    {
+      "$ref": "#/$defs/NoneResult"
+    }
+  ],
+  "$defs": {
+    "Pipeline": {
+      "type": "string",
+      "enum": ["exact", "lexical", "route"]
+    },
+    "LineRange": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "type": "integer",
+          "minimum": 1
+        },
+        {
+          "type": "integer",
+          "minimum": 1
+        }
+      ],
+      "items": false,
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "Anchor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "symbol", "lines"],
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "symbol": {
+          "type": ["string", "null"]
+        },
+        "lines": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/LineRange"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "Confidence": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0
+    },
+    "CandidateItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["anchor", "confidence"],
+      "properties": {
+        "anchor": {
+          "$ref": "#/$defs/Anchor"
+        },
+        "confidence": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/Confidence"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "DirectResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["v", "result", "pipeline", "anchor", "confidence"],
+      "properties": {
+        "v": {
+          "type": "integer",
+          "const": 1
+        },
+        "result": {
+          "type": "string",
+          "const": "direct"
+        },
+        "pipeline": {
+          "$ref": "#/$defs/Pipeline"
+        },
+        "anchor": {
+          "$ref": "#/$defs/Anchor"
+        },
+        "confidence": {
+          "$ref": "#/$defs/Confidence"
+        }
+      }
+    },
+    "CandidatesResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["v", "result", "pipeline", "candidates"],
+      "properties": {
+        "v": {
+          "type": "integer",
+          "const": 1
+        },
+        "result": {
+          "type": "string",
+          "const": "candidates"
+        },
+        "pipeline": {
+          "$ref": "#/$defs/Pipeline"
+        },
+        "candidates": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 3,
+          "items": {
+            "$ref": "#/$defs/CandidateItem"
+          }
+        }
+      }
+    },
+    "NoneResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["v", "result", "pipeline", "reason"],
+      "properties": {
+        "v": {
+          "type": "integer",
+          "const": 1
+        },
+        "result": {
+          "type": "string",
+          "const": "none"
+        },
+        "pipeline": {
+          "$ref": "#/$defs/Pipeline"
+        },
+        "reason": {
+          "type": "string",
+          "enum": ["not_found", "low_confidence"]
+        }
+      }
+    }
+  }
+}

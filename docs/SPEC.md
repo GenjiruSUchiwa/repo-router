@@ -942,69 +942,65 @@ radar map --clean
 Default query:
 
 ```text
-FINAL SOURCE ANCHOR
-src/auth/token.rs#verify_token
+FINAL SOURCE ANCHOR (copy exactly): src/auth/token.rs#verify_token
 ```
 
-With source:
+Direct file:
 
 ```text
-FINAL SOURCE ANCHOR
-src/auth/token.rs#verify_token
-verified source span: lines 41-68
-
-41 pub fn verify_token(token: &str) -> Result<Claims> {
-...
-68 }
+FINAL SOURCE ANCHOR (copy exactly): src/auth/token.rs
 ```
 
-Ambiguous:
+Candidates (ambiguous):
 
 ```text
-SOURCE CANDIDATES
-1. src/auth/token.rs#verify_token
-2. src/api/auth.rs#verify_token
+source candidates:
+1. src/auth/session.rs#Session
+2. src/session.rs#Session
 ```
 
-## 16.2 JSON output
+Not found:
+
+```text
+NO ANCHOR (index has no match); try: rr map
+```
+
+Low confidence (lexical handoff):
+
+```text
+NO ANCHOR (confidence too low); refine the query or use --path
+```
+
+## 16.2 JSON output (v1)
 
 ```bash
-radar query "token verification" --json
+rr query "verify_token" --json
 ```
 
-Suggested schema:
+Direct:
 
 ```json
-{
-  "status": "direct",
-  "query": "token verification",
-  "confidence": 0.94,
-  "anchor": {
-    "path": "src/auth/token.rs",
-    "symbol": "verify_token",
-    "start_line": 41,
-    "end_line": 68,
-    "verified": true
-  }
-}
+{"v":1,"result":"direct","pipeline":"exact","anchor":{"path":"src/auth/token.rs","symbol":"verify_token","lines":[9,15]},"confidence":1.0}
 ```
 
-Ambiguous:
+Candidates:
 
 ```json
-{
-  "status": "candidates",
-  "query": "token verification",
-  "candidates": [
-    {
-      "path": "src/auth/token.rs",
-      "symbol": "verify_token",
-      "score": 0.82
-    }
-  ]
-}
+{"v":1,"result":"candidates","pipeline":"exact","candidates":[{"anchor":{"path":"src/auth/session.rs","symbol":"Session","lines":[4,18]},"confidence":null},{"anchor":{"path":"src/session.rs","symbol":"Session","lines":[7,21]},"confidence":null}]}
 ```
 
+None:
+
+```json
+{"v":1,"result":"none","pipeline":"exact","reason":"not_found"}
+```
+
+Exit codes:
+- `0`: direct
+- `1`: execution / I/O / snapshot error
+- `2`: candidates
+- `3`: none
+- `4`: reserved for #9 stale-source refusal
 Do not expose unstable internal ranking internals unless `--debug` is used.
 
 ---

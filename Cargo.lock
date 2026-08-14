@@ -1928,6 +1928,8 @@ dependencies = [
  "libc",
  "rr-core",
  "rr-git",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]
