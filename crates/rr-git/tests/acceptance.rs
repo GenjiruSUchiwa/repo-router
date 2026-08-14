@@ -1,11 +1,14 @@
+mod common;
+
 use std::fs;
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use tempfile::TempDir;
 
+use common::{git_add_and_commit, init_git_repo};
 use rr_core::cache::{CacheKey, CacheOutcome, FactCache};
 use rr_core::walk::{discover, SourceFile, WalkCfg};
-use rr_git::{oid_of, GitRepo, HashAlgo};
+use rr_git::{oid_of, GitRepo};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -23,45 +26,6 @@ fn extract_mock_facts(content: &[u8], parse_counter: &AtomicUsize) -> ExtractedF
     }
 }
 
-fn init_git_repo() -> TempDir {
-    let temp = TempDir::new().expect("failed to create temp dir");
-    let output = Command::new("git")
-        .args(["init", "-q"])
-        .current_dir(temp.path())
-        .output()
-        .expect("failed to run git init");
-    assert!(output.status.success(), "git init failed");
-
-    Command::new("git")
-        .args(["config", "user.name", "Acceptance Tester"])
-        .current_dir(temp.path())
-        .output()
-        .expect("git config user.name failed");
-    Command::new("git")
-        .args(["config", "user.email", "test@acceptance.org"])
-        .current_dir(temp.path())
-        .output()
-        .expect("git config user.email failed");
-
-    temp
-}
-
-fn git_add_and_commit(dir: &std::path::Path, msg: &str) {
-    let add = Command::new("git")
-        .args(["add", "."])
-        .current_dir(dir)
-        .output()
-        .expect("git add failed");
-    assert!(add.status.success(), "git add failed");
-
-    let commit = Command::new("git")
-        .args(["commit", "-qm", msg])
-        .current_dir(dir)
-        .output()
-        .expect("git commit failed");
-    assert!(commit.status.success(), "git commit failed");
-}
-
 fn run_pipeline(
     root: &std::path::Path,
     repo: Option<&GitRepo>,
@@ -72,10 +36,8 @@ fn run_pipeline(
     let files = discover(root, &cfg).expect("discover failed");
     let mut results = Vec::new();
 
-    let algo = repo.map_or(HashAlgo::Sha1, GitRepo::hash_algo);
-
     for file in files {
-        let oid = oid_of(repo, root, &file.path, algo).expect("oid_of failed");
+        let oid = oid_of(repo, root, &file.path).expect("oid_of failed");
         let key = CacheKey::new(oid, file.lang);
 
         let facts = match cache.get::<ExtractedFacts>(&key).expect("cache get failed") {

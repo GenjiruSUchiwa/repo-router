@@ -23,8 +23,6 @@ pub enum Error {
     Ignore(#[from] ignore::Error),
     #[error("Invalid relative path: {0}")]
     InvalidRelPath(#[from] RelPathError),
-    #[error("OID error: {0}")]
-    Oid(#[from] OidError),
     #[error("Cache I/O error at {path}: {source}")]
     CacheIo {
         path: std::path::PathBuf,

@@ -1,6 +1,7 @@
 //! Git object identifier computation and pure Git blob hashing.
 //!
-//! This module contains pure hashing functions without depending on `gix`.
+//! This module contains pure hashing functions without depending on `gix`,
+//! whose hash `Kind` does not yet support SHA-256.
 
 use sha1::Digest;
 

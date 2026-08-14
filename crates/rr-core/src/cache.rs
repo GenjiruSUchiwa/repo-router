@@ -141,13 +141,8 @@ impl FactCache {
             source,
         })?;
 
-        let probe_file = root.join(".probe_write");
-        fs::write(&probe_file, b"ok").map_err(|source| Error::CacheIo {
-            path: probe_file.clone(),
-            source,
-        })?;
-        fs::remove_file(&probe_file).map_err(|source| Error::CacheIo {
-            path: probe_file,
+        tempfile::NamedTempFile::new_in(&root).map_err(|source| Error::CacheIo {
+            path: root.clone(),
             source,
         })?;
 
@@ -168,7 +163,7 @@ impl FactCache {
     ///
     /// Distinguishes explicitly between:
     /// - Normal cache miss (`Ok(CacheOutcome::Miss)`).
-    /// - Corrupted file (`Ok(CacheOutcome::Corrupt)` after logging a warning).
+    /// - Corrupted file (`Ok(CacheOutcome::Corrupt)`).
     /// - Filesystem I/O errors (propagated as [`Error::CacheIo`]).
     ///
     /// # Errors
@@ -184,27 +179,24 @@ impl FactCache {
             Err(source) => return Err(Error::CacheIo { path, source }),
         };
 
-        match postcard::from_bytes::<T>(&bytes) {
-            Ok(value) => {
-                self.stats.hits.fetch_add(1, Ordering::Relaxed);
-                Ok(CacheOutcome::Hit(value))
-            }
-            Err(err) => {
-                eprintln!("warning: corrupt cache entry at {}: {err}", path.display());
-                self.stats.corrupt.fetch_add(1, Ordering::Relaxed);
-                Ok(CacheOutcome::Corrupt)
-            }
+        if let Ok((value, [])) = postcard::take_from_bytes::<T>(&bytes) {
+            self.stats.hits.fetch_add(1, Ordering::Relaxed);
+            Ok(CacheOutcome::Hit(value))
+        } else {
+            self.stats.corrupt.fetch_add(1, Ordering::Relaxed);
+            Ok(CacheOutcome::Corrupt)
         }
     }
 
     /// Writes a value to the cache atomically.
     ///
     /// Serializes `value` with `postcard`, writes to a temporary file in the same shard
-    /// directory, calls `sync_all` (fsync), and persists over the target path.
+    /// directory, and persists over the target path via rename. No fsync is issued: the
+    /// cache is fully rebuildable and a lost entry is regenerated on the next miss.
     ///
     /// # Errors
     /// Returns [`Error::CacheSerialization`] if serialization fails.
-    /// Returns [`Error::CacheIo`] if temporary file creation, writing, syncing, or renaming fails.
+    /// Returns [`Error::CacheIo`] if temporary file creation, writing, or renaming fails.
     pub fn put<T: Serialize>(&self, key: &CacheKey, value: &T) -> Result<()> {
         let path = self.path_for(key);
         let parent = path.parent().unwrap_or(&self.root);
@@ -222,11 +214,6 @@ impl FactCache {
             })?;
 
         temp.write_all(&bytes).map_err(|source| Error::CacheIo {
-            path: temp.path().to_path_buf(),
-            source,
-        })?;
-
-        temp.as_file().sync_all().map_err(|source| Error::CacheIo {
             path: temp.path().to_path_buf(),
             source,
         })?;
@@ -339,6 +326,29 @@ mod tests {
         let outcome2: CacheOutcome<DummyFacts> = cache.get(&key).unwrap();
         assert_eq!(outcome2, CacheOutcome::Hit(valid_facts));
         assert_eq!(cache.stats().hits(), 1);
+    }
+
+    #[test]
+    fn trailing_garbage_after_valid_record_is_corrupt() {
+        let temp = TempDir::new().unwrap();
+        let cache = FactCache::open(temp.path()).unwrap();
+        let oid = Oid::from_hex(SHA1_HEX).unwrap();
+        let key = CacheKey::new(oid, Lang::Rust);
+
+        let facts = DummyFacts {
+            symbols: vec!["foo".to_string()],
+            imports: vec![],
+        };
+        cache.put(&key, &facts).unwrap();
+
+        let path = cache.path_for(&key);
+        let mut bytes = fs::read(&path).unwrap();
+        bytes.extend_from_slice(b"trailing garbage");
+        fs::write(&path, &bytes).unwrap();
+
+        let outcome: CacheOutcome<DummyFacts> = cache.get(&key).unwrap();
+        assert_eq!(outcome, CacheOutcome::Corrupt);
+        assert_eq!(cache.stats().corrupt(), 1);
     }
 
     #[test]

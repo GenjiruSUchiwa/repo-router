@@ -1,49 +1,13 @@
+mod common;
+
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::process::Command;
 use tempfile::TempDir;
 
+use common::{git_add_and_commit, init_git_repo};
 use rr_core::path::RelPath;
 use rr_git::{hash_blob, oid_of, GitRepo, HashAlgo};
-
-fn init_git_repo() -> TempDir {
-    let temp = TempDir::new().expect("failed to create temp dir");
-    let output = Command::new("git")
-        .args(["init", "-q"])
-        .current_dir(temp.path())
-        .output()
-        .expect("failed to run git init");
-    assert!(output.status.success(), "git init failed");
-
-    Command::new("git")
-        .args(["config", "user.name", "Test User"])
-        .current_dir(temp.path())
-        .output()
-        .expect("git config user.name failed");
-    Command::new("git")
-        .args(["config", "user.email", "test@example.com"])
-        .current_dir(temp.path())
-        .output()
-        .expect("git config user.email failed");
-
-    temp
-}
-
-fn git_add_and_commit(dir: &std::path::Path, msg: &str) {
-    let add = Command::new("git")
-        .args(["add", "."])
-        .current_dir(dir)
-        .output()
-        .expect("git add failed");
-    assert!(add.status.success(), "git add failed");
-
-    let commit = Command::new("git")
-        .args(["commit", "-qm", msg])
-        .current_dir(dir)
-        .output()
-        .expect("git commit failed");
-    assert!(commit.status.success(), "git commit failed");
-}
 
 #[test]
 fn discover_in_git_repo_and_subdirectories() {
@@ -103,7 +67,7 @@ fn modified_file_index_oid_returns_none_and_oid_of_hashes_content() {
     let index_oid = repo.index_oid(&rel).unwrap();
     assert!(index_oid.is_none(), "modified file must not match index");
 
-    let resolved_oid = oid_of(Some(&repo), repo_dir.path(), &rel, HashAlgo::Sha1).unwrap();
+    let resolved_oid = oid_of(Some(&repo), repo_dir.path(), &rel).unwrap();
     assert_ne!(resolved_oid, clean_oid);
     let expected = hash_blob(b"pub fn a() { /* modified */ }\n", HashAlgo::Sha1);
     assert_eq!(resolved_oid, expected);
@@ -124,7 +88,7 @@ fn untracked_file_index_oid_returns_none_and_oid_of_hashes_content() {
         "untracked file must not have index oid"
     );
 
-    let resolved = oid_of(Some(&repo), repo_dir.path(), &rel, HashAlgo::Sha1).unwrap();
+    let resolved = oid_of(Some(&repo), repo_dir.path(), &rel).unwrap();
     let expected = hash_blob(b"hello untracked\n", HashAlgo::Sha1);
     assert_eq!(resolved, expected);
 }
@@ -136,7 +100,7 @@ fn oid_of_without_git_repo_falls_back_to_hashing() {
     fs::write(&file_path, b"# Hello\n").unwrap();
 
     let rel = RelPath::try_from("readme.md").unwrap();
-    let resolved = oid_of(None, non_git.path(), &rel, HashAlgo::Sha1).unwrap();
+    let resolved = oid_of(None, non_git.path(), &rel).unwrap();
     let expected = hash_blob(b"# Hello\n", HashAlgo::Sha1);
     assert_eq!(resolved, expected);
 }
@@ -150,7 +114,7 @@ fn git_mv_unmodified_file_preserves_oid() {
 
     let repo1 = GitRepo::discover(repo_dir.path()).unwrap().unwrap();
     let old_rel = RelPath::try_from("old_name.rs").unwrap();
-    let old_oid = oid_of(Some(&repo1), repo_dir.path(), &old_rel, repo1.hash_algo()).unwrap();
+    let old_oid = oid_of(Some(&repo1), repo_dir.path(), &old_rel).unwrap();
 
     let mv = Command::new("git")
         .args(["mv", "old_name.rs", "new_name.rs"])
@@ -161,7 +125,7 @@ fn git_mv_unmodified_file_preserves_oid() {
 
     let repo2 = GitRepo::discover(repo_dir.path()).unwrap().unwrap();
     let new_rel = RelPath::try_from("new_name.rs").unwrap();
-    let new_oid = oid_of(Some(&repo2), repo_dir.path(), &new_rel, repo2.hash_algo()).unwrap();
+    let new_oid = oid_of(Some(&repo2), repo_dir.path(), &new_rel).unwrap();
 
     assert_eq!(old_oid, new_oid, "git mv must preserve object ID");
 }
@@ -196,9 +160,65 @@ fn property_test_multiple_committed_files_match_blob_hash() {
         let memory_oid = hash_blob(content, repo.hash_algo());
         assert_eq!(index_oid, memory_oid, "mismatch for file {path}");
 
-        let resolved_oid = oid_of(Some(&repo), repo_dir.path(), &rel, repo.hash_algo()).unwrap();
+        let resolved_oid = oid_of(Some(&repo), repo_dir.path(), &rel).unwrap();
         assert_eq!(resolved_oid, memory_oid, "oid_of mismatch for {path}");
     }
+}
+
+#[test]
+fn oid_of_with_root_deeper_than_workdir_hashes_correct_file() {
+    let repo_dir = init_git_repo();
+    fs::write(repo_dir.path().join("lib.rs"), b"top-level\n").unwrap();
+    let sub = repo_dir.path().join("sub");
+    fs::create_dir(&sub).unwrap();
+    fs::write(sub.join("lib.rs"), b"nested\n").unwrap();
+    git_add_and_commit(repo_dir.path(), "add both");
+
+    let repo = GitRepo::discover(&sub).unwrap().unwrap();
+    let rel = RelPath::try_from("lib.rs").unwrap();
+
+    let oid = oid_of(Some(&repo), &sub, &rel).unwrap();
+    let expected = hash_blob(b"nested\n", repo.hash_algo());
+    assert_eq!(
+        oid, expected,
+        "oid_of must resolve rel against the caller's root, not the repo workdir"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn tracked_symlink_hashes_link_target_text() {
+    let repo_dir = init_git_repo();
+    fs::write(repo_dir.path().join("real.rs"), b"pub fn real() {}\n").unwrap();
+    std::os::unix::fs::symlink("real.rs", repo_dir.path().join("link.rs")).unwrap();
+    git_add_and_commit(repo_dir.path(), "add symlink");
+
+    let repo = GitRepo::discover(repo_dir.path()).unwrap().unwrap();
+    let rel = RelPath::try_from("link.rs").unwrap();
+
+    let oid = oid_of(Some(&repo), repo_dir.path(), &rel).unwrap();
+    let expected = hash_blob(b"real.rs", repo.hash_algo());
+    assert_eq!(oid, expected, "symlink must hash its link target text");
+}
+
+#[test]
+fn dirty_file_with_text_attribute_normalizes_crlf_before_hashing() {
+    let repo_dir = init_git_repo();
+    fs::write(repo_dir.path().join(".gitattributes"), b"*.rs text\n").unwrap();
+    git_add_and_commit(repo_dir.path(), "add attributes");
+
+    fs::write(
+        repo_dir.path().join("crlf.rs"),
+        b"fn a() {}\r\nfn b() {}\r\n",
+    )
+    .unwrap();
+
+    let repo = GitRepo::discover(repo_dir.path()).unwrap().unwrap();
+    let rel = RelPath::try_from("crlf.rs").unwrap();
+
+    let oid = oid_of(Some(&repo), repo_dir.path(), &rel).unwrap();
+    let expected = hash_blob(b"fn a() {}\nfn b() {}\n", repo.hash_algo());
+    assert_eq!(oid, expected, "content filters must apply before hashing");
 }
 
 #[test]
