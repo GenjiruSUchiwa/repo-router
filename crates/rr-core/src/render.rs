@@ -113,9 +113,10 @@ pub fn render_text(snapshot: &Snapshot, result: &QueryResult) -> Result<String> 
 
 /// Renders the text output contract preceded by one `explain:` line.
 ///
-/// The diagnostic goes **before** the answer so the anchor stays the last line
-/// of the output: a caller reading the tail of the stream must not have to
-/// learn a new shape to keep working.
+/// The diagnostic goes **before** the answer so the answer keeps the shape a
+/// caller already knows: without `--source` the anchor is still the last line
+/// of the output, and with `--source` it is still the first line of the answer,
+/// followed by the source markers and the bounded content.
 ///
 /// `evidence` is `None` when the query routed exactly, which reads no posting
 /// list and so has nothing to explain about the candidate cap.
@@ -265,6 +266,7 @@ const fn refusal_detail(status: SourceStatus) -> &'static str {
         }
         SourceStatus::TooLarge => "is larger than the 16 MiB verification limit",
         SourceStatus::LineTooLong => "has a line larger than the 64 KiB source limit",
+        SourceStatus::NotText => "is not UTF-8 text; nothing was decoded",
         SourceStatus::Raced => "changed during verification; retry or run `rr refresh`",
         SourceStatus::Stale | SourceStatus::Verified => "",
     }

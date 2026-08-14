@@ -90,6 +90,8 @@ pub enum SourceStatus {
     TooLarge,
     /// One required anchor line is larger than the output byte cap.
     LineTooLong,
+    /// The content is current but is not UTF-8 text, so it cannot be served.
+    NotText,
     /// The path or content changed during verification.
     Raced,
 }
@@ -106,6 +108,7 @@ impl SourceStatus {
             Self::NotRegular => "not-regular",
             Self::TooLarge => "too-large",
             Self::LineTooLong => "line-too-long",
+            Self::NotText => "not-text",
             Self::Raced => "raced",
         }
     }
@@ -336,11 +339,15 @@ pub enum PendingSource {
 /// wins over format diagnosis, so replaced binary content is reported as
 /// `stale` and never decoded, described, or previewed.
 ///
+/// Content that matches the identity but is not UTF-8 text is refused as
+/// `not-text` rather than reported as corruption: the snapshot recorded that
+/// file correctly, and the caller can still act on the anchor itself.
+///
 /// # Errors
-/// Returns [`Error::CorruptSource`] when content matching the snapshot
-/// identity is not valid structural source, and propagates the span error when
-/// a matching identity carries a span that does not fit its own content. Both
-/// are snapshot corruption, never staleness.
+/// Propagates the span error when a matching identity carries a span that does
+/// not fit its own content. That one really is snapshot corruption — the bytes
+/// are the indexed bytes, so only the recorded span can be wrong — and it is
+/// never staleness.
 pub fn verify_source(
     indexed: &IndexedSource,
     acquired: AcquiredSource<'_>,
@@ -360,13 +367,17 @@ pub fn verify_source(
         return Ok(PendingSource::Refused(SourceStatus::TooLarge));
     }
 
-    let text = std::str::from_utf8(&current.bytes).map_err(|_| Error::CorruptSource {
-        reason: "canonical content is not valid UTF-8",
-    })?;
+    // Reached only once the identity matched, so these bytes are provably the
+    // bytes `rr map` indexed. That makes "not text" a fact about the file, not
+    // corruption in the snapshot: the snapshot recorded it faithfully. Refusing
+    // keeps the caller on the recoverable path, where a status says why nothing
+    // was served; erroring would make `--source` a permanent hard failure for
+    // that anchor, which no refresh could clear.
+    let Ok(text) = std::str::from_utf8(&current.bytes) else {
+        return Ok(PendingSource::Refused(SourceStatus::NotText));
+    };
     if text.as_bytes().contains(&0) {
-        return Err(Error::CorruptSource {
-            reason: "canonical content contains a NUL byte",
-        });
+        return Ok(PendingSource::Refused(SourceStatus::NotText));
     }
 
     let span = match indexed.span {
@@ -703,27 +714,22 @@ mod tests {
         assert!(matches!(error, Error::SpanLineMismatch));
     }
 
+    // `rr map` indexes a file with a NUL byte or a Latin-1 line without
+    // complaint, so `--source` meets that content with a matching identity and
+    // must stay on the refusal path. Erroring here would leave the anchor
+    // permanently unserviceable through no fault the caller could repair.
     #[test]
-    fn matching_identity_with_binary_content_is_corruption() {
+    fn matching_identity_that_is_not_text_is_refused_not_an_error() {
         let mut content = acquired("");
         content.bytes = vec![b'f', b'n', 0, b'x'];
         let source = indexed(Some(Span::new(0, 4, 1, 1).unwrap()));
-        let error = verify_source(&source, AcquiredSource::Acquired(&content)).unwrap_err();
-        assert!(matches!(
-            error,
-            Error::CorruptSource {
-                reason: "canonical content contains a NUL byte"
-            }
-        ));
+        let refused = SourceResult::Refused {
+            status: SourceStatus::NotText,
+        };
+        assert_eq!(serve(&source, &content), refused);
 
         content.bytes = vec![0xff, 0xff];
-        let error = verify_source(&source, AcquiredSource::Acquired(&content)).unwrap_err();
-        assert!(matches!(
-            error,
-            Error::CorruptSource {
-                reason: "canonical content is not valid UTF-8"
-            }
-        ));
+        assert_eq!(serve(&source, &content), refused);
     }
 
     #[test]

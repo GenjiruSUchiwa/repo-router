@@ -776,8 +776,17 @@ first anchor line that alone exceeds the byte budget is refused as
 `line-too-long` rather than cut mid-line.
 
 Refusal statuses are `stale`, `missing`, `symlink`, `not-regular`, `too-large`,
-`line-too-long`, and `raced`. Every one of them returns no content, no preview,
-no current OID, and no relocated line number.
+`line-too-long`, `not-text`, and `raced`. Every one of them returns no content,
+no preview, no current OID, and no relocated line number.
+
+`not-text` is the one refusal that does not describe a change or a budget. The
+mapper accepts a source file whose bytes are not UTF-8 — an embedded NUL, a
+Latin-1 line — so such a file is indexed, routes normally, and answers `rr
+query` with its anchor; only serving its bytes as text is impossible. Because
+the identity matched, that condition is permanent and no refresh clears it, so
+it is reported as a refusal the caller can read rather than as an execution
+error. Staleness still outranks it: a text anchor overwritten with binary bytes
+is `stale`, decided before anything is decoded.
 
 ---
 
@@ -992,6 +1001,16 @@ omitted)` when a budget cut the anchor, and `SOURCE CONTEXT CLIPPED` is added
 when only context was dropped. Text output ends with one structural line feed;
 `SOURCE FINAL NEWLINE` describes the content itself, not that terminator.
 
+**Everything after `---` is untrusted file content.** Without `--source` the
+anchor is the last line of the output, and a caller may read the tail. With
+`--source` it is the *first* line and the tail is repository bytes, which may
+contain anything — including a line that reads exactly like an anchor marker. A
+caller that greps for `FINAL SOURCE ANCHOR` and takes the last match can be
+handed an anchor chosen by whoever wrote the file. Take the **first** marker
+line, or bound the content with `SOURCE WINDOW`, which states its exact line
+range. Callers that cannot make that guarantee should read `--json`, where the
+content is a single string member and cannot escape its own field.
+
 Refused source:
 
 ```text
@@ -1002,6 +1021,7 @@ STALE SOURCE (no content returned): src/auth/token.rs changed since indexing; ru
 ```text
 SOURCE REFUSED (missing; no content returned): src/auth/token.rs no longer exists; run `rr refresh`
 SOURCE REFUSED (raced; no content returned): src/auth/token.rs changed during verification; retry or run `rr refresh`
+SOURCE REFUSED (not-text; no content returned): src/auth/token.rs is not UTF-8 text; nothing was decoded
 ```
 
 ## 16.2 JSON output (v1)

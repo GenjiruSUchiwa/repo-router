@@ -200,6 +200,7 @@
             "not-regular",
             "too-large",
             "line-too-long",
+            "not-text",
             "raced"
           ]
         }

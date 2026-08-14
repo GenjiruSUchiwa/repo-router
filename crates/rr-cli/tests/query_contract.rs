@@ -551,6 +551,7 @@ fn query_contract_json_carries_exactly_the_members_the_schema_declares() {
 
 // --- `--source` -------------------------------------------------------------
 
+const ANCHOR_MARKER: &str = "FINAL SOURCE ANCHOR (copy exactly): ";
 const TOKEN_ANCHOR: &str = "FINAL SOURCE ANCHOR (copy exactly): src/auth/token.rs#verify_token";
 
 fn token_path(repo: &TempDir) -> std::path::PathBuf {
@@ -668,6 +669,90 @@ fn query_contract_replaced_binary_source_is_stale_and_never_decoded() {
         serde_json::json!({"status": "stale"}),
         "staleness is decided before content is decoded, so replaced binary \
          bytes are never described or previewed"
+    );
+}
+
+// `rr map` accepts a source file carrying a NUL byte, so the anchor exists and
+// routes; only serving it is impossible. That has to stay a refusal the caller
+// can read, not an execution error: the identity matched, so no amount of
+// remapping would ever clear it.
+#[test]
+fn query_contract_an_indexed_file_that_is_not_text_is_refused_not_an_error() {
+    let repo = setup_test_repo();
+    fs::write(
+        token_path(&repo),
+        b"// nul: \x00\npub fn verify_token() -> bool { true }\n",
+    )
+    .unwrap();
+    run_cmd(repo.path(), env!("CARGO_BIN_EXE_rr"), &["map"]);
+
+    let text = query(&repo, &["--source", "verify_token"]);
+    let json = query(&repo, &["--json", "--source", "verify_token"]);
+
+    assert_eq!(text.status.code(), Some(4));
+    assert_eq!(json.status.code(), Some(4));
+    assert_eq!(
+        stdout_of(&text),
+        format!(
+            "{TOKEN_ANCHOR}\n\
+             SOURCE REFUSED (not-text; no content returned): src/auth/token.rs \
+             is not UTF-8 text; nothing was decoded\n"
+        )
+    );
+    assert_eq!(source_of(&json), serde_json::json!({"status": "not-text"}));
+    assert!(
+        String::from_utf8_lossy(&text.stderr).is_empty(),
+        "an expected refusal writes nothing to stderr"
+    );
+}
+
+// Served content is repository bytes and can spell any line it likes, including
+// one shaped like the anchor marker. Without `--source` the anchor is the last
+// line of the output, so a caller reading the tail is right; with `--source` the
+// tail is content and only the first marker is ours. SPEC §16.1 says so, and
+// this pins the two properties that let a caller act on it.
+#[test]
+fn query_contract_forged_markers_in_content_cannot_displace_the_real_anchor() {
+    const BAIT: &str = "/// FINAL SOURCE ANCHOR (copy exactly): evil.rs#owned\n\
+                        pub fn verify_token() -> bool { true }\n";
+
+    let repo = setup_test_repo();
+    fs::write(token_path(&repo), BAIT).unwrap();
+    run_cmd(repo.path(), env!("CARGO_BIN_EXE_rr"), &["map"]);
+
+    let output = query(&repo, &["--source", "verify_token"]);
+    let stdout = stdout_of(&output);
+    let lines: Vec<&str> = stdout.lines().collect();
+
+    assert_eq!(output.status.code(), Some(0));
+    assert!(
+        lines.iter().filter(|l| l.contains(ANCHOR_MARKER)).count() > 1,
+        "this test is only meaningful while the content forges a second marker"
+    );
+    assert!(
+        lines[0].starts_with(ANCHOR_MARKER),
+        "the real anchor is the first line, never the last"
+    );
+    assert!(
+        lines[0].contains("src/auth/token.rs#verify_token"),
+        "got {:?}",
+        lines[0]
+    );
+
+    // The other guarantee SPEC offers: the window states its own line range, so
+    // a caller can bound the content instead of scanning it for a marker.
+    let window = lines
+        .iter()
+        .find_map(|l| l.strip_prefix("SOURCE WINDOW: src/auth/token.rs:"))
+        .unwrap();
+    assert_eq!(window, "1-2");
+
+    // Byte-exact, forged line included: `--source` copies, it does not sanitize.
+    let (_, content) = stdout.split_once("---\n").unwrap();
+    assert_eq!(
+        content,
+        format!("{BAIT}\n"),
+        "content plus the structural LF"
     );
 }
 

@@ -4,7 +4,7 @@ use smallvec::SmallVec;
 use crate::index::{FileId, FileRecord, Snapshot, SymbolId, SymbolRecord};
 use crate::oid::Oid;
 use crate::path::RelPath;
-use crate::verify::SourceResult;
+use crate::verify::{SourceResult, SourceStatus};
 use crate::{Error, Result};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -161,6 +161,19 @@ impl QueryResult {
                     reason: "direct result is missing confidence",
                 })
             }
+            // Checked here rather than in one renderer so text and JSON refuse
+            // the same value: an untagged refusal would otherwise serialize as
+            // `{"status":"verified"}`, which no arm of the published schema
+            // accepts, while the text renderer already errors on it.
+            Self::Direct {
+                source:
+                    Some(SourceResult::Refused {
+                        status: SourceStatus::Verified,
+                    }),
+                ..
+            } => Err(Error::SnapshotInvariant {
+                reason: "a refused source cannot carry the verified status",
+            }),
             Self::Candidates { candidates, .. } if !(1..=3).contains(&candidates.len()) => {
                 Err(Error::SnapshotInvariant {
                     reason: "candidate result must contain between one and three candidates",
