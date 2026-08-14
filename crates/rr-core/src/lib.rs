@@ -2,11 +2,15 @@
 
 pub mod cache;
 pub mod facts;
+pub mod index;
 pub mod lang;
 pub mod lex;
 pub mod oid;
 pub mod parser;
+pub mod snapshot;
+
 pub mod path;
+
 pub mod walk;
 
 pub use cache::{CacheKey, CacheOutcome, CacheStats, FactCache};
@@ -15,7 +19,13 @@ pub use facts::{
     ReferenceKind, Span, TestSignals, Visibility, FACT_SCHEMA_VERSION,
 };
 pub use lang::Lang;
+pub use lex::TermId as LexTermId;
+pub use lex::{
+    append_source_terms, lexical_profile, query_terms, FieldTerm, InputKind, LexicalField,
+    LexicalProfile, Lexicon, LEXICAL_VERSION,
+};
 pub use oid::{HashAlgo, Oid, OidError};
+
 pub use parser::EXTRACTOR_VERSION;
 pub use path::{RelPath, RelPathError};
 pub use walk::{discover, is_generated, SourceFile, WalkCfg, DEFAULT_EXCLUDES};
@@ -37,6 +47,15 @@ pub enum Error {
     },
     #[error("Cache serialization error: {0}")]
     CacheSerialization(#[from] postcard::Error),
+    #[error("invalid lexical term: {reason}")]
+    InvalidLexicon { reason: &'static str },
+    #[error("lexical term id space exhausted")]
+    TermIdExhausted,
+    #[error("id space exhausted: {0}")]
+    IdSpaceExhausted(&'static str),
+    #[error("snapshot invariant violated: {reason}")]
+    SnapshotInvariant { reason: &'static str },
+
     #[error("invalid span byte order: {start_byte}..{end_byte}")]
     InvalidSpanByteOrder { start_byte: u32, end_byte: u32 },
     #[error("invalid span line range: {start_line}..{end_line}")]
@@ -68,10 +87,6 @@ pub enum Error {
     ExtractorQueryContract { capture: &'static str },
     #[error("Rust extraction invariant failed: {message}")]
     ExtractionInvariant { message: &'static str },
-    #[error("invalid lexicon: {reason}")]
-    InvalidLexicon { reason: &'static str },
-    #[error("term id capacity exhausted")]
-    TermIdExhausted,
 }
 
 /// A specialized [`Result`](std::result::Result) type for `rr-core` operations.

@@ -54,6 +54,11 @@ impl GitRepo {
         self.algo
     }
 
+    /// Returns the underlying [`gix::Repository`] for content-object access.
+    pub(crate) fn gix_repo(&self) -> &gix::Repository {
+        &self.repo
+    }
+
     /// Returns the working directory path of this repository.
     #[must_use]
     pub fn workdir(&self) -> &Path {

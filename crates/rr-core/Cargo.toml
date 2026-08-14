@@ -7,6 +7,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+smallvec = { workspace = true }
+unicode-normalization = { workspace = true }
+blake3 = { workspace = true }
 thiserror = { workspace = true }
 ignore = { workspace = true }
 crossbeam-channel = { workspace = true }
@@ -15,8 +18,6 @@ postcard = { workspace = true }
 tempfile = { workspace = true }
 tree-sitter = { workspace = true }
 tree-sitter-rust = { workspace = true }
-unicode-normalization = { workspace = true }
-smallvec = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
