@@ -8,7 +8,6 @@ fn test_deterministic_ordering_across_runs() {
     let tmp = TempDir::new().unwrap();
     let root = tmp.path();
 
-    // Create a reasonably complex file tree with various depths and names
     let files_to_create = [
         "src/main.rs",
         "src/auth/token.rs",
@@ -28,7 +27,7 @@ fn test_deterministic_ordering_across_runs() {
         if let Some(parent) = full.parent() {
             fs::create_dir_all(parent).unwrap();
         }
-        fs::write(&full, "// test content\n").unwrap();
+        fs::write(&full, "pub fn test() {}\n").unwrap();
     }
 
     let cfg = WalkCfg::default();
@@ -36,7 +35,6 @@ fn test_deterministic_ordering_across_runs() {
     let first_run = discover(root, &cfg).unwrap();
     assert!(!first_run.is_empty());
 
-    // Run 50 times and ensure the output is 100% identical on every run
     for _ in 0..50 {
         let run = discover(root, &cfg).unwrap();
         assert_eq!(
@@ -45,7 +43,6 @@ fn test_deterministic_ordering_across_runs() {
         );
     }
 
-    // Verify paths are strictly in ascending order
     for window in first_run.windows(2) {
         assert!(
             window[0].path < window[1].path,
@@ -74,7 +71,6 @@ fn test_gitignore_dynamic_exclusion() {
 
     let cfg = WalkCfg::default();
 
-    // Initially secret.rs and temp.py are discovered
     let initial = discover(root, &cfg).unwrap();
     let initial_paths: Vec<&str> = initial.iter().map(|f| f.path.as_str()).collect();
     assert_eq!(
@@ -82,10 +78,8 @@ fn test_gitignore_dynamic_exclusion() {
         vec!["src/main.rs", "src/secret.rs", "src/temp.py"]
     );
 
-    // Add secret.rs to .gitignore
     fs::write(root.join(".gitignore"), "src/secret.rs\n*.py\n").unwrap();
 
-    // Now secret.rs and temp.py must immediately be excluded
     let after_ignore = discover(root, &cfg).unwrap();
     let after_paths: Vec<&str> = after_ignore.iter().map(|f| f.path.as_str()).collect();
     assert_eq!(after_paths, vec!["src/main.rs"]);
@@ -143,7 +137,6 @@ fn test_custom_excludes_with_whitelist() {
     fs::write(root.join("src/other.gen.rs"), "fn other() {}\n").unwrap();
     fs::write(root.join("src/important.gen.rs"), "fn important() {}\n").unwrap();
 
-    // *.gen.rs ignores all .gen.rs files, !important.gen.rs whitelists important.gen.rs
     let cfg = WalkCfg {
         custom_excludes: vec!["*.gen.rs".to_string(), "!important.gen.rs".to_string()],
         ..WalkCfg::default()
@@ -227,7 +220,6 @@ fn test_max_files_limit() {
 
     let files = discover(root, &cfg).unwrap();
     assert_eq!(files.len(), 3);
-    // Output must be sorted
     for w in files.windows(2) {
         assert!(w[0].path < w[1].path);
     }
@@ -242,7 +234,6 @@ fn test_generated_file_flagging() {
     fs::create_dir_all(root.join("src/proto")).unwrap();
     fs::create_dir_all(root.join("src/normal")).unwrap();
 
-    // By path
     fs::write(root.join("src/generated/code.rs"), "pub fn gen() {}\n").unwrap();
     fs::write(root.join("src/proto/service.pb.rs"), "pub fn pb() {}\n").unwrap();
     fs::write(root.join("src/proto/user_pb2.py"), "def user(): pass\n").unwrap();
@@ -257,14 +248,12 @@ fn test_generated_file_flagging() {
     )
     .unwrap();
 
-    // False positive check: regenerated_cache.rs is NOT generated
     fs::write(
         root.join("src/normal/regenerated_cache.rs"),
         "pub fn rc() {}\n",
     )
     .unwrap();
 
-    // By content
     fs::write(
         root.join("src/normal/annotated.rs"),
         "\n\n// @generated\npub fn annotated() {}\n",
@@ -276,7 +265,6 @@ fn test_generated_file_flagging() {
     )
     .unwrap();
 
-    // Regular file
     fs::write(
         root.join("src/normal/handwritten.rs"),
         "pub fn normal() {}\n",
@@ -316,7 +304,6 @@ fn test_detect_generated_opt_out() {
     )
     .unwrap();
 
-    // With detect_generated = false, content sniffing is skipped
     let cfg = WalkCfg {
         detect_generated: false,
         ..WalkCfg::default()
@@ -339,9 +326,7 @@ fn test_cyclic_symlink_safety() {
     #[cfg(unix)]
     {
         use std::os::unix::fs::symlink;
-        // Create cyclic symlink: nested/cycle -> root
         let _ = symlink(root, root.join("src/nested/cycle"));
-        // Create mutually cyclic symlinks: a -> b, b -> a
         let _ = symlink(root.join("src/nested/b"), root.join("src/nested/a"));
         let _ = symlink(root.join("src/nested/a"), root.join("src/nested/b"));
     }
@@ -351,7 +336,6 @@ fn test_cyclic_symlink_safety() {
         ..WalkCfg::default()
     };
 
-    // Must terminate promptly and not hang
     let files = discover(root, &cfg).unwrap();
     assert!(!files.is_empty());
 }
@@ -378,7 +362,6 @@ fn test_discover_rust_basic_fixture() {
         ]
     );
 
-    // None of these are generated
     for f in &files {
         assert!(!f.generated);
     }

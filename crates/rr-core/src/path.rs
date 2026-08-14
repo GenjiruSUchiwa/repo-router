@@ -77,9 +77,7 @@ impl RelPath {
                     })?;
                     parts.push(s);
                 }
-                Component::CurDir => {
-                    // ignore '.'
-                }
+                Component::CurDir => {}
                 Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
                     return Err(RelPathError::InvalidComponent(path.display().to_string()));
                 }
@@ -227,6 +225,7 @@ impl From<&RelPath> for PathBuf {
         PathBuf::from(&rel.0)
     }
 }
+
 impl From<RelPath> for String {
     fn from(rel: RelPath) -> Self {
         rel.0
@@ -302,22 +301,18 @@ mod tests {
 
     #[test]
     fn test_serde_validation_on_deserialize() {
-        // Valid path deserialization
         let json_valid = r#""src/main.rs""#;
         let parsed: RelPath = serde_json::from_str(json_valid).unwrap();
         assert_eq!(parsed.as_str(), "src/main.rs");
 
-        // Invalid path: parent traversal
         let json_invalid_traversal = r#""../../etc/passwd""#;
         let err_traversal = serde_json::from_str::<RelPath>(json_invalid_traversal);
         assert!(err_traversal.is_err(), "deserializing '../..' must fail");
 
-        // Invalid path: empty string
         let json_empty = r#""""#;
         let err_empty = serde_json::from_str::<RelPath>(json_empty);
         assert!(err_empty.is_err(), "deserializing empty path must fail");
 
-        // Invalid path: absolute path
         let json_absolute = r#""/root/file.rs""#;
         let err_abs = serde_json::from_str::<RelPath>(json_absolute);
         assert!(err_abs.is_err(), "deserializing absolute path must fail");

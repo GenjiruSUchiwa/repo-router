@@ -103,7 +103,6 @@ impl SourceFile {
 pub fn is_generated(rel_path: &str, full_path: Option<&Path>) -> bool {
     let path_obj = Path::new(rel_path);
 
-    // 1. Check directory components for a segment named "generated"
     if let Some(parent) = path_obj.parent() {
         for comp in parent.components() {
             if let Component::Normal(c) = comp {
@@ -116,7 +115,6 @@ pub fn is_generated(rel_path: &str, full_path: Option<&Path>) -> bool {
         }
     }
 
-    // 2. Check file name markers
     if let Some(file_name) = path_obj.file_name().and_then(|n| n.to_str()) {
         let name_lower = file_name.to_ascii_lowercase();
 
@@ -138,7 +136,6 @@ pub fn is_generated(rel_path: &str, full_path: Option<&Path>) -> bool {
         }
     }
 
-    // 3. Content heuristics: scan up to first 5 non-empty lines within 2048 bytes
     if let Some(path) = full_path {
         if let Ok(file) = File::open(path) {
             let mut reader = BufReader::new(file.take(2048));
@@ -177,17 +174,14 @@ pub fn classify_entry(root: &Path, entry: &DirEntry, cfg: &WalkCfg) -> Option<So
     let full_path = entry.path();
     let rel_path = RelPath::from_path(root, full_path).ok()?;
 
-    // Detect language from file path/extension
     let lang = Lang::from_path(full_path)?;
 
-    // Filter by allowed languages if specified
     if let Some(allowed) = &cfg.languages {
         if !allowed.contains(&lang) {
             return None;
         }
     }
 
-    // Fast path check first (no file I/O)
     let generated = if is_generated(rel_path.as_str(), None) {
         true
     } else if cfg.detect_generated {
@@ -308,7 +302,6 @@ pub fn discover(root: impl AsRef<Path>, cfg: &WalkCfg) -> Result<Vec<SourceFile>
     let root = root.as_ref();
     let mut builder = WalkBuilder::new(root);
 
-    // Decouple hidden file filtering: dotfiles are traversed unless ignored by gitignore/overrides
     builder
         .hidden(false)
         .git_ignore(cfg.standard_filters)
@@ -324,7 +317,6 @@ pub fn discover(root: impl AsRef<Path>, cfg: &WalkCfg) -> Result<Vec<SourceFile>
 
     let mut override_builder = OverrideBuilder::new(root);
 
-    // If any whitelist pattern is used (e.g. `!important.gen.rs`), include `*` first so positive overrides don't filter out everything else
     let has_whitelist = cfg.custom_excludes.iter().any(|c| c.starts_with('!'));
     if has_whitelist {
         override_builder.add("*").map_err(Error::Ignore)?;
@@ -342,9 +334,6 @@ pub fn discover(root: impl AsRef<Path>, cfg: &WalkCfg) -> Result<Vec<SourceFile>
     }
 
     for custom in &cfg.custom_excludes {
-        // Gitignore semantics:
-        // - "pattern" -> ignore rule -> in OverrideBuilder this is "!pattern"
-        // - "!pattern" -> whitelist rule -> in OverrideBuilder this is "pattern"
         if let Some(whitelist) = custom.strip_prefix('!') {
             override_builder.add(whitelist).map_err(Error::Ignore)?;
         } else {
@@ -377,17 +366,14 @@ pub fn discover(root: impl AsRef<Path>, cfg: &WalkCfg) -> Result<Vec<SourceFile>
 
     parallel_walker.visit(&mut visitor_builder);
 
-    // Drop our senders so iterators finish
     drop(visitor_builder);
 
-    // Check for critical traversal errors
     if let Ok(err) = err_rx.try_recv() {
         return Err(Error::Ignore(err));
     }
 
     let mut files: Vec<SourceFile> = rx.into_iter().collect();
 
-    // Deterministic sort by relative path
     files.sort_by(|a, b| a.path.cmp(&b.path));
 
     if let Some(max) = cfg.max_files {
@@ -413,7 +399,6 @@ mod tests {
         assert!(is_generated("models/user_pb2.py", None));
         assert!(is_generated("models/user_pb2_grpc.py", None));
 
-        // False positives avoided
         assert!(!is_generated("src/regenerated_cache.rs", None));
         assert!(!is_generated("src/auth/token.rs", None));
 
@@ -466,7 +451,7 @@ mod tests {
         let root = tmp.path();
 
         fs::create_dir_all(root.join("src")).unwrap();
-        fs::create_dir_all(root.join(".git")).unwrap(); // mark as git repo
+        fs::create_dir_all(root.join(".git")).unwrap();
         fs::write(root.join(".gitignore"), "ignored.rs\nbuild_output/\n").unwrap();
 
         fs::write(root.join("src/main.rs"), "fn main() {}\n").unwrap();
