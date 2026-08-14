@@ -1,0 +1,24 @@
+[package]
+name = "rr-cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+default-run = "rr"
+
+[[bin]]
+name = "rr"
+path = "src/main.rs"
+
+[dependencies]
+rr-core = { path = "../rr-core" }
+rr-git = { path = "../rr-git" }
+anyhow = { workspace = true }
+clap = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
+[lints]
+workspace = true
