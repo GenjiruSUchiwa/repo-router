@@ -33,7 +33,11 @@ impl GitRepo {
                     .workdir()
                     .map_or_else(|| repo.git_dir().to_path_buf(), Path::to_path_buf);
 
-                Ok(Some(Self { repo, algo, workdir }))
+                Ok(Some(Self {
+                    repo,
+                    algo,
+                    workdir,
+                }))
             }
             Err(gix::discover::Error::Discover(
                 gix::discover::upwards::Error::NoGitRepository { .. }
@@ -121,12 +125,7 @@ impl GitRepo {
 /// # Errors
 /// Returns [`Error::Io`] if reading the file from disk fails.
 /// Returns [`Error::Index`] if Git index inspection fails.
-pub fn oid_of(
-    repo: Option<&GitRepo>,
-    root: &Path,
-    rel: &RelPath,
-    algo: HashAlgo,
-) -> Result<Oid> {
+pub fn oid_of(repo: Option<&GitRepo>, root: &Path, rel: &RelPath, algo: HashAlgo) -> Result<Oid> {
     if let Some(repo) = repo {
         if let Some(oid) = repo.index_oid(rel)? {
             return Ok(oid);

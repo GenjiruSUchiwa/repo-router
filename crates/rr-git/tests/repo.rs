@@ -124,7 +124,10 @@ fn untracked_file_index_oid_returns_none_and_oid_of_hashes_content() {
     let rel = RelPath::try_from("untracked.txt").unwrap();
 
     let index_oid = repo.index_oid(&rel).unwrap();
-    assert!(index_oid.is_none(), "untracked file must not have index oid");
+    assert!(
+        index_oid.is_none(),
+        "untracked file must not have index oid"
+    );
 
     let resolved = oid_of(Some(&repo), repo_dir.path(), &rel, HashAlgo::Sha1).unwrap();
     let expected = hash_blob(b"hello untracked\n", HashAlgo::Sha1);
@@ -192,7 +195,10 @@ fn property_test_multiple_committed_files_match_blob_hash() {
 
     for (path, content) in &files {
         let rel = RelPath::try_from(*path).unwrap();
-        let index_oid = repo.index_oid(&rel).unwrap().expect("file must be in index");
+        let index_oid = repo
+            .index_oid(&rel)
+            .unwrap()
+            .expect("file must be in index");
         let memory_oid = hash_blob(content, repo.hash_algo());
         assert_eq!(index_oid, memory_oid, "mismatch for file {path}");
 

@@ -191,10 +191,7 @@ impl FactCache {
                 Ok(CacheOutcome::Hit(value))
             }
             Err(err) => {
-                eprintln!(
-                    "warning: corrupt cache entry at {}: {err}",
-                    path.display()
-                );
+                eprintln!("warning: corrupt cache entry at {}: {err}", path.display());
                 self.stats.corrupt.fetch_add(1, Ordering::Relaxed);
                 Ok(CacheOutcome::Corrupt)
             }
@@ -219,22 +216,21 @@ impl FactCache {
 
         let bytes = postcard::to_allocvec(value).map_err(Error::from)?;
 
-        let mut temp = tempfile::NamedTempFile::new_in(parent).map_err(|source| Error::CacheIo {
-            path: parent.to_path_buf(),
-            source,
-        })?;
+        let mut temp =
+            tempfile::NamedTempFile::new_in(parent).map_err(|source| Error::CacheIo {
+                path: parent.to_path_buf(),
+                source,
+            })?;
 
         temp.write_all(&bytes).map_err(|source| Error::CacheIo {
             path: temp.path().to_path_buf(),
             source,
         })?;
 
-        temp.as_file()
-            .sync_all()
-            .map_err(|source| Error::CacheIo {
-                path: temp.path().to_path_buf(),
-                source,
-            })?;
+        temp.as_file().sync_all().map_err(|source| Error::CacheIo {
+            path: temp.path().to_path_buf(),
+            source,
+        })?;
 
         temp.persist(&path).map_err(|persist_err| Error::CacheIo {
             path,
@@ -270,10 +266,7 @@ mod tests {
     fn cache_key_file_name_format() {
         let oid = Oid::from_hex(SHA1_HEX).unwrap();
         let key = CacheKey::new(oid, Lang::Rust);
-        assert_eq!(
-            key.file_name(),
-            format!("{SHA1_HEX}-rust-1-1.bin")
-        );
+        assert_eq!(key.file_name(), format!("{SHA1_HEX}-rust-1-1.bin"));
     }
 
     #[test]

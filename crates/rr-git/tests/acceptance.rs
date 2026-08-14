@@ -126,11 +126,7 @@ fn acceptance_criterion_1_second_run_100_percent_cache_hits_zero_parses() {
         0,
         "second run must do 0 parses"
     );
-    assert_eq!(
-        cache.stats().hits(),
-        3,
-        "second run must have 3 cache hits"
-    );
+    assert_eq!(cache.stats().hits(), 3, "second run must have 3 cache hits");
     assert_eq!(first_results, second_results);
 }
 
@@ -140,7 +136,11 @@ fn acceptance_criterion_2_git_mv_of_unmodified_file_hits_cache() {
     let root = repo_dir.path();
 
     fs::create_dir_all(root.join("src")).unwrap();
-    fs::write(root.join("src/old_module.rs"), "pub fn compute() -> i32 { 42 }\n").unwrap();
+    fs::write(
+        root.join("src/old_module.rs"),
+        "pub fn compute() -> i32 { 42 }\n",
+    )
+    .unwrap();
 
     git_add_and_commit(root, "add module");
 
@@ -195,7 +195,11 @@ fn acceptance_criterion_3_editing_a_file_only_reparses_that_file() {
     assert_eq!(parse_counter.load(Ordering::SeqCst), 3);
 
     // Modify only file2.rs
-    fs::write(root.join("src/file2.rs"), "pub fn f2() { /* modified */ }\n").unwrap();
+    fs::write(
+        root.join("src/file2.rs"),
+        "pub fn f2() { /* modified */ }\n",
+    )
+    .unwrap();
 
     // Run 2: pipeline with edited file
     let parse_counter_run2 = AtomicUsize::new(0);
