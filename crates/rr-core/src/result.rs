@@ -1,9 +1,10 @@
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 
-use crate::index::{FileId, Snapshot, SymbolId};
+use crate::index::{FileId, FileRecord, Snapshot, SymbolId, SymbolRecord};
 use crate::oid::Oid;
 use crate::path::RelPath;
+use crate::verify::{SourceResult, SourceStatus};
 use crate::{Error, Result};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -133,6 +134,9 @@ pub enum QueryResult {
     Direct {
         candidate: Candidate,
         pipeline: Pipeline,
+        /// Present only when `--source` asked for it. Candidates and no-match
+        /// results carry no source and never trigger content acquisition.
+        source: Option<SourceResult>,
     },
     Candidates {
         candidates: SmallVec<[Candidate; 3]>,
@@ -157,6 +161,19 @@ impl QueryResult {
                     reason: "direct result is missing confidence",
                 })
             }
+            // Checked here rather than in one renderer so text and JSON refuse
+            // the same value: an untagged refusal would otherwise serialize as
+            // `{"status":"verified"}`, which no arm of the published schema
+            // accepts, while the text renderer already errors on it.
+            Self::Direct {
+                source:
+                    Some(SourceResult::Refused {
+                        status: SourceStatus::Verified,
+                    }),
+                ..
+            } => Err(Error::SnapshotInvariant {
+                reason: "a refused source cannot carry the verified status",
+            }),
             Self::Candidates { candidates, .. } if !(1..=3).contains(&candidates.len()) => {
                 Err(Error::SnapshotInvariant {
                     reason: "candidate result must contain between one and three candidates",
@@ -166,9 +183,17 @@ impl QueryResult {
         }
     }
 
+    /// The single mapping from a result to a process exit code.
+    ///
+    /// An expected source refusal is the only way a direct answer exits
+    /// non-zero: the anchor is still correct, but no bytes were released.
     #[must_use]
     pub const fn exit_code(&self) -> u8 {
         match self {
+            Self::Direct {
+                source: Some(SourceResult::Refused { .. }),
+                ..
+            } => 4,
             Self::Direct { .. } => 0,
             Self::Candidates { .. } => 2,
             Self::None { .. } => 3,
@@ -176,20 +201,19 @@ impl QueryResult {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AnchorRef<'a> {
-    pub path: &'a str,
-    pub symbol: Option<&'a str>,
-    pub lines: Option<LineRange>,
-    pub indexed_oid: Oid,
+/// The snapshot records one direct anchor resolves to, with every id and
+/// ownership invariant already checked.
+///
+/// Both anchor rendering and source verification start here so the
+/// snapshot-boundary checks exist exactly once.
+pub(crate) struct ResolvedTarget<'a> {
+    pub(crate) file: &'a FileRecord,
+    pub(crate) symbol: Option<&'a SymbolRecord>,
+    pub(crate) path: &'a str,
 }
 
-/// Resolves a [`TargetId`] to an [`AnchorRef`] referencing the snapshot.
-///
-/// # Errors
-/// Returns [`Error::SnapshotInvariant`] if the target id or its metadata is invalid.
-pub fn resolve_anchor(snapshot: &Snapshot, target: TargetId) -> Result<AnchorRef<'_>> {
-    match target {
+pub(crate) fn resolve_target(snapshot: &Snapshot, target: TargetId) -> Result<ResolvedTarget<'_>> {
+    let (file, symbol) = match target {
         TargetId::File(file_id) => {
             let file = snapshot
                 .files
@@ -202,20 +226,7 @@ pub fn resolve_anchor(snapshot: &Snapshot, target: TargetId) -> Result<AnchorRef
                     reason: "file record id disagrees with target id",
                 });
             }
-            let path_str =
-                snapshot
-                    .strings
-                    .get(file.path.index())
-                    .ok_or(Error::SnapshotInvariant {
-                        reason: "file path string out of bounds",
-                    })?;
-            let _validated = RelPath::new(path_str)?;
-            Ok(AnchorRef {
-                path: path_str.as_str(),
-                symbol: None,
-                lines: None,
-                indexed_oid: file.content_oid,
-            })
+            (file, None)
         }
         TargetId::Symbol(symbol_id) => {
             let symbol =
@@ -249,28 +260,60 @@ pub fn resolve_anchor(snapshot: &Snapshot, target: TargetId) -> Result<AnchorRef
                     reason: "symbol is not owned by indexed file",
                 });
             }
-            let path_str =
-                snapshot
-                    .strings
-                    .get(file.path.index())
-                    .ok_or(Error::SnapshotInvariant {
-                        reason: "file path string out of bounds",
-                    })?;
-            let _validated = RelPath::new(path_str)?;
-            let symbol_name =
-                snapshot
-                    .strings
-                    .get(symbol.name.index())
-                    .ok_or(Error::SnapshotInvariant {
-                        reason: "symbol name string out of bounds",
-                    })?;
-            let lines = LineRange::new(symbol.span.start_line(), symbol.span.end_line())?;
-            Ok(AnchorRef {
-                path: path_str.as_str(),
-                symbol: Some(symbol_name.as_str()),
-                lines: Some(lines),
-                indexed_oid: file.content_oid,
-            })
+            (file, Some(symbol))
         }
-    }
+    };
+
+    let path = snapshot
+        .strings
+        .get(file.path.index())
+        .ok_or(Error::SnapshotInvariant {
+            reason: "file path string out of bounds",
+        })?;
+    let _validated = RelPath::new(path)?;
+    Ok(ResolvedTarget {
+        file,
+        symbol,
+        path: path.as_str(),
+    })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AnchorRef<'a> {
+    pub path: &'a str,
+    pub symbol: Option<&'a str>,
+    pub lines: Option<LineRange>,
+    pub indexed_oid: Oid,
+}
+
+/// Resolves a [`TargetId`] to an [`AnchorRef`] referencing the snapshot.
+///
+/// # Errors
+/// Returns [`Error::SnapshotInvariant`] if the target id or its metadata is invalid.
+pub fn resolve_anchor(snapshot: &Snapshot, target: TargetId) -> Result<AnchorRef<'_>> {
+    let resolved = resolve_target(snapshot, target)?;
+    let Some(symbol) = resolved.symbol else {
+        return Ok(AnchorRef {
+            path: resolved.path,
+            symbol: None,
+            lines: None,
+            indexed_oid: resolved.file.content_oid,
+        });
+    };
+    let symbol_name =
+        snapshot
+            .strings
+            .get(symbol.name.index())
+            .ok_or(Error::SnapshotInvariant {
+                reason: "symbol name string out of bounds",
+            })?;
+    Ok(AnchorRef {
+        path: resolved.path,
+        symbol: Some(symbol_name.as_str()),
+        lines: Some(LineRange::new(
+            symbol.span.start_line(),
+            symbol.span.end_line(),
+        )?),
+        indexed_oid: resolved.file.content_oid,
+    })
 }

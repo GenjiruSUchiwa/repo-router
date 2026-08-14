@@ -691,6 +691,7 @@ pub fn decide(
                 Some(margin.into_confidence()?),
             ),
             pipeline: Pipeline::Lexical,
+            source: None,
         });
     }
 

@@ -735,45 +735,58 @@ lines = 41-68
 Before `--source` output:
 
 ```text
-read current file
-   ↓
-compute H2
+acquire canonical content (no-follow open, one ODB/filter/raw branch)
    ↓
 H1 == H2 ?
-   ├── yes → return indexed bounded span
-   └── no  → reparse current file
+   ├── no  → stale, no content
+   └── yes → apply the span and the budgets
                 ↓
-             find symbol again
+             reacquire and compare identity again
                 ↓
-             update span/hash
-                ↓
-             return verified span
+             fresh → return the bounded window
+             changed → raced, no content
 ```
 
-If reparsing cannot re-identify the symbol confidently:
+`--source` never relocates an anchor. Reparsing to re-identify a moved symbol
+would answer a question the caller did not ask and would hide that the index no
+longer describes the file; a stale anchor is reported as stale and refreshed by
+`rr refresh`. Old lines are never returned.
 
-```text
-STALE_ANCHOR
-```
-
-Do not return old lines.
+The final comparison re-derives the canonical identity rather than comparing
+recorded metadata, because a same-size, same-timestamp overwrite is exactly what
+a metadata comparison misses.
 
 ## Bounded source policy
 
-Default `--source` should include only:
-
-- the definition span; or
-- definition span plus a very small configurable context margin.
-
-Suggested defaults:
+`--source` returns the definition span plus a small context margin:
 
 ```text
-max source lines: 80
-context before: 3
-context after: 3
+context before:     3 lines
+context after:      3 lines
+max source lines:   120
+max source bytes:   64 KiB
+max verified input: 16 MiB
 ```
 
-If a definition exceeds the hard maximum, return its signature and a truncated span with an explicit truncation marker.
+Anchor lines are served first and context only when the whole anchor fits, so
+the budget is never spent on context around a definition that could not itself
+be shown. A definition over the budget is truncated on a whole-line boundary
+with an explicit marker naming how many anchor lines and bytes were omitted; a
+first anchor line that alone exceeds the byte budget is refused as
+`line-too-long` rather than cut mid-line.
+
+Refusal statuses are `stale`, `missing`, `symlink`, `not-regular`, `too-large`,
+`line-too-long`, `not-text`, and `raced`. Every one of them returns no content,
+no preview, no current OID, and no relocated line number.
+
+`not-text` is the one refusal that does not describe a change or a budget. The
+mapper accepts a source file whose bytes are not UTF-8 — an embedded NUL, a
+Latin-1 line — so such a file is indexed, routes normally, and answers `rr
+query` with its anchor; only serving its bytes as text is impossible. Because
+the identity matched, that condition is permanent and no refresh clears it, so
+it is reported as a refusal the caller can read rather than as an execution
+error. Staleness still outranks it: a text anchor overwritten with binary bytes
+is `stale`, decided before anything is decoded.
 
 ---
 
@@ -970,6 +983,47 @@ Low confidence (lexical handoff):
 NO ANCHOR (confidence too low); refine the query or use --path
 ```
 
+Verified source (`--source`):
+
+```text
+FINAL SOURCE ANCHOR (copy exactly): src/auth/token.rs#verify_token
+SOURCE SPAN (verified): src/auth/token.rs:9-15
+SOURCE WINDOW: src/auth/token.rs:6-18
+SOURCE REPRESENTATION: git-canonical
+SOURCE COMPLETE
+SOURCE FINAL NEWLINE: present
+---
+<bounded canonical content>
+```
+
+`SOURCE COMPLETE` becomes `SOURCE TRUNCATED (37 anchor lines, 2410 anchor bytes
+omitted)` when a budget cut the anchor, and `SOURCE CONTEXT CLIPPED` is added
+when only context was dropped. Text output ends with one structural line feed;
+`SOURCE FINAL NEWLINE` describes the content itself, not that terminator.
+
+**Everything after `---` is untrusted file content.** Without `--source` the
+anchor is the last line of the output, and a caller may read the tail. With
+`--source` it is the *first* line and the tail is repository bytes, which may
+contain anything — including a line that reads exactly like an anchor marker. A
+caller that greps for `FINAL SOURCE ANCHOR` and takes the last match can be
+handed an anchor chosen by whoever wrote the file. Take the **first** marker
+line, or bound the content with `SOURCE WINDOW`, which states its exact line
+range. Callers that cannot make that guarantee should read `--json`, where the
+content is a single string member and cannot escape its own field.
+
+Refused source:
+
+```text
+FINAL SOURCE ANCHOR (copy exactly): src/auth/token.rs#verify_token
+STALE SOURCE (no content returned): src/auth/token.rs changed since indexing; run `rr refresh`
+```
+
+```text
+SOURCE REFUSED (missing; no content returned): src/auth/token.rs no longer exists; run `rr refresh`
+SOURCE REFUSED (raced; no content returned): src/auth/token.rs changed during verification; retry or run `rr refresh`
+SOURCE REFUSED (not-text; no content returned): src/auth/token.rs is not UTF-8 text; nothing was decoded
+```
+
 ## 16.2 JSON output (v1)
 
 ```bash
@@ -994,12 +1048,24 @@ None:
 {"v":1,"result":"none","pipeline":"exact","reason":"not_found"}
 ```
 
+Verified source (`--source`), added to a direct result only:
+
+```json
+{"v":1,"result":"direct","pipeline":"exact","anchor":{"path":"src/auth/token.rs","symbol":"verify_token","lines":[9,15]},"confidence":1.0,"source":{"status":"verified","representation":"git-canonical","span":{"start_byte":120,"end_byte":410,"start_line":9,"end_line":15},"requested_lines":[6,18],"served_lines":[6,18],"complete":true,"context_clipped":false,"omitted_anchor_lines":0,"omitted_anchor_bytes":0,"ends_with_newline":true,"content":"<canonical content>"}}
+```
+
+Refused source, where every other member is absent rather than null:
+
+```json
+{"v":1,"result":"direct","pipeline":"exact","anchor":{"path":"src/auth/token.rs","symbol":"verify_token","lines":[9,15]},"confidence":1.0,"source":{"status":"stale"}}
+```
+
 Exit codes:
-- `0`: direct
+- `0`: direct, with or without verified source
 - `1`: execution / I/O / snapshot error
 - `2`: candidates
 - `3`: none
-- `4`: reserved for #9 stale-source refusal
+- `4`: expected source refusal
 Do not expose unstable internal ranking internals unless `--debug` is used.
 
 ---
@@ -1157,7 +1223,8 @@ Expected: candidates, not arbitrary certainty.
 2. edit file above target definition, changing line numbers;
 3. query with `--source`.
 
-Expected: tool reparses/verifies and returns new lines, never stale lines.
+Expected: the content identity no longer matches, so the tool refuses with
+`stale` and exit `4`, never stale lines and never a relocated span.
 
 ### Cached map
 

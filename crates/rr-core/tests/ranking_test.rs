@@ -24,6 +24,7 @@ fn ranking_answers_a_named_definition_directly() {
     let QueryResult::Direct {
         candidate,
         pipeline,
+        ..
     } = &result
     else {
         panic!("expected a direct answer, got {result:?}");

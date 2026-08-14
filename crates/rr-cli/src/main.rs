@@ -1,4 +1,5 @@
 mod output;
+mod query;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -7,11 +8,7 @@ use std::time::Instant;
 use anyhow::{bail, Context};
 use clap::{Parser, Subcommand};
 use output::Output;
-use rr_core::path::RelPath;
-use rr_core::query::{parse_query, route_query, QueryRequest};
-use rr_core::ranking::{RankingScratch, DEFAULT_RANKING_PROFILE};
-use rr_core::render::{render_json, render_json_explained, render_text, render_text_explained};
-use rr_core::snapshot::{LoadOutcome, SnapshotStore};
+use rr_core::snapshot::SnapshotStore;
 use rr_git::{build_map, GitRepo};
 
 const VERSION_STR: &str = concat!(env!("CARGO_PKG_VERSION"), " (", env!("RR_GIT_HASH"), ")");
@@ -38,17 +35,7 @@ enum Commands {
         #[arg(long, short)]
         verbose: bool,
     },
-    Query {
-        #[arg(long, value_name = "REL_PATH")]
-        path: Option<RelPath>,
-        #[arg(long)]
-        json: bool,
-        /// Report the work the ranker did, including whether the candidate cap
-        /// discarded members it could not tell apart from the ones it kept.
-        #[arg(long)]
-        explain: bool,
-        query: String,
-    },
+    Query(query::Args),
 }
 
 fn main() -> ExitCode {
@@ -74,25 +61,51 @@ fn main() -> ExitCode {
         } => match run_map(root, threads, verbose) {
             Ok(()) => ExitCode::from(0),
             Err(err) => {
-                eprintln!("rr: {err:#}");
+                eprintln!("rr: {}", one_line(&err));
                 ExitCode::from(1)
             }
         },
-        Commands::Query {
-            path,
-            json,
-            explain,
-            query,
-        } => match run_query(path.as_ref(), json, explain, &query) {
+        Commands::Query(args) => match query::run(&args) {
             Ok(code) => ExitCode::from(code),
             Err(err) => {
-                eprintln!("rr: query: {err:#}");
+                eprintln!("rr: query: {}", one_line(&err));
                 // Exit 1 for all errors: SPEC reserves 2 for the candidates
                 // outcome, so errors must not collide with it.
                 ExitCode::from(1)
             }
         },
     }
+}
+
+/// Flattens an error chain into a single diagnostic line.
+///
+/// A failure deep in the stack can carry text we did not author — an external
+/// filter's stderr, an OS message in another locale — and a newline in it would
+/// turn one diagnostic into two, which is exactly the shape a caller reading
+/// stderr line by line would misread as a second failure.
+fn one_line(err: &anyhow::Error) -> String {
+    let rendered = format!("{err:#}");
+    let mut line = String::with_capacity(rendered.len());
+    let mut pending_space = false;
+    for character in rendered.chars() {
+        // U+2028/U+2029 are not control characters but still break a line for
+        // any reader that splits on Unicode line boundaries rather than on LF.
+        if character.is_control() || matches!(character, '\u{2028}' | '\u{2029}') {
+            pending_space = !line.is_empty();
+            continue;
+        }
+        if pending_space {
+            // The whitespace that followed a break was indentation for a line
+            // that no longer exists, so it joins the break rather than the text.
+            if character.is_whitespace() {
+                continue;
+            }
+            line.push(' ');
+            pending_space = false;
+        }
+        line.push(character);
+    }
+    line
 }
 
 fn run_map(root: Option<PathBuf>, threads: Option<usize>, verbose: bool) -> anyhow::Result<()> {
@@ -149,65 +162,28 @@ fn run_map(root: Option<PathBuf>, threads: Option<usize>, verbose: bool) -> anyh
     Ok(())
 }
 
-fn run_query(
-    path: Option<&RelPath>,
-    json: bool,
-    explain: bool,
-    query_str: &str,
-) -> anyhow::Result<u8> {
-    let current_dir = std::env::current_dir().context("resolve current directory")?;
-    let canonical = current_dir
-        .canonicalize()
-        .context("canonicalize current directory")?;
-    let git_repo = GitRepo::discover(&canonical).context("discover repository")?;
+#[cfg(test)]
+mod tests {
+    use super::one_line;
 
-    let (store_root, is_git, head_oid) = match &git_repo {
-        Some(repo) => {
-            let head = repo.head_oid().context("resolve HEAD commit")?;
-            (repo.workdir().to_path_buf(), true, head)
-        }
-        None => (canonical, false, None),
-    };
+    #[test]
+    fn a_multi_line_failure_still_reports_as_one_diagnostic() {
+        let inner = anyhow::anyhow!("filter said:\n  bad magic\r\n  at offset 3\u{2028}stop");
+        let err = inner.context("acquire source for src/lib.rs");
 
-    let store = SnapshotStore::new(&store_root);
-    let outcome = store.load().map_err(|err| anyhow::anyhow!("{err}"))?;
+        let rendered = one_line(&err);
 
-    let snapshot = match outcome {
-        LoadOutcome::Ready(snap) => snap,
-        LoadOutcome::Missing => {
-            bail!("index missing; run 'rr map'");
-        }
-        LoadOutcome::NeedsRebuild(_) => {
-            bail!("index invalid; run 'rr map'");
-        }
-    };
-
-    if is_git {
-        if snapshot.meta.no_git {
-            bail!("index repository mismatch; run 'rr map'");
-        }
-        if snapshot.meta.repo_head_oid != head_oid {
-            bail!("index is stale; run 'rr refresh'");
-        }
-    } else if !snapshot.meta.no_git {
-        bail!("index repository mismatch; run 'rr map'");
+        assert_eq!(rendered.lines().count(), 1);
+        assert_eq!(
+            rendered,
+            "acquire source for src/lib.rs: filter said: bad magic at offset 3 stop"
+        );
     }
 
-    let request = QueryRequest::new(query_str, path);
-    let parsed = parse_query(&snapshot, request).map_err(anyhow::Error::new)?;
-    let mut scratch = RankingScratch::new();
-    let (result, evidence) =
-        route_query(&snapshot, &parsed, &DEFAULT_RANKING_PROFILE, &mut scratch)
-            .map_err(anyhow::Error::new)?;
+    #[test]
+    fn an_ordinary_failure_survives_unchanged() {
+        let err = anyhow::anyhow!("no such file: src/lib.rs");
 
-    let rendered = match (json, explain) {
-        (true, false) => render_json(&snapshot, &result),
-        (true, true) => render_json_explained(&snapshot, &result, evidence.as_ref()),
-        (false, false) => render_text(&snapshot, &result),
-        (false, true) => render_text_explained(&snapshot, &result, evidence.as_ref()),
+        assert_eq!(one_line(&err), "no such file: src/lib.rs");
     }
-    .map_err(|err| anyhow::anyhow!("{err}"))?;
-
-    Output::print_raw(&rendered).context("write query result")?;
-    Ok(result.exit_code())
 }
