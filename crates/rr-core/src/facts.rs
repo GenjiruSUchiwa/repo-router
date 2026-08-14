@@ -587,18 +587,34 @@ fn validate_facts(
         return Ok(());
     }
 
+    let owners = OwnerIndex::new(defs);
     for reference in references {
-        validate_owner(reference.owner, reference.span, defs)?;
+        validate_owner(
+            reference.owner,
+            owners.nearest(reference.span),
+            reference.span,
+            defs,
+        )?;
     }
     for import in imports {
-        validate_owner(import.owner, import.span, defs)?;
+        validate_owner(
+            import.owner,
+            owners.nearest_import_owner(import.span),
+            import.span,
+            defs,
+        )?;
     }
     Ok(())
 }
 
-fn validate_owner(owner: Option<LocalDefId>, span: Span, defs: &[Def]) -> Result<()> {
+fn validate_owner(
+    owner: Option<LocalDefId>,
+    expected: Option<LocalDefId>,
+    span: Span,
+    defs: &[Def],
+) -> Result<()> {
     let Some(id) = owner else {
-        if nearest_owner(span, defs).is_some() {
+        if expected.is_some() {
             return Err(Error::InvalidFacts {
                 reason: "owner is missing for a contained fact",
             });
@@ -611,7 +627,6 @@ fn validate_owner(owner: Option<LocalDefId>, span: Span, defs: &[Def]) -> Result
             definitions: defs.len(),
         });
     }
-    let expected = nearest_owner(span, defs);
     if expected != Some(id) {
         return Err(Error::InvalidFacts {
             reason: "owner is not the nearest containing definition",
@@ -625,27 +640,71 @@ fn validate_owner(owner: Option<LocalDefId>, span: Span, defs: &[Def]) -> Result
     Ok(())
 }
 
+/// Owner lookup over definitions sorted by `(start_byte, end_byte, ...)`.
+///
 /// Chooses the contained definition with the smallest byte length; ties use the
-/// lowest sorted [`LocalDefId`].
-#[must_use]
-pub(crate) fn nearest_owner(span: Span, defs: &[Def]) -> Option<LocalDefId> {
-    let mut best: Option<(u32, LocalDefId)> = None;
-    for (index, def) in defs.iter().enumerate() {
-        if !def.span.contains(span) {
-            continue;
+/// lowest sorted [`LocalDefId`]. Lookups binary-search the sorted starts and
+/// walk back only while a containing span is still possible, so a lookup costs
+/// O(log n + nesting depth) instead of a full scan.
+pub(crate) struct OwnerIndex {
+    spans: Vec<Span>,
+    kinds: Vec<DefKind>,
+    /// `prefix_max_end[i]` is the maximum `end_byte` over `spans[0..=i]`.
+    prefix_max_end: Vec<u32>,
+}
+
+impl OwnerIndex {
+    pub(crate) fn new(defs: &[Def]) -> Self {
+        let spans: Vec<Span> = defs.iter().map(|def| def.span).collect();
+        let kinds: Vec<DefKind> = defs.iter().map(|def| def.kind).collect();
+        let mut prefix_max_end = Vec::with_capacity(spans.len());
+        let mut max_end = 0_u32;
+        for span in &spans {
+            max_end = max_end.max(span.end_byte());
+            prefix_max_end.push(max_end);
         }
-        let len = def.span.byte_len();
-        let id = LocalDefId::from_index(u32::try_from(index).unwrap_or(u32::MAX));
-        match best {
-            None => best = Some((len, id)),
-            Some((best_len, best_id)) => {
-                if len < best_len || (len == best_len && id < best_id) {
-                    best = Some((len, id));
-                }
-            }
+        Self {
+            spans,
+            kinds,
+            prefix_max_end,
         }
     }
-    best.map(|(_, id)| id)
+
+    /// Smallest containing definition; None at file scope.
+    pub(crate) fn nearest(&self, span: Span) -> Option<LocalDefId> {
+        self.lookup(span, false)
+    }
+
+    /// Smallest containing non-module definition. Imports directly under a
+    /// `mod` body sit at module scope and carry no owner; only block-local
+    /// imports inside a definition do.
+    pub(crate) fn nearest_import_owner(&self, span: Span) -> Option<LocalDefId> {
+        self.lookup(span, true)
+    }
+
+    fn lookup(&self, span: Span, skip_modules: bool) -> Option<LocalDefId> {
+        let first_after = self
+            .spans
+            .partition_point(|candidate| candidate.start_byte() <= span.start_byte());
+        let mut best: Option<(u32, usize)> = None;
+        for index in (0..first_after).rev() {
+            if self.prefix_max_end[index] < span.end_byte() {
+                break;
+            }
+            let candidate = self.spans[index];
+            if !candidate.contains(span) {
+                continue;
+            }
+            if skip_modules && self.kinds[index] == DefKind::Module {
+                continue;
+            }
+            let len = candidate.byte_len();
+            if best.is_none_or(|(best_len, _)| len <= best_len) {
+                best = Some((len, index));
+            }
+        }
+        best.map(|(_, index)| LocalDefId::from_index(u32::try_from(index).unwrap_or(u32::MAX)))
+    }
 }
 
 fn defs_sorted(defs: &[Def]) -> bool {
@@ -653,7 +712,9 @@ fn defs_sorted(defs: &[Def]) -> bool {
         .all(|pair| def_key(&pair[0]) <= def_key(&pair[1]))
 }
 
-fn def_key(def: &Def) -> (u32, u32, DefKind, &str) {
+/// Canonical definition sort key; the extractor sorts with the same key the
+/// validator checks.
+pub(crate) fn def_key(def: &Def) -> (u32, u32, DefKind, &str) {
     (
         def.span.start_byte(),
         def.span.end_byte(),
@@ -668,7 +729,9 @@ fn references_sorted(references: &[Reference]) -> bool {
         .all(|pair| reference_key(&pair[0]) <= reference_key(&pair[1]))
 }
 
-fn reference_key(reference: &Reference) -> (u32, u32, ReferenceKind, &str) {
+/// Canonical reference sort key; the extractor sorts with the same key the
+/// validator checks.
+pub(crate) fn reference_key(reference: &Reference) -> (u32, u32, ReferenceKind, &str) {
     (
         reference.span.start_byte(),
         reference.span.end_byte(),
@@ -683,7 +746,9 @@ fn imports_sorted(imports: &[Import]) -> bool {
         .all(|pair| import_key(&pair[0]) <= import_key(&pair[1]))
 }
 
-fn import_key(import: &Import) -> (u32, u32, ImportKind, &str, Option<&str>) {
+/// Canonical import sort key; the extractor sorts with the same key the
+/// validator checks.
+pub(crate) fn import_key(import: &Import) -> (u32, u32, ImportKind, &str, Option<&str>) {
     (
         import.span.start_byte(),
         import.span.end_byte(),
@@ -1037,7 +1102,7 @@ mod tests {
             .join("local")
             .join("facts")
             .join(oid.shard_prefix())
-            .join(format!("{}-rust-1-1.bin", oid.to_hex()));
+            .join(format!("{}-rust-2-1.bin", oid.to_hex()));
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, bytes).unwrap();
 
@@ -1063,7 +1128,25 @@ mod tests {
     #[test]
     fn nearest_owner_prefers_smallest_span() {
         let defs = vec![sample_def("outer", 0, 100), sample_def("inner", 10, 30)];
-        let id = nearest_owner(span(12, 15, 1, 1), &defs).unwrap();
+        let owners = OwnerIndex::new(&defs);
+        let id = owners.nearest(span(12, 15, 1, 1)).unwrap();
         assert_eq!(id.index(), 1);
+    }
+
+    #[test]
+    fn import_owner_skips_module_definitions() {
+        let mut module = sample_def("holder", 0, 100);
+        module.kind = DefKind::Module;
+        let defs = vec![module, sample_def("inner", 10, 30)];
+        let owners = OwnerIndex::new(&defs);
+        assert_eq!(owners.nearest_import_owner(span(50, 55, 1, 1)), None);
+        assert_eq!(
+            owners
+                .nearest_import_owner(span(12, 15, 1, 1))
+                .unwrap()
+                .index(),
+            1
+        );
+        assert_eq!(owners.nearest(span(50, 55, 1, 1)).unwrap().index(), 0);
     }
 }

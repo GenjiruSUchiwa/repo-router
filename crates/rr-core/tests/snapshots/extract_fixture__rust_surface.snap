@@ -127,7 +127,7 @@ defs:
     visibility: public
     start_line: 34
     end_line: 34
-    signature: pub type SurfaceAlias =
+    signature: pub type SurfaceAlias = SurfaceStruct;
     body_preview: SurfaceStruct
     test_explicit: false
     test_cfg: false
@@ -139,7 +139,7 @@ defs:
     visibility: public
     start_line: 36
     end_line: 36
-    signature: "pub const SURFACE_CONST: u32 ="
+    signature: "pub const SURFACE_CONST: u32 = 7;"
     body_preview: ""
     test_explicit: false
     test_cfg: false
@@ -151,7 +151,7 @@ defs:
     visibility: public
     start_line: 37
     end_line: 37
-    signature: "pub static SURFACE_STATIC: u32 ="
+    signature: "pub static SURFACE_STATIC: u32 = 9;"
     body_preview: ""
     test_explicit: false
     test_cfg: false
@@ -283,7 +283,7 @@ defs:
     visibility: private
     start_line: 77
     end_line: 77
-    signature: type Item =
+    signature: type Item = u32;
     body_preview: ""
     test_explicit: false
     test_cfg: false
@@ -295,7 +295,7 @@ defs:
     visibility: private
     start_line: 78
     end_line: 78
-    signature: "const TRAIT_CONST: u32 ="
+    signature: "const TRAIT_CONST: u32 = 1;"
     body_preview: ""
     test_explicit: false
     test_cfg: false
@@ -319,7 +319,7 @@ defs:
     visibility: private
     start_line: 84
     end_line: 88
-    signature: "macro_rules! surface_macro { ($x:expr) => { $x }; }"
+    signature: macro_rules! surface_macro
     body_preview: ""
     test_explicit: false
     test_cfg: false
@@ -624,4 +624,4 @@ imports:
     alias: ~
     is_public: false
     is_glob: true
-    owner: tests
+    owner: ~

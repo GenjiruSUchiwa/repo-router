@@ -9,7 +9,7 @@ use crate::facts::{DegradedReason, Facts};
 /// Bump on ANY change to the pinned Tree-sitter runtime/grammar version,
 /// queries/rust.scm, capture interpretation, use-tree expansion,
 /// qualification, test detection, fallback scanning, or ordering.
-pub const EXTRACTOR_VERSION: u32 = 1;
+pub const EXTRACTOR_VERSION: u32 = 2;
 
 const MAX_FALLBACK_BYTES: usize = 256 * 1024;
 const MAX_FALLBACK_IDENTIFIERS: usize = 16 * 1024;
@@ -54,6 +54,31 @@ const fn is_ident_start(b: u8) -> bool {
 
 const fn is_ident_continue(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_'
+}
+
+/// Scans ASCII identifiers from already-validated UTF-8 text, uncapped.
+///
+/// The fallback path uses [`lexical_idents`] instead because it must cap work
+/// on arbitrary bytes.
+fn scan_idents(text: &str) -> Vec<String> {
+    let bytes = text.as_bytes();
+    let mut out = Vec::new();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        if is_ident_start(bytes[i]) {
+            let start = i;
+            i += 1;
+            while i < bytes.len() && is_ident_continue(bytes[i]) {
+                i += 1;
+            }
+            if let Ok(ident) = std::str::from_utf8(&bytes[start..i]) {
+                out.push(ident.to_string());
+            }
+        } else {
+            i += 1;
+        }
+    }
+    out
 }
 
 fn degraded_facts(content: &[u8], reason: DegradedReason) -> Facts {

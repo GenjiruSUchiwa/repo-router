@@ -244,7 +244,7 @@ mod tests {
     fn cache_key_file_name_format() {
         let oid = Oid::from_hex(SHA1_HEX).unwrap();
         let key = CacheKey::new(oid, Lang::Rust);
-        assert_eq!(key.file_name(), format!("{SHA1_HEX}-rust-1-1.bin"));
+        assert_eq!(key.file_name(), format!("{SHA1_HEX}-rust-2-1.bin"));
     }
 
     #[test]

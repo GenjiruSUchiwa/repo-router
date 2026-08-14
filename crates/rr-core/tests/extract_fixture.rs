@@ -404,7 +404,7 @@ fn invalid_utf8_fixture_degrades() {
 }
 
 #[test]
-fn versions_remain_one() {
-    assert_eq!(EXTRACTOR_VERSION, 1);
+fn versions_are_pinned() {
+    assert_eq!(EXTRACTOR_VERSION, 2);
     assert_eq!(FACT_SCHEMA_VERSION, 1);
 }
