@@ -608,7 +608,7 @@ Command examples:
 ```bash
 radar query "verify_token"
 radar query "where is token verification handled?"
-radar query "how does verify_token work?" --source
+radar query "how does verify_token work?"
 ```
 
 ## 11.1 Query normalization
@@ -921,7 +921,6 @@ Required V0/V1 commands:
 ```bash
 radar map
 radar query <query>
-radar query <query> --source
 radar status
 radar doctor
 ```
@@ -1018,10 +1017,9 @@ If Radar is available, use it before broad repository searches.
 
 Prefer:
 
-    radar query "<question>" --source
+    radar query "<question>"
 
-Use the returned source anchor and verified source span before reading
-whole files or performing recursive searches.
+Use the returned source anchor before reading whole files or performing recursive searches.
 
 Only fall back to ripgrep/find/LSP/native repository exploration when
 Radar does not return enough information.
@@ -1303,15 +1301,13 @@ Tree-sitter parsing
 definitions
 exact symbol index
 source anchors
-hash verification
---source
 ```
 
 Acceptance example:
 
 ```bash
 radar map
-radar query verify_token --source
+radar query verify_token
 ```
 
 works end-to-end on fixture repos.
@@ -1601,7 +1597,7 @@ A V1 is useful when all of the following are true:
 3. `radar query <exact-symbol>` returns the correct definition anchor.
 4. Basic natural-language code-location queries return the expected definition in top 3 on a frozen test corpus.
 5. Ambiguous symbols return candidates rather than arbitrary direct answers.
-6. `radar query ... --source` never returns a stale span after source edits.
+6. The future source capability never returns a stale span after source edits.
 7. Default output is intentionally small.
 8. `--json` is stable enough for agents/tools.
 9. The binary runs natively on macOS ARM64.

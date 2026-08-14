@@ -9,6 +9,7 @@ repository.workspace = true
 [dependencies]
 smallvec = { workspace = true }
 unicode-normalization = { workspace = true }
+unicode-ident = { workspace = true }
 blake3 = { workspace = true }
 thiserror = { workspace = true }
 ignore = { workspace = true }

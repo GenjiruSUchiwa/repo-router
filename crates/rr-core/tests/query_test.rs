@@ -350,10 +350,14 @@ fn test_permutation_determinism() {
     let base_outcome = route_exact(&base_snapshot, &base_parsed);
     let base_result = finish_exact(base_outcome);
 
-    for i in 0..100 {
+    for i in 0_u32..100 {
         let mut permuted = file_specs;
-        let len = permuted.len();
-        permuted.rotate_left(i % len);
+        let mut seed = i + 1;
+        for index in (1..permuted.len()).rev() {
+            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            let swap_index = seed as usize % (index + 1);
+            permuted.swap(index, swap_index);
+        }
         let list = permuted
             .iter()
             .map(|(p, c)| (*p, c.as_bytes(), false))
@@ -389,4 +393,64 @@ fn test_permutation_determinism() {
             _ => panic!("expected candidates in permutation test"),
         }
     }
+}
+
+#[test]
+fn test_unicode_exact_symbol_and_normalized_path() {
+    let snapshot = build_test_snapshot(vec![("src/é.rs", "pub fn é() {}".as_bytes(), false)]);
+
+    let parsed_symbol = parse_query(&snapshot, QueryRequest::new("é", None)).unwrap();
+    assert!(matches!(
+        finish_exact(route_exact(&snapshot, &parsed_symbol)),
+        QueryResult::Direct { .. }
+    ));
+
+    let parsed_path = parse_query(&snapshot, QueryRequest::new("./src/é.rs", None)).unwrap();
+    let QueryResult::Direct { candidate, .. } = finish_exact(route_exact(&snapshot, &parsed_path))
+    else {
+        panic!("expected normalized path direct result");
+    };
+    assert!(matches!(candidate.target, TargetId::File(_)));
+}
+
+#[test]
+fn test_exact_atom_grammar_is_conservative() {
+    let snapshot = build_test_snapshot(vec![(
+        "src/lib.rs",
+        b"pub fn verify_token() {}\npub fn foo() {}",
+        false,
+    )]);
+
+    let punctuation = parse_query(&snapshot, QueryRequest::new("foo:", None)).unwrap();
+    assert!(punctuation.exact_atoms.is_empty());
+
+    let unicode_space = parse_query(
+        &snapshot,
+        QueryRequest::new("verify_token\u{00a0}foo", None),
+    )
+    .unwrap();
+    assert!(unicode_space.exact_atoms.is_empty());
+}
+
+#[test]
+fn test_first_indexed_path_atom_qualifies_symbol() {
+    let snapshot = build_test_snapshot(vec![
+        ("src/a.rs", b"pub fn verify_token() {}", false),
+        ("src/b.rs", b"pub fn verify_token() {}", false),
+    ]);
+    let parsed = parse_query(
+        &snapshot,
+        QueryRequest::new("missing/path.rs ./src/a.rs verify_token", None),
+    )
+    .unwrap();
+    let QueryResult::Direct { candidate, .. } = finish_exact(route_exact(&snapshot, &parsed))
+    else {
+        panic!("expected path-qualified symbol");
+    };
+    let TargetId::Symbol(symbol_id) = candidate.target else {
+        panic!("expected symbol target");
+    };
+    let symbol = &snapshot.symbols[symbol_id.index()];
+    let file = &snapshot.files[symbol.file.index()];
+    assert_eq!(snapshot.strings[file.path.index()], "src/a.rs");
 }

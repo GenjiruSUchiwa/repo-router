@@ -145,6 +145,27 @@ pub enum QueryResult {
 }
 
 impl QueryResult {
+    /// Validates the stable result invariants before rendering.
+    ///
+    /// # Errors
+    /// Returns [`Error::SnapshotInvariant`] when a public result value cannot
+    /// be represented by the v1 contract.
+    pub fn validate(&self) -> Result<()> {
+        match self {
+            Self::Direct { candidate, .. } if candidate.confidence.is_none() => {
+                Err(Error::SnapshotInvariant {
+                    reason: "direct result is missing confidence",
+                })
+            }
+            Self::Candidates { candidates, .. } if !(1..=3).contains(&candidates.len()) => {
+                Err(Error::SnapshotInvariant {
+                    reason: "candidate result must contain between one and three candidates",
+                })
+            }
+            _ => Ok(()),
+        }
+    }
+
     #[must_use]
     pub const fn exit_code(&self) -> u8 {
         match self {
@@ -176,6 +197,11 @@ pub fn resolve_anchor(snapshot: &Snapshot, target: TargetId) -> Result<AnchorRef
                 .ok_or(Error::SnapshotInvariant {
                     reason: "file id out of bounds",
                 })?;
+            if file.id != file_id {
+                return Err(Error::SnapshotInvariant {
+                    reason: "file record id disagrees with target id",
+                });
+            }
             let path_str =
                 snapshot
                     .strings
@@ -199,6 +225,11 @@ pub fn resolve_anchor(snapshot: &Snapshot, target: TargetId) -> Result<AnchorRef
                     .ok_or(Error::SnapshotInvariant {
                         reason: "symbol id out of bounds",
                     })?;
+            if symbol.id != symbol_id {
+                return Err(Error::SnapshotInvariant {
+                    reason: "symbol record id disagrees with target id",
+                });
+            }
             let file = snapshot
                 .files
                 .get(symbol.file.index())

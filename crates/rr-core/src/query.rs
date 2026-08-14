@@ -1,12 +1,13 @@
-use std::collections::HashSet;
+use std::cmp::Ordering;
 
 use smallvec::SmallVec;
+use unicode_ident::{is_xid_continue, is_xid_start};
 
 use crate::index::{FileId, Snapshot, SymbolId};
 use crate::lex::{query_terms, TermId};
 use crate::path::RelPath;
 use crate::result::{Candidate, Confidence, NoneReason, Pipeline, QueryResult, TargetId};
-use crate::{Error, Result};
+use crate::Result;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct QueryRequest<'a> {
@@ -52,18 +53,16 @@ pub enum ExactOutcome {
 /// Parses a query request into normalized terms and classified exact atoms.
 ///
 /// # Errors
-/// Returns [`Error::SnapshotInvariant`] if the query is empty or whitespace-only, or lexicon loading fails.
+/// Returns [`crate::Error::InvalidQuery`] if the query is empty or whitespace-only.
 pub fn parse_query<'a>(snapshot: &Snapshot, request: QueryRequest<'a>) -> Result<ParsedQuery<'a>> {
     let raw = request.text.trim();
     if raw.is_empty() {
-        return Err(Error::SnapshotInvariant {
+        return Err(crate::Error::InvalidQuery {
             reason: "query cannot be empty or whitespace-only",
         });
     }
 
-    let lexicon = snapshot.lexicon()?;
-    let query_terms_vec = query_terms(raw, &lexicon);
-    let terms = query_terms_vec.into_iter().collect();
+    let terms = query_terms(raw, snapshot).into_iter().collect();
 
     let tokens = tokenize_whitespace(raw);
     let single_token = tokens.len() == 1;
@@ -92,7 +91,7 @@ pub fn parse_query<'a>(snapshot: &Snapshot, request: QueryRequest<'a>) -> Result
 }
 
 fn tokenize_whitespace(input: &str) -> Vec<&str> {
-    input.split_whitespace().collect()
+    input.split_ascii_whitespace().collect()
 }
 
 fn strip_surrounding_punctuation(input: &str) -> &str {
@@ -100,32 +99,40 @@ fn strip_surrounding_punctuation(input: &str) -> &str {
     loop {
         let trimmed = strip_one_surrounding_punctuation(s);
         if trimmed == s {
-            break;
+            return s;
         }
         s = trimmed;
     }
-    s
 }
 
 fn strip_one_surrounding_punctuation(input: &str) -> &str {
     if input.len() >= 2 {
         let first = input.as_bytes()[0];
         let last = input.as_bytes()[input.len() - 1];
-        if (first == b'`' && last == b'`')
-            || (first == b'"' && last == b'"')
-            || (first == b'\'' && last == b'\'')
-            || (first == b'(' && last == b')')
-            || (first == b'[' && last == b']')
-            || (first == b'{' && last == b'}')
-        {
+        if matches!(
+            (first, last),
+            (b'`', b'`')
+                | (b'"', b'"')
+                | (b'\'', b'\'')
+                | (b'(', b')')
+                | (b'[', b']')
+                | (b'{', b'}')
+        ) {
             return &input[1..input.len() - 1];
         }
     }
 
-    let trimmed_end =
-        input.trim_end_matches([',', ';', '?', '!', ')', ']', '}', '>', ':', '`', '\'', '"']);
-    let trimmed_start = trimmed_end.trim_start_matches(['(', '[', '{', '<', '`', '\'', '"']);
-    trimmed_start
+    let start = input
+        .as_bytes()
+        .iter()
+        .take_while(|byte| matches!(**byte, b',' | b';' | b'?' | b'!'))
+        .count();
+    let end = input
+        .as_bytes()
+        .iter()
+        .rposition(|byte| !matches!(*byte, b',' | b';' | b'?' | b'!'))
+        .map_or(start, |index| index + 1);
+    &input[start..end]
 }
 
 fn classify_atom(token: &str, single_token: bool, snapshot: &Snapshot) -> Option<ExactAtomKind> {
@@ -149,27 +156,26 @@ fn classify_atom(token: &str, single_token: bool, snapshot: &Snapshot) -> Option
 }
 
 fn is_indexed_file_path(token: &str, snapshot: &Snapshot) -> bool {
-    find_file_id_by_path(snapshot, token).is_some()
+    find_file_id_by_query_path(snapshot, token).is_some()
 }
 
 fn is_qualified_identifier(token: &str) -> bool {
-    let parts: Vec<&str> = if token.contains("::") {
-        token.split("::").collect()
-    } else {
-        token.split('.').collect()
+    let separator = if token.contains("::") { "::" } else { "." };
+    let mut parts = token.split(separator);
+    let Some(first) = parts.next() else {
+        return false;
     };
-
-    if parts.len() < 2 {
+    if !is_valid_identifier_component(first) {
         return false;
     }
-
+    let mut count = 1;
     for part in parts {
         if !is_valid_identifier_component(part) {
             return false;
         }
+        count += 1;
     }
-
-    true
+    count >= 2
 }
 
 fn is_code_shaped_identifier(token: &str) -> bool {
@@ -177,39 +183,27 @@ fn is_code_shaped_identifier(token: &str) -> bool {
         return false;
     }
 
-    if token.contains('_') {
-        return true;
-    }
-
-    has_lower_upper_transition(token)
+    token.contains('_') || has_lower_upper_transition(token)
 }
 
 fn is_valid_identifier_component(token: &str) -> bool {
-    if token.is_empty() {
+    let mut chars = token.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    if first != '_' && !is_xid_start(first) {
         return false;
     }
-
-    let bytes = token.as_bytes();
-    let first = bytes[0];
-    if !first.is_ascii_alphabetic() && first != b'_' {
-        return false;
-    }
-
-    for &b in &bytes[1..] {
-        if !b.is_ascii_alphanumeric() && b != b'_' {
-            return false;
-        }
-    }
-
-    true
+    chars.all(|character| character == '_' || is_xid_continue(character))
 }
 
 fn has_lower_upper_transition(token: &str) -> bool {
-    let bytes = token.as_bytes();
-    for window in bytes.windows(2) {
-        if window[0].is_ascii_lowercase() && window[1].is_ascii_uppercase() {
+    let mut previous = None;
+    for current in token.chars() {
+        if previous.is_some_and(char::is_lowercase) && current.is_uppercase() {
             return true;
         }
+        previous = Some(current);
     }
     false
 }
@@ -227,9 +221,8 @@ pub fn route_exact(snapshot: &Snapshot, query: &ParsedQuery<'_>) -> ExactOutcome
     let query_path_file_id = query
         .exact_atoms
         .iter()
-        .find(|atom| atom.kind == ExactAtomKind::Path)
-        .and_then(|atom| find_file_id_by_path(snapshot, atom.text));
-
+        .filter(|atom| atom.kind == ExactAtomKind::Path)
+        .find_map(|atom| find_file_id_by_query_path(snapshot, atom.text));
     let effective_path_qualifier = cli_path_file_id.or(query_path_file_id);
 
     for atom in &query.exact_atoms {
@@ -266,7 +259,7 @@ pub fn route_exact(snapshot: &Snapshot, query: &ParsedQuery<'_>) -> ExactOutcome
         if atom.kind != ExactAtomKind::Path {
             continue;
         }
-        if let Some(file_id) = find_file_id_by_path(snapshot, atom.text) {
+        if let Some(file_id) = find_file_id_by_query_path(snapshot, atom.text) {
             if let Some(cli_id) = cli_path_file_id {
                 if file_id != cli_id {
                     continue;
@@ -289,29 +282,39 @@ fn evaluate_symbol_candidates(
     symbols: &[SymbolId],
     path_qualifier: Option<FileId>,
 ) -> ExactOutcome {
-    let filtered_symbols: Vec<SymbolId> = if let Some(target_file) = path_qualifier {
-        symbols
-            .iter()
-            .copied()
-            .filter(|&symbol_id| {
-                if let Some(sym) = snapshot.symbols.get(symbol_id.index()) {
-                    sym.file == target_file
-                } else {
-                    false
-                }
-            })
-            .collect()
-    } else {
-        symbols.to_vec()
-    };
+    let mut count = 0usize;
+    let mut only = None;
+    for &symbol_id in symbols {
+        if symbol_matches_path(snapshot, symbol_id, path_qualifier) {
+            count += 1;
+            only = Some(symbol_id);
+            if count > 1 {
+                break;
+            }
+        }
+    }
 
-    match filtered_symbols.len() {
-        0 => ExactOutcome::Miss,
-        1 => ExactOutcome::Direct(Candidate::new(
-            TargetId::Symbol(filtered_symbols[0]),
+    match (count, only) {
+        (0, _) => ExactOutcome::Miss,
+        (1, Some(symbol_id)) => ExactOutcome::Direct(Candidate::new(
+            TargetId::Symbol(symbol_id),
             Some(Confidence::ONE),
         )),
-        _ => disambiguate_candidates(snapshot, query, matched_atom, &filtered_symbols),
+        _ => disambiguate_candidates(snapshot, query, matched_atom, symbols, path_qualifier),
+    }
+}
+
+fn symbol_matches_path(
+    snapshot: &Snapshot,
+    symbol_id: SymbolId,
+    path_qualifier: Option<FileId>,
+) -> bool {
+    let Some(symbol) = snapshot.symbols.get(symbol_id.index()) else {
+        return false;
+    };
+    match path_qualifier {
+        Some(file_id) => symbol.file == file_id,
+        None => true,
     }
 }
 
@@ -323,28 +326,50 @@ struct ScoredSymbol<'a> {
     start_line: u32,
 }
 
+fn compare_scored(left: &ScoredSymbol<'_>, right: &ScoredSymbol<'_>) -> Ordering {
+    right
+        .overlap
+        .cmp(&left.overlap)
+        .then_with(|| left.qual_name.as_bytes().cmp(right.qual_name.as_bytes()))
+        .then_with(|| left.path.as_bytes().cmp(right.path.as_bytes()))
+        .then_with(|| left.start_line.cmp(&right.start_line))
+        .then_with(|| left.symbol_id.cmp(&right.symbol_id))
+}
+
+fn retain_top_three<'a>(top: &mut SmallVec<[ScoredSymbol<'a>; 3]>, candidate: ScoredSymbol<'a>) {
+    let position = top
+        .iter()
+        .position(|existing| compare_scored(&candidate, existing) == Ordering::Less)
+        .unwrap_or(top.len());
+    if position >= 3 {
+        return;
+    }
+    top.insert(position, candidate);
+    if top.len() > 3 {
+        top.pop();
+    }
+}
+
 fn disambiguate_candidates(
     snapshot: &Snapshot,
     query: &ParsedQuery<'_>,
     matched_atom: &ExactAtom<'_>,
     candidates: &[SymbolId],
+    path_qualifier: Option<FileId>,
 ) -> ExactOutcome {
-    let Ok(lexicon) = snapshot.lexicon() else {
-        return ExactOutcome::Miss;
-    };
-
-    let atom_terms: HashSet<TermId> = query_terms(matched_atom.text, &lexicon)
-        .into_iter()
-        .collect();
-    let remaining_query_terms: HashSet<TermId> = query
+    let atom_terms = query_terms(matched_atom.text, snapshot);
+    let remaining_query_terms: SmallVec<[TermId; 8]> = query
         .terms
         .iter()
         .copied()
-        .filter(|term| !atom_terms.contains(term))
+        .filter(|term| !atom_terms.as_slice().contains(term))
         .collect();
 
-    let mut scored: Vec<ScoredSymbol<'_>> = Vec::with_capacity(candidates.len());
+    let mut top: SmallVec<[ScoredSymbol<'_>; 3]> = SmallVec::new();
     for &symbol_id in candidates {
+        if !symbol_matches_path(snapshot, symbol_id, path_qualifier) {
+            continue;
+        }
         let Some(sym) = snapshot.symbols.get(symbol_id.index()) else {
             continue;
         };
@@ -359,54 +384,50 @@ fn disambiguate_candidates(
             .strings
             .get(file.path.index())
             .map_or("", String::as_str);
-
-        let mut candidate_terms = HashSet::new();
-        for term in query_terms(qual_name, &lexicon) {
-            candidate_terms.insert(term);
-        }
-        for term in query_terms(file_path, &lexicon) {
-            candidate_terms.insert(term);
-        }
-
-        let count = remaining_query_terms.intersection(&candidate_terms).count();
+        let qual_terms = query_terms(qual_name, snapshot);
+        let path_terms = query_terms(file_path, snapshot);
+        let count = remaining_query_terms
+            .iter()
+            .filter(|term| {
+                qual_terms.as_slice().contains(term) || path_terms.as_slice().contains(term)
+            })
+            .count();
         let overlap = u32::try_from(count).unwrap_or(u32::MAX);
 
-        scored.push(ScoredSymbol {
-            symbol_id,
-            overlap,
-            qual_name,
-            path: file_path,
-            start_line: sym.span.start_line(),
-        });
+        retain_top_three(
+            &mut top,
+            ScoredSymbol {
+                symbol_id,
+                overlap,
+                qual_name,
+                path: file_path,
+                start_line: sym.span.start_line(),
+            },
+        );
     }
 
-    scored.sort_unstable_by(|left, right| {
-        right
-            .overlap
-            .cmp(&left.overlap)
-            .then_with(|| left.qual_name.as_bytes().cmp(right.qual_name.as_bytes()))
-            .then_with(|| left.path.as_bytes().cmp(right.path.as_bytes()))
-            .then_with(|| left.start_line.cmp(&right.start_line))
-            .then_with(|| left.symbol_id.cmp(&right.symbol_id))
-    });
-
-    if !scored.is_empty()
-        && scored[0].overlap > 0
-        && (scored.len() == 1 || scored[0].overlap > scored[1].overlap)
+    if !top.is_empty() && top[0].overlap > 0 && (top.len() == 1 || top[0].overlap > top[1].overlap)
     {
         return ExactOutcome::Direct(Candidate::new(
-            TargetId::Symbol(scored[0].symbol_id),
+            TargetId::Symbol(top[0].symbol_id),
             Some(Confidence::ONE),
         ));
     }
 
-    scored.truncate(3);
-    let final_candidates: SmallVec<[Candidate; 3]> = scored
+    let final_candidates: SmallVec<[Candidate; 3]> = top
         .into_iter()
         .map(|entry| Candidate::new(TargetId::Symbol(entry.symbol_id), None))
         .collect();
+    if final_candidates.is_empty() {
+        ExactOutcome::Miss
+    } else {
+        ExactOutcome::Candidates(final_candidates)
+    }
+}
 
-    ExactOutcome::Candidates(final_candidates)
+fn find_file_id_by_query_path(snapshot: &Snapshot, path: &str) -> Option<FileId> {
+    let normalized = RelPath::new(path).ok()?;
+    find_file_id_by_path(snapshot, normalized.as_str())
 }
 
 fn find_file_id_by_path(snapshot: &Snapshot, path: &str) -> Option<FileId> {
@@ -417,33 +438,34 @@ fn find_file_id_by_path(snapshot: &Snapshot, path: &str) -> Option<FileId> {
             .map_or("", String::as_str);
         file_path.as_bytes().cmp(path.as_bytes())
     });
-    result.ok().map(|index| snapshot.files[index].id)
+    result
+        .ok()
+        .and_then(|index| snapshot.files.get(index).map(|file| file.id))
+}
+
+fn lookup_route<'a>(
+    routes: &'a [crate::index::ExactRoute],
+    strings: &[String],
+    key: &str,
+) -> Option<&'a [SymbolId]> {
+    let result = routes.binary_search_by(|route| {
+        strings
+            .get(route.key.index())
+            .map_or("", String::as_str)
+            .as_bytes()
+            .cmp(key.as_bytes())
+    });
+    result
+        .ok()
+        .and_then(|index| routes.get(index).map(|route| route.symbols.as_slice()))
 }
 
 fn lookup_exact_qualified<'a>(snapshot: &'a Snapshot, key: &str) -> Option<&'a [SymbolId]> {
-    let result = snapshot.exact_qualified.binary_search_by(|route| {
-        let route_key = snapshot
-            .strings
-            .get(route.key.index())
-            .map_or("", String::as_str);
-        route_key.as_bytes().cmp(key.as_bytes())
-    });
-    result
-        .ok()
-        .map(|index| snapshot.exact_qualified[index].symbols.as_slice())
+    lookup_route(&snapshot.exact_qualified, &snapshot.strings, key)
 }
 
 fn lookup_exact_name<'a>(snapshot: &'a Snapshot, key: &str) -> Option<&'a [SymbolId]> {
-    let result = snapshot.exact_names.binary_search_by(|route| {
-        let route_key = snapshot
-            .strings
-            .get(route.key.index())
-            .map_or("", String::as_str);
-        route_key.as_bytes().cmp(key.as_bytes())
-    });
-    result
-        .ok()
-        .map(|index| snapshot.exact_names[index].symbols.as_slice())
+    lookup_route(&snapshot.exact_names, &snapshot.strings, key)
 }
 
 #[must_use]

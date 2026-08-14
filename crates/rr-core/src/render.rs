@@ -24,6 +24,11 @@ pub fn encode_anchor(path: impl AsRef<str>, symbol: Option<&str>) -> String {
 /// Returns [`Error::SnapshotInvariant`] on malformed or non-canonical escapes.
 pub fn decode_anchor(raw: &str) -> Result<(RelPath, Option<String>)> {
     if let Some((path_raw, symbol_raw)) = raw.split_once('#') {
+        if symbol_raw.is_empty() {
+            return Err(Error::SnapshotInvariant {
+                reason: "anchor symbol cannot be empty",
+            });
+        }
         let path_decoded = decode_percent(path_raw)?;
         let symbol_decoded = decode_percent(symbol_raw)?;
         let path = RelPath::new(&path_decoded)?;
@@ -37,13 +42,14 @@ pub fn decode_anchor(raw: &str) -> Result<(RelPath, Option<String>)> {
 
 fn encode_percent(input: &str, out: &mut String) {
     const HEX_DIGITS: &[u8; 16] = b"0123456789ABCDEF";
-    for &b in input.as_bytes() {
-        if b == b'%' || b == b'#' || b <= 0x1F || b == 0x7F {
+    for character in input.chars() {
+        if character == '%' || character == '#' || character.is_ascii_control() {
+            let byte = character as u8;
             out.push('%');
-            out.push(HEX_DIGITS[(b >> 4) as usize] as char);
-            out.push(HEX_DIGITS[(b & 0x0F) as usize] as char);
+            out.push(HEX_DIGITS[(byte >> 4) as usize] as char);
+            out.push(HEX_DIGITS[(byte & 0x0F) as usize] as char);
         } else {
-            out.push(b as char);
+            out.push(character);
         }
     }
 }
@@ -59,25 +65,23 @@ fn decode_percent(input: &str) -> Result<String> {
                     reason: "malformed percent escape in anchor",
                 });
             }
-            let h1 = bytes[i + 1];
-            let h2 = bytes[i + 2];
-            let val1 = from_hex_digit(h1).ok_or(Error::SnapshotInvariant {
+            let val1 = from_hex_digit(bytes[i + 1]).ok_or(Error::SnapshotInvariant {
                 reason: "invalid hex digit in percent escape",
             })?;
-            let val2 = from_hex_digit(h2).ok_or(Error::SnapshotInvariant {
+            let val2 = from_hex_digit(bytes[i + 2]).ok_or(Error::SnapshotInvariant {
                 reason: "invalid hex digit in percent escape",
             })?;
             let byte = (val1 << 4) | val2;
-            if byte != b'%' && byte != b'#' && byte > 0x1F && byte != 0x7F {
+            if byte != b'%' && byte != b'#' && !byte.is_ascii_control() {
                 return Err(Error::SnapshotInvariant {
                     reason: "non-canonical percent escape in anchor",
                 });
             }
             decoded.push(byte);
             i += 3;
-        } else if bytes[i] == b'#' {
+        } else if bytes[i] == b'#' || bytes[i].is_ascii_control() {
             return Err(Error::SnapshotInvariant {
-                reason: "unescaped hash in anchor component",
+                reason: "unescaped reserved byte in anchor component",
             });
         } else {
             decoded.push(bytes[i]);
@@ -102,6 +106,7 @@ fn from_hex_digit(byte: u8) -> Option<u8> {
 /// # Errors
 /// Returns an error if anchor resolution fails.
 pub fn render_text(snapshot: &Snapshot, result: &QueryResult) -> Result<String> {
+    result.validate()?;
     match result {
         QueryResult::Direct { candidate, .. } => {
             let anchor = resolve_anchor(snapshot, candidate.target)?;
@@ -166,6 +171,7 @@ pub struct JsonCandidateItem<'a> {
 /// # Errors
 /// Returns an error if anchor resolution or serialization fails.
 pub fn render_json(snapshot: &Snapshot, result: &QueryResult) -> Result<String> {
+    result.validate()?;
     let dto = match result {
         QueryResult::Direct {
             candidate,
@@ -173,7 +179,12 @@ pub fn render_json(snapshot: &Snapshot, result: &QueryResult) -> Result<String> 
         } => {
             let anchor = resolve_anchor(snapshot, candidate.target)?;
             let lines = anchor.lines.map(|l| [l.start(), l.end()]);
-            let confidence = candidate.confidence.map_or(1.0, Confidence::get);
+            let confidence = candidate
+                .confidence
+                .ok_or(Error::SnapshotInvariant {
+                    reason: "direct result is missing confidence",
+                })?
+                .get();
             JsonResponse::Direct {
                 v: 1,
                 pipeline: *pipeline,

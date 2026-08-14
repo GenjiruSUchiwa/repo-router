@@ -77,7 +77,14 @@ fn main() -> ExitCode {
             Ok(code) => ExitCode::from(code),
             Err(err) => {
                 eprintln!("rr: query: {err}");
-                ExitCode::from(1)
+                if err
+                    .downcast_ref::<rr_core::Error>()
+                    .is_some_and(|error| matches!(error, rr_core::Error::InvalidQuery { .. }))
+                {
+                    ExitCode::from(2)
+                } else {
+                    ExitCode::from(1)
+                }
             }
         },
     }
@@ -177,7 +184,7 @@ fn run_query(path: Option<&RelPath>, json: bool, query_str: &str) -> anyhow::Res
     }
 
     let request = QueryRequest::new(query_str, path);
-    let parsed = parse_query(&snapshot, request).map_err(|err| anyhow::anyhow!("{err}"))?;
+    let parsed = parse_query(&snapshot, request).map_err(anyhow::Error::new)?;
     let exact_outcome = route_exact(&snapshot, &parsed);
     let result = finish_exact(exact_outcome);
 

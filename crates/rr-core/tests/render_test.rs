@@ -185,3 +185,31 @@ fn test_render_json_contracts() {
     assert_eq!(val_none["reason"], "not_found");
     assert!(val_none.get("anchor").is_none());
 }
+
+#[test]
+fn test_unicode_anchor_roundtrip() {
+    let path = RelPath::new("src/é.rs").unwrap();
+    let encoded = encode_anchor(&path, Some("é"));
+    assert_eq!(encoded, "src/é.rs#é");
+    let (decoded_path, decoded_symbol) = decode_anchor(&encoded).unwrap();
+    assert_eq!(decoded_path, path);
+    assert_eq!(decoded_symbol.as_deref(), Some("é"));
+}
+
+#[test]
+fn test_invalid_result_invariants_fail_before_rendering() {
+    let snapshot = build_test_snapshot();
+    let missing_confidence = QueryResult::Direct {
+        candidate: Candidate::new(TargetId::File(snapshot.files[0].id), None),
+        pipeline: Pipeline::Exact,
+    };
+    assert!(render_text(&snapshot, &missing_confidence).is_err());
+    assert!(render_json(&snapshot, &missing_confidence).is_err());
+
+    let empty_candidates = QueryResult::Candidates {
+        candidates: smallvec![],
+        pipeline: Pipeline::Exact,
+    };
+    assert!(render_text(&snapshot, &empty_candidates).is_err());
+    assert!(render_json(&snapshot, &empty_candidates).is_err());
+}

@@ -23,7 +23,7 @@ pub use lang::Lang;
 pub use lex::TermId as LexTermId;
 pub use lex::{
     append_source_terms, lexical_profile, query_terms, FieldTerm, InputKind, LexicalField,
-    LexicalProfile, Lexicon, LEXICAL_VERSION,
+    LexicalProfile, Lexicon, TermLookup, LEXICAL_VERSION,
 };
 pub use oid::{HashAlgo, Oid, OidError};
 
@@ -47,6 +47,8 @@ pub enum Error {
     Io(#[from] std::io::Error),
     #[error("Ignore error: {0}")]
     Ignore(#[from] ignore::Error),
+    #[error("invalid query: {reason}")]
+    InvalidQuery { reason: &'static str },
     #[error("Invalid relative path: {0}")]
     InvalidRelPath(#[from] RelPathError),
     #[error("Cache I/O error at {path}: {source}")]

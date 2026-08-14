@@ -35,6 +35,7 @@ smallvec = { version = "1.13", features = ["serde"] }
 # bumping, also bump NORMALIZATION_CRATE_VERSION in crates/rr-core/src/lex/mod.rs
 # so stale snapshots are invalidated.
 unicode-normalization = "=0.1.24"
+unicode-ident = "1"
 insta = { version = "1", features = ["yaml"] }
 criterion = "0.7"
 proptest = "1.6"

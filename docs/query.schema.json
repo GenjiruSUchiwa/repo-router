@@ -4,15 +4,9 @@
   "title": "RepoRouterQueryResultV1",
   "description": "Schema for repo-router query output v1",
   "oneOf": [
-    {
-      "$ref": "#/$defs/DirectResult"
-    },
-    {
-      "$ref": "#/$defs/CandidatesResult"
-    },
-    {
-      "$ref": "#/$defs/NoneResult"
-    }
+    { "$ref": "#/$defs/DirectResult" },
+    { "$ref": "#/$defs/CandidatesResult" },
+    { "$ref": "#/$defs/NoneResult" }
   ],
   "$defs": {
     "Pipeline": {
@@ -24,39 +18,60 @@
       "prefixItems": [
         {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "maximum": 4294967295
         },
         {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "maximum": 4294967295
         }
       ],
       "items": false,
       "minItems": 2,
-      "maxItems": 2
+      "maxItems": 2,
+      "$comment": "The renderer enforces end >= start because standard JSON Schema has no portable array-value comparison."
     },
-    "Anchor": {
+    "FileAnchor": {
       "type": "object",
       "additionalProperties": false,
       "required": ["path", "symbol", "lines"],
       "properties": {
         "path": {
-          "type": "string"
+          "type": "string",
+          "minLength": 1
         },
         "symbol": {
-          "type": ["string", "null"]
+          "const": null
         },
         "lines": {
-          "oneOf": [
-            {
-              "$ref": "#/$defs/LineRange"
-            },
-            {
-              "type": "null"
-            }
-          ]
+          "const": null
         }
       }
+    },
+    "SymbolAnchor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "symbol", "lines"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "symbol": {
+          "type": "string",
+          "minLength": 1
+        },
+        "lines": {
+          "$ref": "#/$defs/LineRange"
+        }
+      }
+    },
+    "Anchor": {
+      "oneOf": [
+        { "$ref": "#/$defs/FileAnchor" },
+        { "$ref": "#/$defs/SymbolAnchor" }
+      ]
     },
     "Confidence": {
       "type": "number",
@@ -73,12 +88,8 @@
         },
         "confidence": {
           "oneOf": [
-            {
-              "$ref": "#/$defs/Confidence"
-            },
-            {
-              "type": "null"
-            }
+            { "$ref": "#/$defs/Confidence" },
+            { "type": "null" }
           ]
         }
       }

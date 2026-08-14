@@ -255,7 +255,7 @@ fn test_query_empty_error() {
         .output()
         .unwrap();
 
-    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(output.status.code(), Some(2));
     assert!(output.stdout.is_empty());
     let stderr_str = String::from_utf8(output.stderr).unwrap();
     assert!(stderr_str.starts_with("rr: query:"));

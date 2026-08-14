@@ -374,9 +374,35 @@ impl Snapshot {
         let term_strings: Vec<String> = self
             .terms
             .iter()
-            .map(|term| self.strings[term.text.index()].clone())
-            .collect();
+            .map(|term| {
+                self.strings
+                    .get(term.text.index())
+                    .cloned()
+                    .ok_or(Error::InvalidLexicon {
+                        reason: "term text string out of range",
+                    })
+            })
+            .collect::<Result<_>>()?;
         crate::lex::Lexicon::try_from(term_strings)
+    }
+}
+
+impl crate::lex::TermLookup for Snapshot {
+    fn get(&self, canonical: &str) -> Option<TermId> {
+        for lists in self.postings.as_slice() {
+            let index = lists.binary_search_by(|posting| {
+                self.terms
+                    .get(posting.term.index())
+                    .and_then(|term| self.strings.get(term.text.index()))
+                    .map_or("", String::as_str)
+                    .as_bytes()
+                    .cmp(canonical.as_bytes())
+            });
+            if let Ok(index) = index {
+                return lists.get(index).map(|posting| posting.term);
+            }
+        }
+        None
     }
 }
 
@@ -674,5 +700,30 @@ mod validate {
 
     fn inv(reason: &'static str) -> Result<()> {
         Err(Error::SnapshotInvariant { reason })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn malformed_lexicon_returns_error_instead_of_panicking() {
+        let (mut snapshot, _) = SnapshotBuilder::new(SnapshotMeta {
+            repo_head_oid: None,
+            no_git: true,
+            lexical_profile: crate::lex::lexical_profile(),
+            build_version: BUILD_VERSION,
+        })
+        .build(Vec::new())
+        .unwrap();
+        snapshot.terms.push(TermRecord {
+            text: StringId::from_index(u32::MAX),
+        });
+
+        assert!(matches!(
+            snapshot.lexicon(),
+            Err(Error::InvalidLexicon { .. })
+        ));
     }
 }
