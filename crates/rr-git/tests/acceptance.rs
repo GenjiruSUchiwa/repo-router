@@ -110,14 +110,12 @@ fn acceptance_criterion_1_second_run_100_percent_cache_hits_zero_parses() {
     let cache = FactCache::open(root).unwrap();
     let parse_counter = AtomicUsize::new(0);
 
-    // First run: cold cache
     let first_results = run_pipeline(root, Some(&repo), &cache, &parse_counter);
     assert_eq!(first_results.len(), 3);
     assert_eq!(parse_counter.load(Ordering::SeqCst), 3, "3 cold parses");
     assert_eq!(cache.stats().misses(), 3);
     assert_eq!(cache.stats().hits(), 0);
 
-    // Second run: warm cache
     let parse_counter_run2 = AtomicUsize::new(0);
     let second_results = run_pipeline(root, Some(&repo), &cache, &parse_counter_run2);
     assert_eq!(second_results.len(), 3);
@@ -148,11 +146,9 @@ fn acceptance_criterion_2_git_mv_of_unmodified_file_hits_cache() {
     let cache = FactCache::open(root).unwrap();
     let parse_counter = AtomicUsize::new(0);
 
-    // Run 1: index old_module.rs
     let _ = run_pipeline(root, Some(&repo), &cache, &parse_counter);
     assert_eq!(parse_counter.load(Ordering::SeqCst), 1);
 
-    // Git mv old_module.rs -> new_module.rs
     let mv = Command::new("git")
         .args(["mv", "src/old_module.rs", "src/new_module.rs"])
         .current_dir(root)
@@ -160,7 +156,6 @@ fn acceptance_criterion_2_git_mv_of_unmodified_file_hits_cache() {
         .expect("git mv failed");
     assert!(mv.status.success(), "git mv failed");
 
-    // Run 2: re-discover and run pipeline
     let parse_counter_after_mv = AtomicUsize::new(0);
     let repo2 = GitRepo::discover(root).unwrap().unwrap();
     let after_mv_results = run_pipeline(root, Some(&repo2), &cache, &parse_counter_after_mv);
@@ -190,18 +185,15 @@ fn acceptance_criterion_3_editing_a_file_only_reparses_that_file() {
     let cache = FactCache::open(root).unwrap();
     let parse_counter = AtomicUsize::new(0);
 
-    // Run 1: cold cache
     let _ = run_pipeline(root, Some(&repo), &cache, &parse_counter);
     assert_eq!(parse_counter.load(Ordering::SeqCst), 3);
 
-    // Modify only file2.rs
     fs::write(
         root.join("src/file2.rs"),
         "pub fn f2() { /* modified */ }\n",
     )
     .unwrap();
 
-    // Run 2: pipeline with edited file
     let parse_counter_run2 = AtomicUsize::new(0);
     let results_run2 = run_pipeline(root, Some(&repo), &cache, &parse_counter_run2);
 
@@ -228,12 +220,10 @@ fn acceptance_criterion_4_works_in_directory_without_git() {
     let cache = FactCache::open(root).unwrap();
     let parse_counter = AtomicUsize::new(0);
 
-    // Run 1: non-git directory indexing
     let first_results = run_pipeline(root, repo.as_ref(), &cache, &parse_counter);
     assert_eq!(first_results.len(), 2);
     assert_eq!(parse_counter.load(Ordering::SeqCst), 2);
 
-    // Run 2: non-git directory cache hits
     let parse_counter_run2 = AtomicUsize::new(0);
     let second_results = run_pipeline(root, repo.as_ref(), &cache, &parse_counter_run2);
     assert_eq!(second_results.len(), 2);

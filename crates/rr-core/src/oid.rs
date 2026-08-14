@@ -124,7 +124,6 @@ impl Oid {
             buf.push(HEX_CHARS[(byte >> 4) as usize]);
             buf.push(HEX_CHARS[(byte & 0x0f) as usize]);
         }
-        // Invariant: HEX_CHARS contains only valid ASCII hex characters.
         #[allow(clippy::unwrap_used)]
         String::from_utf8(buf).unwrap_or_else(|_| unreachable!("valid ascii hex"))
     }
@@ -305,8 +304,6 @@ mod tests {
 
         let deserialized: Oid = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized, oid);
-
-        // Deserializing garbage or invalid length must fail
         assert!(serde_json::from_str::<Oid>("\"invalid-oid\"").is_err());
         assert!(serde_json::from_str::<Oid>("\"12345\"").is_err());
         assert!(serde_json::from_str::<Oid>("12345").is_err());

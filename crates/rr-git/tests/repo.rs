@@ -15,7 +15,6 @@ fn init_git_repo() -> TempDir {
         .expect("failed to run git init");
     assert!(output.status.success(), "git init failed");
 
-    // Configure user name and email for commits
     Command::new("git")
         .args(["config", "user.name", "Test User"])
         .current_dir(temp.path())
@@ -97,17 +96,13 @@ fn modified_file_index_oid_returns_none_and_oid_of_hashes_content() {
     let repo = GitRepo::discover(repo_dir.path()).unwrap().unwrap();
     let rel = RelPath::try_from("lib.rs").unwrap();
 
-    // Clean check
     let clean_oid = repo.index_oid(&rel).unwrap().unwrap();
 
-    // Modify file
     fs::write(&file_path, b"pub fn a() { /* modified */ }\n").unwrap();
 
-    // Index OID must return None for modified file
     let index_oid = repo.index_oid(&rel).unwrap();
     assert!(index_oid.is_none(), "modified file must not match index");
 
-    // oid_of must compute new hash
     let resolved_oid = oid_of(Some(&repo), repo_dir.path(), &rel, HashAlgo::Sha1).unwrap();
     assert_ne!(resolved_oid, clean_oid);
     let expected = hash_blob(b"pub fn a() { /* modified */ }\n", HashAlgo::Sha1);
@@ -157,7 +152,6 @@ fn git_mv_unmodified_file_preserves_oid() {
     let old_rel = RelPath::try_from("old_name.rs").unwrap();
     let old_oid = oid_of(Some(&repo1), repo_dir.path(), &old_rel, repo1.hash_algo()).unwrap();
 
-    // Run git mv
     let mv = Command::new("git")
         .args(["mv", "old_name.rs", "new_name.rs"])
         .current_dir(repo_dir.path())
@@ -215,7 +209,6 @@ fn permission_denied_propagates_as_error() {
     git_add_and_commit(repo_dir.path(), "add secret");
 
     let repo = GitRepo::discover(repo_dir.path()).unwrap().unwrap();
-    // Make file parent directory unreadable/unexecutable
     let sub = repo_dir.path().join("restricted");
     fs::create_dir(&sub).unwrap();
     let sub_file = sub.join("inner.rs");
@@ -227,7 +220,6 @@ fn permission_denied_propagates_as_error() {
 
     let res = repo.index_oid(&inner_rel);
 
-    // Restore permissions so cleanup works
     fs::set_permissions(&sub, fs::Permissions::from_mode(0o755)).unwrap();
     assert!(res.is_err(), "permission error must propagate as Err");
     assert!(matches!(res.unwrap_err(), rr_git::Error::Io(_)));

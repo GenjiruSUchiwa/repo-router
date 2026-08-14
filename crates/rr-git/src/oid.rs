@@ -23,7 +23,6 @@ pub fn hash_blob(content: &[u8], algo: HashAlgo) -> Oid {
             hasher.update(header.as_bytes());
             hasher.update(content);
             let digest = hasher.finalize();
-            // Invariant: SHA-1 produces exactly 20 bytes which is valid for Oid.
             #[allow(clippy::unwrap_used)]
             Oid::from_raw(&digest).unwrap_or_else(|_| unreachable!("SHA-1 digest is 20 bytes"))
         }
@@ -32,7 +31,6 @@ pub fn hash_blob(content: &[u8], algo: HashAlgo) -> Oid {
             hasher.update(header.as_bytes());
             hasher.update(content);
             let digest = hasher.finalize();
-            // Invariant: SHA-256 produces exactly 32 bytes which is valid for Oid.
             #[allow(clippy::unwrap_used)]
             Oid::from_raw(&digest).unwrap_or_else(|_| unreachable!("SHA-256 digest is 32 bytes"))
         }

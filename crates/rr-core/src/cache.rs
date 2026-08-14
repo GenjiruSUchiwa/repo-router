@@ -141,7 +141,6 @@ impl FactCache {
             source,
         })?;
 
-        // Probe writability to detect read-only filesystems immediately
         let probe_file = root.join(".probe_write");
         fs::write(&probe_file, b"ok").map_err(|source| Error::CacheIo {
             path: probe_file.clone(),
@@ -331,7 +330,6 @@ mod tests {
         assert_eq!(outcome, CacheOutcome::Corrupt);
         assert_eq!(cache.stats().corrupt(), 1);
 
-        // Overwriting corrupt entry should succeed and restore to Hit
         let valid_facts = DummyFacts {
             symbols: vec!["recovered".to_string()],
             imports: vec![],
