@@ -9,6 +9,11 @@
 //! scans few postings, not because it scores differently. The table printed
 //! before the timings reports, per query, the postings scanned, the union
 //! members the cap dropped, and the allocations the warm ranker makes.
+//!
+//! `arbitrary_cut` is the column to read next to `dropped`: dropping thousands
+//! of clearly weaker members is the bounded design working, while a cut through
+//! members the retention key ranks equal means the surviving set was settled on
+//! symbol id, and a discarded member could have outscored the answer.
 
 #![allow(clippy::unwrap_used)]
 
@@ -107,6 +112,7 @@ struct Cost {
     candidates_before_cap: u64,
     candidates_dropped: u64,
     candidates_scored: u16,
+    cap_cut_a_tie: bool,
     warm_allocations: u64,
 }
 
@@ -135,6 +141,7 @@ fn measure_cost(snapshot: &Snapshot, text: &str) -> Cost {
         candidates_before_cap: evidence.candidates_before_cap,
         candidates_dropped: evidence.candidates_dropped,
         candidates_scored: evidence.candidates_scored,
+        cap_cut_a_tie: evidence.cap_cut_a_tie,
         warm_allocations,
     }
 }
@@ -147,17 +154,18 @@ fn report_costs(snapshot: &Snapshot, costs: &[(&str, Cost)]) {
         snapshot.terms.len()
     );
     println!(
-        "{:<16} {:>9} {:>10} {:>8} {:>7} {:>7}",
-        "query", "postings", "union", "dropped", "scored", "allocs"
+        "{:<16} {:>9} {:>10} {:>8} {:>7} {:>13} {:>7}",
+        "query", "postings", "union", "dropped", "scored", "arbitrary_cut", "allocs"
     );
     for (name, cost) in costs {
         println!(
-            "{:<16} {:>9} {:>10} {:>8} {:>7} {:>7}",
+            "{:<16} {:>9} {:>10} {:>8} {:>7} {:>13} {:>7}",
             name,
             cost.postings_scanned,
             cost.candidates_before_cap,
             cost.candidates_dropped,
             cost.candidates_scored,
+            if cost.cap_cut_a_tie { "yes" } else { "no" },
             cost.warm_allocations
         );
     }

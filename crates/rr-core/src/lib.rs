@@ -40,7 +40,10 @@ pub use ranking::{
     RankingStamp, Score, CANDIDATE_LIMIT, DEFAULT_RANKING_PROFILE, RANKING_PROFILE_VERSION,
     RESULT_LIMIT,
 };
-pub use render::{decode_anchor, encode_anchor, render_json, render_text};
+pub use render::{
+    decode_anchor, encode_anchor, render_json, render_json_explained, render_text,
+    render_text_explained,
+};
 pub use result::{
     resolve_anchor, AnchorRef, Candidate, Confidence, LineRange, NoneReason, Pipeline, QueryResult,
     TargetId,

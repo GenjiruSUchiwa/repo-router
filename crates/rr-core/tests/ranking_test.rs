@@ -242,7 +242,8 @@ fn ranking_runs_only_after_the_exact_router_misses() {
     let mut scratch = RankingScratch::new();
 
     let parsed = parse_query(&snapshot, QueryRequest::new("verify_token", None)).unwrap();
-    let exact = route_query(&snapshot, &parsed, &DEFAULT_RANKING_PROFILE, &mut scratch).unwrap();
+    let (exact, _) =
+        route_query(&snapshot, &parsed, &DEFAULT_RANKING_PROFILE, &mut scratch).unwrap();
     assert!(matches!(
         exact,
         QueryResult::Direct {
@@ -256,7 +257,8 @@ fn ranking_runs_only_after_the_exact_router_misses() {
         QueryRequest::new("how do we create a session?", None),
     )
     .unwrap();
-    let fallback = route_query(&snapshot, &parsed, &DEFAULT_RANKING_PROFILE, &mut scratch).unwrap();
+    let (fallback, _) =
+        route_query(&snapshot, &parsed, &DEFAULT_RANKING_PROFILE, &mut scratch).unwrap();
     assert!(matches!(
         fallback,
         QueryResult::Direct {
@@ -277,7 +279,8 @@ fn ranking_is_suppressed_by_a_path_qualifier() {
     )
     .unwrap();
 
-    let result = route_query(&snapshot, &parsed, &DEFAULT_RANKING_PROFILE, &mut scratch).unwrap();
+    let (result, _) =
+        route_query(&snapshot, &parsed, &DEFAULT_RANKING_PROFILE, &mut scratch).unwrap();
     assert_eq!(
         result,
         QueryResult::None {

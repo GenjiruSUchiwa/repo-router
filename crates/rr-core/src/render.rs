@@ -4,6 +4,7 @@ use serde::Serialize;
 
 use crate::index::Snapshot;
 use crate::path::RelPath;
+use crate::ranking::RankingEvidence;
 use crate::result::{resolve_anchor, Confidence, NoneReason, Pipeline, QueryResult};
 use crate::{Error, Result};
 
@@ -106,6 +107,42 @@ fn from_hex_digit(byte: u8) -> Option<u8> {
 /// # Errors
 /// Returns an error if anchor resolution fails.
 pub fn render_text(snapshot: &Snapshot, result: &QueryResult) -> Result<String> {
+    render_answer_text(snapshot, result)
+}
+
+/// Renders the text output contract preceded by one `explain:` line.
+///
+/// The diagnostic goes **before** the answer so the anchor stays the last line
+/// of the output: a caller reading the tail of the stream must not have to
+/// learn a new shape to keep working.
+///
+/// `evidence` is `None` when the query routed exactly, which reads no posting
+/// list and so has nothing to explain about the candidate cap.
+///
+/// # Errors
+/// Returns an error if anchor resolution fails.
+pub fn render_text_explained(
+    snapshot: &Snapshot,
+    result: &QueryResult,
+    evidence: Option<&RankingEvidence>,
+) -> Result<String> {
+    let mut out = match evidence {
+        None => "explain: exact route, nothing ranked\n".to_owned(),
+        Some(evidence) => format!(
+            "explain: postings={} union={} scored={} dropped={} arbitrary_cut={} terms={}\n",
+            evidence.posting_hits_scanned,
+            evidence.candidates_before_cap,
+            evidence.candidates_scored,
+            evidence.candidates_dropped,
+            if evidence.cap_cut_a_tie { "yes" } else { "no" },
+            evidence.effective_query_terms,
+        ),
+    };
+    out.push_str(&render_answer_text(snapshot, result)?);
+    Ok(out)
+}
+
+fn render_answer_text(snapshot: &Snapshot, result: &QueryResult) -> Result<String> {
     result.validate()?;
     match result {
         QueryResult::Direct { candidate, .. } => {
@@ -166,11 +203,56 @@ pub struct JsonCandidateItem<'a> {
     pub confidence: Option<f32>,
 }
 
+/// The `explain` member of an explained JSON response.
+///
+/// Serializes as `null` for an exact route, which reads no posting list. The
+/// member is absent entirely unless the caller asked to be told, so the v1
+/// response is unchanged byte for byte by default.
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(transparent)]
+struct JsonExplain(Option<RankingEvidence>);
+
+/// A v1 response carrying the optional diagnostic member.
+///
+/// The response is flattened rather than duplicated into each variant, so the
+/// answer contract has exactly one definition and the diagnostic cannot drift
+/// between the three shapes it can accompany.
+#[derive(Debug, Serialize, PartialEq)]
+struct JsonEnvelope<'a> {
+    #[serde(flatten)]
+    response: JsonResponse<'a>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    explain: Option<JsonExplain>,
+}
+
 /// Renders a [`QueryResult`] into the single-line JSON v1 contract.
 ///
 /// # Errors
 /// Returns an error if anchor resolution or serialization fails.
 pub fn render_json(snapshot: &Snapshot, result: &QueryResult) -> Result<String> {
+    render_json_envelope(snapshot, result, None)
+}
+
+/// Renders the JSON v1 contract with an added `explain` member.
+///
+/// `evidence` is `None` when the query routed exactly, and the member is then
+/// `null`: the route is explained by having read nothing.
+///
+/// # Errors
+/// Returns an error if anchor resolution or serialization fails.
+pub fn render_json_explained(
+    snapshot: &Snapshot,
+    result: &QueryResult,
+    evidence: Option<&RankingEvidence>,
+) -> Result<String> {
+    render_json_envelope(snapshot, result, Some(JsonExplain(evidence.copied())))
+}
+
+fn render_json_envelope(
+    snapshot: &Snapshot,
+    result: &QueryResult,
+    explain: Option<JsonExplain>,
+) -> Result<String> {
     result.validate()?;
     let dto = match result {
         QueryResult::Direct {
@@ -226,9 +308,14 @@ pub fn render_json(snapshot: &Snapshot, result: &QueryResult) -> Result<String> 
             reason: *reason,
         },
     };
-    let mut serialized = serde_json::to_string(&dto).map_err(|_| Error::SnapshotInvariant {
-        reason: "failed to serialize query result to JSON",
-    })?;
+    let envelope = JsonEnvelope {
+        response: dto,
+        explain,
+    };
+    let mut serialized =
+        serde_json::to_string(&envelope).map_err(|_| Error::SnapshotInvariant {
+            reason: "failed to serialize query result to JSON",
+        })?;
     serialized.push('\n');
     Ok(serialized)
 }

@@ -6,7 +6,7 @@ use unicode_ident::{is_xid_continue, is_xid_start};
 use crate::index::{FileId, Snapshot, SymbolId};
 use crate::lex::{query_terms, QueryTerms, TermId};
 use crate::path::RelPath;
-use crate::ranking::{route_lexical, RankingProfile, RankingScratch};
+use crate::ranking::{route_lexical, RankingEvidence, RankingProfile, RankingScratch};
 use crate::result::{Candidate, Confidence, NoneReason, Pipeline, QueryResult, TargetId};
 use crate::Result;
 
@@ -489,6 +489,12 @@ fn lookup_exact_name<'a>(snapshot: &'a Snapshot, key: &str) -> Option<&'a [Symbo
 /// repository, because a lexical answer from another file would silently
 /// contradict the qualifier the caller asked for.
 ///
+/// The evidence is returned alongside the result rather than dropped here: it
+/// is the only record of what the candidate cap discarded, and a caller that
+/// cannot see it cannot tell an answer chosen from the whole repository apart
+/// from one chosen among the first sixty-four members the merge happened to
+/// meet. It is `None` for an exact route, which reads no posting list.
+///
 /// # Errors
 /// Returns [`crate::Error::Ranking`] when the lexical fallback cannot compute a
 /// route; the index is never partially answered.
@@ -497,13 +503,13 @@ pub fn route_query(
     query: &ParsedQuery<'_>,
     profile: &RankingProfile,
     scratch: &mut RankingScratch,
-) -> Result<QueryResult> {
+) -> Result<(QueryResult, Option<RankingEvidence>)> {
     match route_exact(snapshot, query) {
         ExactOutcome::Miss if query.path.is_none() => {
-            let (result, _evidence) = route_lexical(snapshot, &query.terms, profile, scratch)?;
-            Ok(result)
+            let (result, evidence) = route_lexical(snapshot, &query.terms, profile, scratch)?;
+            Ok((result, Some(evidence)))
         }
-        outcome => Ok(finish_exact(outcome)),
+        outcome => Ok((finish_exact(outcome), None)),
     }
 }
 
