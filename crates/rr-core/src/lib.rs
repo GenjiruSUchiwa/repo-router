@@ -3,6 +3,7 @@
 pub mod cache;
 pub mod facts;
 pub mod lang;
+pub mod lex;
 pub mod oid;
 pub mod parser;
 pub mod path;
@@ -67,6 +68,10 @@ pub enum Error {
     ExtractorQueryContract { capture: &'static str },
     #[error("Rust extraction invariant failed: {message}")]
     ExtractionInvariant { message: &'static str },
+    #[error("invalid lexicon: {reason}")]
+    InvalidLexicon { reason: &'static str },
+    #[error("term id capacity exhausted")]
+    TermIdExhausted,
 }
 
 /// A specialized [`Result`](std::result::Result) type for `rr-core` operations.
