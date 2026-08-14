@@ -1,15 +1,13 @@
 mod output;
 mod query;
+mod refresh;
 
-use std::path::PathBuf;
 use std::process::ExitCode;
-use std::time::Instant;
 
-use anyhow::{bail, Context};
 use clap::{Parser, Subcommand};
 use output::Output;
-use rr_core::snapshot::SnapshotStore;
-use rr_git::{build_map, GitRepo};
+use refresh::{exit, RefreshArgs, StatusArgs};
+use rr_core::refresh::RefreshCommand;
 
 const VERSION_STR: &str = concat!(env!("CARGO_PKG_VERSION"), " (", env!("RR_GIT_HASH"), ")");
 
@@ -27,14 +25,12 @@ struct Cli {
 #[derive(Subcommand, Debug)]
 enum Commands {
     Version,
-    Map {
-        #[arg(long)]
-        root: Option<PathBuf>,
-        #[arg(long)]
-        threads: Option<usize>,
-        #[arg(long, short)]
-        verbose: bool,
-    },
+    /// Bring the snapshot back into agreement with the repository.
+    Refresh(RefreshArgs),
+    /// Rebuild the whole snapshot. `rr refresh --full` under an older name.
+    Map(RefreshArgs),
+    /// Report how the repository and its snapshot relate, changing neither.
+    Status(StatusArgs),
     Query(query::Args),
 }
 
@@ -54,17 +50,12 @@ fn main() -> ExitCode {
             }
             ExitCode::from(0)
         }
-        Commands::Map {
-            root,
-            threads,
-            verbose,
-        } => match run_map(root, threads, verbose) {
-            Ok(()) => ExitCode::from(0),
-            Err(err) => {
-                eprintln!("rr: {}", one_line(&err));
-                ExitCode::from(1)
-            }
-        },
+        Commands::Refresh(args) => finish(
+            "refresh",
+            refresh::run_refresh(&args, RefreshCommand::Refresh),
+        ),
+        Commands::Map(args) => finish("map", refresh::run_refresh(&args, RefreshCommand::Map)),
+        Commands::Status(args) => finish("status", refresh::run_status(&args)),
         Commands::Query(args) => match query::run(&args) {
             Ok(code) => ExitCode::from(code),
             Err(err) => {
@@ -74,6 +65,21 @@ fn main() -> ExitCode {
                 ExitCode::from(1)
             }
         },
+    }
+}
+
+/// Turns one command's result into a process exit code.
+///
+/// Errors all leave by this door so that no command can invent its own
+/// diagnostic shape, and so a failure can never be mistaken for the `2` that
+/// means "it worked and the answer is not one to act on".
+fn finish(command: &str, result: anyhow::Result<u8>) -> ExitCode {
+    match result {
+        Ok(code) => ExitCode::from(code),
+        Err(err) => {
+            eprintln!("rr: {command}: {}", one_line(&err));
+            ExitCode::from(exit::ERROR)
+        }
     }
 }
 
@@ -106,60 +112,6 @@ fn one_line(err: &anyhow::Error) -> String {
         line.push(character);
     }
     line
-}
-
-fn run_map(root: Option<PathBuf>, threads: Option<usize>, verbose: bool) -> anyhow::Result<()> {
-    let root = root.unwrap_or(std::env::current_dir().context("resolve current directory")?);
-    let thread_count = threads.unwrap_or(1);
-    if thread_count == 0 {
-        bail!("--threads must be greater than zero");
-    }
-    let started = Instant::now();
-    let report = build_map(&root, thread_count).context("build repository map")?;
-    let canonical = root.canonicalize().context("canonicalize map root")?;
-    let store_root = GitRepo::discover(&canonical)
-        .context("discover repository for snapshot path")?
-        .map_or(canonical, |repo| repo.workdir().to_path_buf());
-    SnapshotStore::new(&store_root)
-        .write(&report.snapshot)
-        .context("publish snapshot")?;
-
-    let total_cache =
-        report.stats.cache_hits + report.stats.cache_misses + report.stats.cache_corrupt;
-    let cache_rate = report
-        .stats
-        .cache_hits
-        .saturating_mul(100)
-        .checked_div(total_cache)
-        .unwrap_or_default();
-    let line = format!(
-        "rr: mapped {} files ({} symbols, {} refs) in {:.2}s (cache: {}% hits)",
-        report.stats.files,
-        report.stats.symbols,
-        report.stats.references,
-        started.elapsed().as_secs_f64(),
-        cache_rate
-    );
-    Output::print_text(&line)?;
-    if verbose {
-        let stats = format!(
-            "  workers: {} clean probes, {} parses ({} complete, {} recovered, {} degraded)\n  cache: {} hits, {} misses, {} corrupt\n  references: {} unresolved, {} ambiguous\n  imports: {} unresolved, {} ambiguous",
-            report.stats.clean_probes,
-            report.stats.parses,
-            report.stats.complete,
-            report.stats.recovered,
-            report.stats.degraded,
-            report.stats.cache_hits,
-            report.stats.cache_misses,
-            report.stats.cache_corrupt,
-            report.stats.unresolved_refs,
-            report.stats.ambiguous_refs,
-            report.stats.unresolved_imports,
-            report.stats.ambiguous_imports
-        );
-        Output::print_text(&stats)?;
-    }
-    Ok(())
 }
 
 #[cfg(test)]

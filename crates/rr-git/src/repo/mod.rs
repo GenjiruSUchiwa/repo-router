@@ -1,5 +1,7 @@
 //! Git repository interaction and index-based OID lookup.
 
+mod state;
+
 use std::path::{Path, PathBuf};
 
 use gix::bstr::ByteSlice;
@@ -7,6 +9,8 @@ use rr_core::path::RelPath;
 
 use crate::oid::{hash_blob, HashAlgo, Oid};
 use crate::{Error, Result};
+
+pub use state::{ChangeKind, HeadState, RepoState, WorktreeChange};
 
 /// A discovered Git repository wrapper optimized for fast index queries.
 pub struct GitRepo {
@@ -94,6 +98,8 @@ impl GitRepo {
     /// Returns [`Error::Index`] if opening or reading the Git index fails with a corruption error.
     /// Returns [`Error::Io`] on filesystem permission errors.
     pub fn index_oid(&self, rel: &RelPath) -> Result<Option<Oid>> {
+        use gix::index::entry::Flags;
+
         let index = self.repo.index_or_empty()?;
 
         let path_bstr = rel.as_str().as_bytes().as_bstr();
@@ -102,6 +108,19 @@ impl GitRepo {
         else {
             return Ok(None);
         };
+
+        // An intent-to-add entry records the *empty blob* as a placeholder: Git
+        // has never stored this file's content. Returning that OID would name
+        // the wrong bytes, and every such file in the repository would collide
+        // on one cache key. A skip-worktree entry's stat is equally meaningless,
+        // because Git deliberately stopped tracking what is on disk. Neither is
+        // an identity, so both fall through to hashing the real content.
+        if entry
+            .flags
+            .intersects(Flags::INTENT_TO_ADD | Flags::SKIP_WORKTREE)
+        {
+            return Ok(None);
+        }
 
         if entry.mode != gix::index::entry::Mode::FILE
             && entry.mode != gix::index::entry::Mode::FILE_EXECUTABLE

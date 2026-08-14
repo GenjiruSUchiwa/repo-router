@@ -1,6 +1,7 @@
 #![deny(unsafe_code)]
 
 pub mod cache;
+pub mod cancel;
 pub mod content;
 pub mod facts;
 pub mod index;
@@ -11,13 +12,16 @@ pub mod parser;
 pub mod path;
 pub mod query;
 pub mod ranking;
+pub mod refresh;
 pub mod render;
 pub mod result;
 pub mod snapshot;
 pub mod verify;
 pub mod walk;
+pub mod workspace;
 
 pub use cache::{CacheKey, CacheOutcome, CacheStats, FactCache};
+pub use cancel::CancelToken;
 pub use content::AcquiredContent;
 pub use facts::{
     Def, DefKind, DegradedReason, Facts, Import, ImportKind, LocalDefId, ParseStatus, Reference,
@@ -30,6 +34,12 @@ pub use lex::{
     LexicalProfile, Lexicon, TermLookup, LEXICAL_VERSION,
 };
 pub use oid::{HashAlgo, Oid, OidError};
+pub use refresh::{
+    render_refresh_json, render_refresh_text, render_status_json, render_status_text,
+    DiscoveryIdentity, FullReason, GitLabel, PlanDraft, RefreshCommand, RefreshError, RefreshMode,
+    RefreshOutcome, RefreshPlan, RefreshReport, ReportedMode, SnapshotLabel, StatusReport,
+    REPORT_SCHEMA_VERSION,
+};
 
 pub use parser::EXTRACTOR_VERSION;
 pub use path::{RelPath, RelPathError};

@@ -28,7 +28,7 @@ fn build_test_snapshot(files: Vec<(&str, &[u8], bool)>) -> rr_core::index::Snaps
         });
     }
 
-    let meta = SnapshotMeta::new(None, true);
+    let meta = SnapshotMeta::new(None, true, [0; 32]);
     let (snapshot, _) = SnapshotBuilder::new(meta).build(inputs).unwrap();
     snapshot
 }

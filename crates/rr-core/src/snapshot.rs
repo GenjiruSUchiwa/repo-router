@@ -7,7 +7,14 @@ use tempfile::NamedTempFile;
 
 use crate::index::Snapshot;
 
-pub const SNAPSHOT_SCHEMA_VERSION: u32 = 2;
+/// Bumped whenever the snapshot's own layout changes, so a file written by an
+/// older binary is rebuilt rather than misread.
+///
+/// Version 4 added the two path lists an incremental refresh plans against.
+/// A version-3 file decodes without them and would look merely *empty* of dirty
+/// paths, which is a lie a reader has no way to detect — the refresh would then
+/// leave stale worktree records in place for ever.
+pub const SNAPSHOT_SCHEMA_VERSION: u32 = 4;
 pub const SNAPSHOT_MAGIC: [u8; 8] = *b"RRIDX\0\0\0";
 const HEADER_LEN: usize = 8 + 4 + 8 + 32;
 
@@ -47,6 +54,7 @@ pub enum SnapshotIoError {
 }
 
 pub struct SnapshotStore {
+    root: PathBuf,
     path: PathBuf,
 }
 
@@ -54,7 +62,8 @@ impl SnapshotStore {
     #[must_use]
     pub fn new(root: &Path) -> Self {
         Self {
-            path: root.join(".rr").join("local").join("snapshot.bin"),
+            root: root.to_path_buf(),
+            path: crate::workspace::snapshot_path(root),
         }
     }
 
@@ -83,6 +92,54 @@ impl SnapshotStore {
         Ok(decode(&bytes))
     }
 
+    /// Validates and serializes `snapshot` into its on-disk envelope.
+    ///
+    /// Publication compares bytes rather than structures, so the bytes have to
+    /// exist before the decision to write is made. This is the one place that
+    /// produces them.
+    ///
+    /// # Errors
+    /// Returns an error when validation or serialization fails.
+    pub fn encode(&self, snapshot: &Snapshot) -> Result<Vec<u8>, SnapshotIoError> {
+        snapshot.validate().map_err(|error| SnapshotIoError::Io {
+            path: self.path.clone(),
+            source: std::io::Error::new(std::io::ErrorKind::InvalidData, error),
+        })?;
+        let payload = postcard::to_allocvec(snapshot)?;
+        encode(&payload)
+    }
+
+    /// Reads the currently published envelope, if there is one.
+    ///
+    /// # Errors
+    /// Returns an error for filesystem failures other than absence.
+    pub fn read_published(&self) -> Result<Option<Vec<u8>>, SnapshotIoError> {
+        match fs::read(&self.path) {
+            Ok(bytes) => Ok(Some(bytes)),
+            Err(source) if source.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(source) => Err(SnapshotIoError::Io {
+                path: self.path.clone(),
+                source,
+            }),
+        }
+    }
+
+    /// Publishes `envelope` only if it differs from what is already on disk.
+    ///
+    /// A rebuild that reaches the same bytes is not news, and rewriting the file
+    /// anyway would move its mtime and invalidate every reader's belief that
+    /// nothing happened. Returns whether the file was replaced.
+    ///
+    /// # Errors
+    /// Returns an error when reading the current file or replacing it fails.
+    pub fn publish(&self, envelope: &[u8]) -> Result<bool, SnapshotIoError> {
+        if self.read_published()?.as_deref() == Some(envelope) {
+            return Ok(false);
+        }
+        self.write_envelope(envelope)?;
+        Ok(true)
+    }
+
     /// Validates, serializes, flushes, and atomically replaces the snapshot file.
     /// Concurrent readers see a complete old or new file; no directory fsync is issued,
     /// so sudden power loss may discard the latest replacement and require a rebuild.
@@ -90,12 +147,19 @@ impl SnapshotStore {
     /// # Errors
     /// Returns an error when validation, serialization, temporary-file, or replacement I/O fails.
     pub fn write(&self, snapshot: &Snapshot) -> Result<(), SnapshotIoError> {
-        snapshot.validate().map_err(|error| SnapshotIoError::Io {
-            path: self.path.clone(),
-            source: std::io::Error::new(std::io::ErrorKind::InvalidData, error),
+        let envelope = self.encode(snapshot)?;
+        self.write_envelope(&envelope)
+    }
+
+    /// The one atomic replacement: same-directory unique temp, then rename.
+    fn write_envelope(&self, envelope: &[u8]) -> Result<(), SnapshotIoError> {
+        // The ignore mark goes down before the snapshot does, so a snapshot
+        // written without a fact cache alongside it is hidden just the same.
+        crate::workspace::ensure_private(&self.root).map_err(|source| SnapshotIoError::Io {
+            path: crate::workspace::state_dir(&self.root),
+            source,
         })?;
-        let payload = postcard::to_allocvec(snapshot)?;
-        let envelope = encode(&payload)?;
+
         let parent = self.path.parent().unwrap_or_else(|| Path::new("."));
         fs::create_dir_all(parent).map_err(|source| SnapshotIoError::Io {
             path: parent.to_path_buf(),
@@ -105,7 +169,7 @@ impl SnapshotStore {
             path: parent.to_path_buf(),
             source,
         })?;
-        temp.write_all(&envelope)
+        temp.write_all(envelope)
             .map_err(|source| SnapshotIoError::Io {
                 path: temp.path().to_path_buf(),
                 source,
@@ -235,10 +299,11 @@ mod tests {
     }
     #[test]
     fn lexical_profile_mismatch_needs_rebuild() {
-        let (mut snapshot, _) =
-            crate::index::SnapshotBuilder::new(crate::index::SnapshotMeta::new(None, true))
-                .build(Vec::new())
-                .unwrap();
+        let (mut snapshot, _) = crate::index::SnapshotBuilder::new(
+            crate::index::SnapshotMeta::new(None, true, [0; 32]),
+        )
+        .build(Vec::new())
+        .unwrap();
         snapshot.meta.lexical_profile.algorithm += 1;
         let payload = postcard::to_allocvec(&snapshot).unwrap();
         let bytes = encode(&payload).unwrap();
@@ -249,10 +314,11 @@ mod tests {
     }
     #[test]
     fn build_version_mismatch_needs_rebuild() {
-        let (mut snapshot, _) =
-            crate::index::SnapshotBuilder::new(crate::index::SnapshotMeta::new(None, true))
-                .build(Vec::new())
-                .unwrap();
+        let (mut snapshot, _) = crate::index::SnapshotBuilder::new(
+            crate::index::SnapshotMeta::new(None, true, [0; 32]),
+        )
+        .build(Vec::new())
+        .unwrap();
         snapshot.meta.build_version += 1;
         let payload = postcard::to_allocvec(&snapshot).unwrap();
         let bytes = encode(&payload).unwrap();
@@ -263,10 +329,11 @@ mod tests {
     }
     #[test]
     fn ranking_profile_mismatch_needs_rebuild() {
-        let (mut snapshot, _) =
-            crate::index::SnapshotBuilder::new(crate::index::SnapshotMeta::new(None, true))
-                .build(Vec::new())
-                .unwrap();
+        let (mut snapshot, _) = crate::index::SnapshotBuilder::new(
+            crate::index::SnapshotMeta::new(None, true, [0; 32]),
+        )
+        .build(Vec::new())
+        .unwrap();
         snapshot.meta.ranking.scoring_digest[0] ^= 0xFF;
         let payload = postcard::to_allocvec(&snapshot).unwrap();
         let bytes = encode(&payload).unwrap();
@@ -278,10 +345,11 @@ mod tests {
     #[test]
     fn store_round_trips_empty_snapshot() {
         let directory = tempfile::tempdir().unwrap();
-        let (snapshot, _) =
-            crate::index::SnapshotBuilder::new(crate::index::SnapshotMeta::new(None, true))
-                .build(Vec::new())
-                .unwrap();
+        let (snapshot, _) = crate::index::SnapshotBuilder::new(crate::index::SnapshotMeta::new(
+            None, true, [0; 32],
+        ))
+        .build(Vec::new())
+        .unwrap();
         let store = SnapshotStore::new(directory.path());
         store.write(&snapshot).unwrap();
         let loaded = store.load().unwrap();

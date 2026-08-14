@@ -338,7 +338,7 @@ fn ranking_stamps_every_snapshot_with_the_shipped_profile() {
     assert!(snapshot.meta.ranking.accepts(&DEFAULT_RANKING_PROFILE));
     assert_eq!(
         snapshot.meta.ranking,
-        SnapshotMeta::new(None, true).ranking,
+        SnapshotMeta::new(None, true, [0; 32]).ranking,
         "every builder stamps the same profile"
     );
 }

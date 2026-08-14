@@ -962,7 +962,7 @@ mod tests {
             parse_status: facts.status(),
             facts,
         };
-        let (snapshot, counts) = SnapshotBuilder::new(SnapshotMeta::new(None, true))
+        let (snapshot, counts) = SnapshotBuilder::new(SnapshotMeta::new(None, true, [0; 32]))
             .build(vec![input])
             .unwrap();
         assert_eq!(counts.symbols, 2);
@@ -1004,7 +1004,7 @@ mod tests {
             parse_status: facts.status(),
             facts,
         };
-        let (snapshot, _) = SnapshotBuilder::new(SnapshotMeta::new(None, true))
+        let (snapshot, _) = SnapshotBuilder::new(SnapshotMeta::new(None, true, [0; 32]))
             .build(vec![input])
             .unwrap();
         let inner = snapshot

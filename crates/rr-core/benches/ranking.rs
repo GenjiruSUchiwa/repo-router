@@ -95,7 +95,7 @@ fn benchmark_snapshot() -> Snapshot {
             facts,
         });
     }
-    let (snapshot, _counts) = SnapshotBuilder::new(SnapshotMeta::new(None, true))
+    let (snapshot, _counts) = SnapshotBuilder::new(SnapshotMeta::new(None, true, [0; 32]))
         .build(inputs)
         .unwrap();
     assert!(

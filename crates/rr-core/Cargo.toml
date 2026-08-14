@@ -38,6 +38,10 @@ harness = false
 
 
 [[bench]]
+name = "refresh"
+harness = false
+
+[[bench]]
 name = "query"
 harness = false
 
