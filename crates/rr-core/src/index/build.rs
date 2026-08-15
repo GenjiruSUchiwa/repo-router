@@ -17,7 +17,12 @@ use super::{
     SnapshotMeta, StringId, SymbolId, SymbolPosting, SymbolRecord, TermId, TermRecord,
 };
 
-pub const BUILD_VERSION: u32 = 2;
+/// Bump whenever a snapshot built by this module gains, loses, or changes the
+/// meaning of a field. Version 3 added the per-symbol display signature and the
+/// per-file test classification — both because a text projection has to state
+/// them, and neither can be re-derived later without opening a file the index
+/// has already spoken for.
+pub const BUILD_VERSION: u32 = 3;
 
 #[derive(Debug, Clone)]
 pub struct FileInput {
@@ -270,6 +275,7 @@ impl SnapshotBuilder {
                 )?;
             }
             terms[LexicalField::Path.index()].extend(path_terms.iter().copied());
+            let signature = self.strings.intern(&def.signature)?;
             self.symbols.push(SymbolRecord {
                 id: symbol_id,
                 file: file_id,
@@ -279,6 +285,7 @@ impl SnapshotBuilder {
                 visibility: def.visibility.clone(),
                 span: def.span,
                 signature_span: def.signature_span,
+                signature,
                 test_signals: def.test_signals,
                 field_lengths: FieldLengths::ZERO,
             });
@@ -340,6 +347,7 @@ impl SnapshotBuilder {
             content_oid: input.oid,
             representation: input.representation,
             generated: input.generated,
+            is_test: input.language.path_indicates_test(input.path.as_str()),
             parse_status: input.parse_status,
             first_symbol,
             symbol_count,

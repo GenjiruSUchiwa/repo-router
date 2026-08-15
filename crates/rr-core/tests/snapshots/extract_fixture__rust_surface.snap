@@ -12,6 +12,7 @@ defs:
     start_line: 3
     end_line: 7
     signature: "/// Docs for a free function. #[inline] pub fn free_function(value: u32) -> u32"
+    declaration: "pub fn free_function(value: u32) -> u32"
     body_preview: value
     test_explicit: false
     test_cfg: false
@@ -30,6 +31,7 @@ defs:
     start_line: 9
     end_line: 12
     signature: /// Struct docs. pub struct SurfaceStruct
+    declaration: pub struct SurfaceStruct
     body_preview: field
     test_explicit: false
     test_cfg: false
@@ -44,6 +46,7 @@ defs:
     start_line: 14
     end_line: 18
     signature: pub enum SurfaceEnum
+    declaration: pub enum SurfaceEnum
     body_preview: Unit Tuple Record value
     test_explicit: false
     test_cfg: false
@@ -56,6 +59,7 @@ defs:
     start_line: 20
     end_line: 23
     signature: pub union SurfaceUnion
+    declaration: pub union SurfaceUnion
     body_preview: a b
     test_explicit: false
     test_cfg: false
@@ -68,6 +72,7 @@ defs:
     start_line: 25
     end_line: 32
     signature: pub trait SurfaceTrait
+    declaration: pub trait SurfaceTrait
     body_preview: ""
     test_explicit: false
     test_cfg: false
@@ -80,6 +85,7 @@ defs:
     start_line: 26
     end_line: 26
     signature: type Item;
+    declaration: type Item;
     body_preview: ""
     test_explicit: false
     test_cfg: false
@@ -92,6 +98,7 @@ defs:
     start_line: 27
     end_line: 27
     signature: "const TRAIT_CONST: u32;"
+    declaration: "const TRAIT_CONST: u32;"
     body_preview: ""
     test_explicit: false
     test_cfg: false
@@ -104,6 +111,7 @@ defs:
     start_line: 28
     end_line: 28
     signature: fn required(&self);
+    declaration: fn required(&self);
     body_preview: ""
     test_explicit: false
     test_cfg: false
@@ -116,6 +124,7 @@ defs:
     start_line: 29
     end_line: 31
     signature: fn defaulted(&self)
+    declaration: fn defaulted(&self)
     body_preview: ""
     test_explicit: false
     test_cfg: false
@@ -128,6 +137,7 @@ defs:
     start_line: 34
     end_line: 34
     signature: pub type SurfaceAlias = SurfaceStruct;
+    declaration: pub type SurfaceAlias = SurfaceStruct;
     body_preview: SurfaceStruct
     test_explicit: false
     test_cfg: false
@@ -140,6 +150,7 @@ defs:
     start_line: 36
     end_line: 36
     signature: "pub const SURFACE_CONST: u32 = 7;"
+    declaration: "pub const SURFACE_CONST: u32 = 7;"
     body_preview: ""
     test_explicit: false
     test_cfg: false
@@ -152,6 +163,7 @@ defs:
     start_line: 37
     end_line: 37
     signature: "pub static SURFACE_STATIC: u32 = 9;"
+    declaration: "pub static SURFACE_STATIC: u32 = 9;"
     body_preview: ""
     test_explicit: false
     test_cfg: false
@@ -164,6 +176,7 @@ defs:
     start_line: 39
     end_line: 68
     signature: pub mod nested
+    declaration: pub mod nested
     body_preview: NestedService NestedService
     test_explicit: false
     test_cfg: false
@@ -176,6 +189,7 @@ defs:
     start_line: 40
     end_line: 42
     signature: pub fn nested_free()
+    declaration: pub fn nested_free()
     body_preview: ""
     test_explicit: false
     test_cfg: false
@@ -188,6 +202,7 @@ defs:
     start_line: 44
     end_line: 44
     signature: pub struct NestedService;
+    declaration: pub struct NestedService;
     body_preview: ""
     test_explicit: false
     test_cfg: false
@@ -200,6 +215,7 @@ defs:
     start_line: 47
     end_line: 49
     signature: pub fn inherent(&self)
+    declaration: pub fn inherent(&self)
     body_preview: ""
     test_explicit: false
     test_cfg: false
@@ -212,6 +228,7 @@ defs:
     start_line: 52
     end_line: 54
     signature: pub trait NestedTrait
+    declaration: pub trait NestedTrait
     body_preview: ""
     test_explicit: false
     test_cfg: false
@@ -224,6 +241,7 @@ defs:
     start_line: 53
     end_line: 53
     signature: fn method(&self);
+    declaration: fn method(&self);
     body_preview: ""
     test_explicit: false
     test_cfg: false
@@ -236,6 +254,7 @@ defs:
     start_line: 57
     end_line: 59
     signature: fn method(&self)
+    declaration: fn method(&self)
     body_preview: ""
     test_explicit: false
     test_cfg: false
@@ -248,6 +267,7 @@ defs:
     start_line: 62
     end_line: 67
     signature: fn outer()
+    declaration: fn outer()
     body_preview: ""
     test_explicit: false
     test_cfg: false
@@ -260,6 +280,7 @@ defs:
     start_line: 63
     end_line: 65
     signature: fn inner()
+    declaration: fn inner()
     body_preview: ""
     test_explicit: false
     test_cfg: false
@@ -272,6 +293,7 @@ defs:
     start_line: 71
     end_line: 73
     signature: pub fn inherent_method(&self)
+    declaration: pub fn inherent_method(&self)
     body_preview: field
     test_explicit: false
     test_cfg: false
@@ -284,6 +306,7 @@ defs:
     start_line: 77
     end_line: 77
     signature: type Item = u32;
+    declaration: type Item = u32;
     body_preview: ""
     test_explicit: false
     test_cfg: false
@@ -296,6 +319,7 @@ defs:
     start_line: 78
     end_line: 78
     signature: "const TRAIT_CONST: u32 = 1;"
+    declaration: "const TRAIT_CONST: u32 = 1;"
     body_preview: ""
     test_explicit: false
     test_cfg: false
@@ -308,6 +332,7 @@ defs:
     start_line: 79
     end_line: 81
     signature: fn required(&self)
+    declaration: fn required(&self)
     body_preview: ""
     test_explicit: false
     test_cfg: false
@@ -320,6 +345,7 @@ defs:
     start_line: 84
     end_line: 88
     signature: macro_rules! surface_macro
+    declaration: macro_rules! surface_macro
     body_preview: ""
     test_explicit: false
     test_cfg: false
@@ -332,6 +358,7 @@ defs:
     start_line: 90
     end_line: 94
     signature: /// Unicode definition. fn méthode()
+    declaration: fn méthode()
     body_preview: valeur valeur
     test_explicit: false
     test_cfg: false
@@ -346,6 +373,7 @@ defs:
     start_line: 96
     end_line: 113
     signature: "#[cfg(test)] mod tests"
+    declaration: mod tests
     body_preview: ""
     test_explicit: false
     test_cfg: true
@@ -360,6 +388,7 @@ defs:
     start_line: 100
     end_line: 103
     signature: "#[test] fn unit_test_surface()"
+    declaration: fn unit_test_surface()
     body_preview: free_function
     test_explicit: true
     test_cfg: true
@@ -373,6 +402,7 @@ defs:
     start_line: 105
     end_line: 106
     signature: "#[tokio::test] async fn tokio_style()"
+    declaration: async fn tokio_style()
     body_preview: ""
     test_explicit: true
     test_cfg: true
@@ -387,6 +417,7 @@ defs:
     start_line: 108
     end_line: 109
     signature: "#[rstest] fn rstest_style()"
+    declaration: fn rstest_style()
     body_preview: ""
     test_explicit: true
     test_cfg: true
@@ -400,6 +431,7 @@ defs:
     start_line: 111
     end_line: 112
     signature: "#[test_case] fn test_case_style()"
+    declaration: fn test_case_style()
     body_preview: ""
     test_explicit: true
     test_cfg: true
@@ -413,6 +445,7 @@ defs:
     start_line: 115
     end_line: 125
     signature: fn calls_surface()
+    declaration: fn calls_surface()
     body_preview: value value
     test_explicit: false
     test_cfg: false
@@ -425,6 +458,7 @@ defs:
     start_line: 127
     end_line: 129
     signature: mod module
+    declaration: mod module
     body_preview: ""
     test_explicit: false
     test_cfg: false
@@ -437,6 +471,7 @@ defs:
     start_line: 128
     end_line: 128
     signature: "pub fn free_function(_v: u32)"
+    declaration: "pub fn free_function(_v: u32)"
     body_preview: ""
     test_explicit: false
     test_cfg: false
@@ -449,6 +484,7 @@ defs:
     start_line: 132
     end_line: 135
     signature: fn scope_a()
+    declaration: fn scope_a()
     body_preview: ""
     test_explicit: false
     test_cfg: false
@@ -461,6 +497,7 @@ defs:
     start_line: 133
     end_line: 133
     signature: fn helper()
+    declaration: fn helper()
     body_preview: ""
     test_explicit: false
     test_cfg: false
@@ -473,6 +510,7 @@ defs:
     start_line: 137
     end_line: 140
     signature: fn scope_b()
+    declaration: fn scope_b()
     body_preview: ""
     test_explicit: false
     test_cfg: false
@@ -485,6 +523,7 @@ defs:
     start_line: 138
     end_line: 138
     signature: fn helper()
+    declaration: fn helper()
     body_preview: ""
     test_explicit: false
     test_cfg: false
@@ -497,6 +536,7 @@ defs:
     start_line: 143
     end_line: 143
     signature: "fn foreign_surface(x: i32) -> i32;"
+    declaration: "fn foreign_surface(x: i32) -> i32;"
     body_preview: ""
     test_explicit: false
     test_cfg: false

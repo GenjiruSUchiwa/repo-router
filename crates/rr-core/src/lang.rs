@@ -118,6 +118,74 @@ impl Lang {
         }
     }
 
+    /// Whether this repository-relative path is a test file by convention.
+    ///
+    /// This is a naming convention, not a compilation fact: nothing here opens
+    /// the file. It exists so that a projection of the index and the index
+    /// itself cannot disagree about which files are tests, and so that the
+    /// answer is language-aware rather than a single hardcoded Rust habit.
+    ///
+    /// A directory named `tests` counts wherever it appears, because that is
+    /// the one convention every language in this list shares. Everything else
+    /// is a per-language file-name rule.
+    ///
+    /// The path must be canonical: repository-relative, `/`-separated. A
+    /// `Path`-based signature would invite a caller to pass a platform path
+    /// whose separators this function cannot see.
+    #[must_use]
+    pub fn path_indicates_test(self, canonical_path: &str) -> bool {
+        let (directories, file_name) = match canonical_path.rsplit_once('/') {
+            Some((directories, file_name)) => (directories, file_name),
+            None => ("", canonical_path),
+        };
+        if directories.split('/').any(|segment| segment == "tests") {
+            return true;
+        }
+        let stem = file_name
+            .rsplit_once('.')
+            .map_or(file_name, |(stem, _)| stem);
+        match self {
+            // `foo_test.rs`, `foo_tests.rs`, and the `tests` submodule.
+            Self::Rust => {
+                stem == "test" || stem == "tests" || has_suffix(stem, &["_test", "_tests"])
+            }
+            // `pytest` collects `test_*.py` and `*_test.py`; shell suites
+            // follow the same two shapes.
+            Self::Python | Self::Shell => stem.starts_with("test_") || has_suffix(stem, &["_test"]),
+            // `foo.test.ts` and `foo.spec.ts`, the two names every JS runner knows.
+            Self::TypeScript | Self::Tsx | Self::JavaScript | Self::Jsx => {
+                has_suffix(stem, &[".test", ".spec"])
+            }
+            // The Go toolchain compiles exactly `*_test.go` into the test
+            // binary, and Zig's convention borrows the same name.
+            Self::Go | Self::Zig => has_suffix(stem, &["_test"]),
+            // These languages name the test type, and the file takes the
+            // type's name; the suffix is therefore capitalized.
+            Self::Java | Self::CSharp | Self::Kotlin | Self::Scala | Self::Swift => {
+                has_suffix(stem, &["Test", "Tests", "TestCase", "Spec"])
+            }
+            // Minitest and RSpec, whose names Lua's busted mirrors.
+            Self::Ruby | Self::Lua => {
+                stem.starts_with("test_") || has_suffix(stem, &["_test", "_spec"])
+            }
+            // PHPUnit requires the `Test` suffix on the class and its file.
+            Self::Php => has_suffix(stem, &["Test"]),
+            Self::C | Self::Cpp => {
+                stem.starts_with("test_") || has_suffix(stem, &["_test", "_tests"])
+            }
+            // Data and markup languages have no test-file convention worth
+            // guessing at; a wrong guess here would hide real definitions.
+            Self::Toml
+            | Self::Json
+            | Self::Yaml
+            | Self::Markdown
+            | Self::Html
+            | Self::Css
+            | Self::Sql
+            | Self::Proto => false,
+        }
+    }
+
     /// Returns the display name of the language.
     #[must_use]
     pub fn name(&self) -> &'static str {
@@ -151,6 +219,15 @@ impl Lang {
             Self::Proto => "Protocol Buffers",
         }
     }
+}
+
+/// Whether the stem ends with any of these markers.
+///
+/// Case-sensitive on purpose. `FooTest.java` and `footest.java` are different
+/// claims, and lowering the case would make the second one a test file in a
+/// repository that never said so.
+fn has_suffix(stem: &str, markers: &[&str]) -> bool {
+    markers.iter().any(|marker| stem.ends_with(marker))
 }
 
 impl fmt::Display for Lang {

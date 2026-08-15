@@ -14,7 +14,11 @@ use crate::index::Snapshot;
 /// refresh plans against. An older file decodes without them and would look
 /// merely *empty* of dirty paths, which is a lie a reader has no way to detect —
 /// the refresh would then leave stale worktree records in place for ever.
-pub const SNAPSHOT_SCHEMA_VERSION: u32 = 4;
+/// Version 5 added the per-symbol display signature and the per-file test
+/// classification, both of which sit inside their arenas: an older payload
+/// decodes its successor's fields out of alignment, so the envelope has to
+/// refuse it before postcard is asked to try.
+pub const SNAPSHOT_SCHEMA_VERSION: u32 = 5;
 pub const SNAPSHOT_MAGIC: [u8; 8] = *b"RRIDX\0\0\0";
 const HEADER_LEN: usize = 8 + 4 + 8 + 32;
 

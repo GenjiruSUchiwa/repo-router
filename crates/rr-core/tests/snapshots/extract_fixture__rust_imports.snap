@@ -12,6 +12,7 @@ defs:
     start_line: 10
     end_line: 13
     signature: fn block_local()
+    declaration: fn block_local()
     body_preview: z
     test_explicit: false
     test_cfg: false
@@ -24,6 +25,7 @@ defs:
     start_line: 15
     end_line: 17
     signature: mod holder
+    declaration: mod holder
     body_preview: ""
     test_explicit: false
     test_cfg: false

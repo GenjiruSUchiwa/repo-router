@@ -16,6 +16,7 @@ pub mod refresh;
 pub mod render;
 pub mod result;
 pub mod snapshot;
+pub mod text;
 pub mod verify;
 pub mod walk;
 pub mod workspace;
@@ -132,6 +133,8 @@ pub enum Error {
     ExtractorQueryContract { capture: &'static str },
     #[error("Rust extraction invariant failed: {message}")]
     ExtractionInvariant { message: &'static str },
+    #[error("text artifact: {0}")]
+    Text(#[from] text::TextError),
 }
 
 /// A specialized [`Result`](std::result::Result) type for `rr-core` operations.

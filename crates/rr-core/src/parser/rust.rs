@@ -348,13 +348,15 @@ fn try_insert_def(
     let expanded = expanded_item_span(item, source)?;
     let (doc_idents, attribute_idents) = metadata_idents(item, source);
 
+    let signature_span = signature_span(kind, body_span, expanded, source)?;
     let def = Def {
+        signature: declaration_line(item_span, signature_span, source, &name),
         name,
         local_qualified: local_qualified_name(item, source)?,
         kind,
         visibility: visibility(item, source),
         span: expanded,
-        signature_span: signature_span(kind, body_span, expanded, source)?,
+        signature_span,
         signature_idents: Vec::new(),
         body_idents: Vec::new(),
         doc_idents,
@@ -620,6 +622,26 @@ const fn is_semicolon_definition(kind: DefKind) -> bool {
         kind,
         DefKind::TypeAlias | DefKind::AssociatedType | DefKind::Const | DefKind::Static
     )
+}
+
+/// The one-line declaration text a reader is shown for this definition.
+///
+/// Runs from the item itself to the end of the signature region, so the
+/// documentation and attributes that [`Def::span`] deliberately absorbs stay
+/// out of a line that is meant to read like the declaration. A region that
+/// holds nothing but whitespace — which only a recovered parse can produce —
+/// falls back to the name, because every other consumer of this field may
+/// assume it is non-empty.
+fn declaration_line(item: Span, signature: Span, source: &str, name: &str) -> String {
+    let start = item.start_byte() as usize;
+    let end = signature.end_byte() as usize;
+    let raw = source.get(start..end).unwrap_or_default();
+    let line = crate::facts::display_signature(raw);
+    if line.is_empty() {
+        name.to_owned()
+    } else {
+        line
+    }
 }
 
 // Signature regions are short; counting newlines directly beats pulling in a
