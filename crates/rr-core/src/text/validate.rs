@@ -39,6 +39,8 @@ pub enum ArtifactState {
 pub enum ConflictReason {
     /// A file exists at a reserved path that rr did not write.
     NotOwned,
+    /// The reserved path is a symbolic link.
+    Symlink,
     /// The file holds Git conflict markers.
     MergeConflict,
     /// The frontmatter is not the supported subset.
@@ -65,6 +67,7 @@ impl ConflictReason {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::NotOwned => "path is not owned by rr",
+            Self::Symlink => "path is a symbolic link; rr writes only regular files",
             Self::MergeConflict => "file contains Git conflict markers",
             Self::Frontmatter => "frontmatter is not the supported format",
             Self::UnsupportedFormat => "file declares an unsupported format version",
@@ -124,6 +127,7 @@ pub struct TextValidation {
     conflicts: Vec<Conflict>,
     over_budget: Vec<String>,
     pending_purposes: u32,
+    symbols_repaired: bool,
     index_hash: Option<Digest>,
 }
 
@@ -170,6 +174,13 @@ impl TextValidation {
         self.pending_purposes
     }
 
+    /// Whether the local symbol index had to be rewritten because it was no
+    /// longer valid, rather than merely because it was out of date.
+    #[must_use]
+    pub const fn symbols_repaired(&self) -> bool {
+        self.symbols_repaired
+    }
+
     /// The identity every artifact of this generation carries.
     #[must_use]
     pub const fn index_hash(&self) -> Option<Digest> {
@@ -206,10 +217,50 @@ pub fn validate_text_artifacts(
     root: &Path,
     budget: u32,
 ) -> crate::Result<TextValidation> {
+    Ok(stage_text_artifacts(snapshot, root, budget)?.validation)
+}
+
+/// One generation's bytes together with what the repository currently holds.
+///
+/// A publisher needs both and they must come from the same projection, so they
+/// are produced together rather than by two calls that could see two snapshots.
+#[derive(Debug)]
+pub struct StagedText {
+    rendered: RenderedArtifactSet,
+    validation: TextValidation,
+}
+
+impl StagedText {
+    /// The bytes this generation would publish.
+    #[must_use]
+    pub const fn rendered(&self) -> &RenderedArtifactSet {
+        &self.rendered
+    }
+
+    /// What is on disk, compared against those bytes.
+    #[must_use]
+    pub const fn validation(&self) -> &TextValidation {
+        &self.validation
+    }
+}
+
+/// Renders one generation and compares it against `root` in a single pass.
+///
+/// # Errors
+/// As [`validate_text_artifacts`].
+pub fn stage_text_artifacts(
+    snapshot: &Snapshot,
+    root: &Path,
+    budget: u32,
+) -> crate::Result<StagedText> {
     let projection = TextProjection::from_snapshot(snapshot, budget)?;
     let purposes = read_existing_purposes(root, &projection)?;
     let rendered = projection.render(&purposes)?;
-    Ok(compare(root, &projection, &rendered))
+    let validation = compare(root, &projection, &rendered);
+    Ok(StagedText {
+        rendered,
+        validation,
+    })
 }
 
 /// The comparison, split out so it can be tested without a snapshot.
@@ -270,6 +321,15 @@ fn classify(
     validation: &mut TextValidation,
 ) {
     let absolute = root.join(path);
+    // Before reading, because every read here follows the link: a symlink would
+    // be judged on its target's bytes and then written through, putting rr's
+    // output somewhere rr never chose.
+    if std::fs::symlink_metadata(&absolute).is_ok_and(|meta| meta.file_type().is_symlink()) {
+        validation
+            .conflicts
+            .push(Conflict::new(path.to_owned(), ConflictReason::Symlink));
+        return;
+    }
     let actual = match std::fs::read(&absolute) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -288,7 +348,15 @@ fn classify(
         return;
     }
     let outcome = ownership_of(&actual, kind);
-    if outcome == Ok(true) || repairs_in_place(kind, outcome) {
+    if outcome == Ok(true) {
+        validation.stale.push(path.to_owned());
+        return;
+    }
+    if repairs_in_place(kind, outcome) {
+        // Distinguished from the line above because the two are different
+        // events: one is a file that says something older, the other is a file
+        // that no longer says anything valid. Only the second is a repair.
+        validation.symbols_repaired = true;
         validation.stale.push(path.to_owned());
         return;
     }
@@ -370,41 +438,52 @@ fn conflict_reason_of(error: crate::Error) -> ConflictReason {
 
 /// Reserved paths that exist on disk but are not in the new plan.
 ///
-/// Only directories the plan already knows about are scanned. A repository-wide
-/// walk here would be a second discovery pass with its own idea of what to
-/// ignore, and the snapshot has already answered that question.
+/// Follows the committed generation rather than walking the repository: the
+/// scan starts at the root and descends only into directories that hold a
+/// `MAP.md`. rr writes one in every indexed directory and in every ancestor of
+/// one, so that set is connected and rooted at the repository — which finds
+/// every artifact rr has written here and stops at the first directory it never
+/// touched, without a second opinion about what to ignore.
+///
+/// Routers count, not only overflow pages. A directory that loses its last
+/// source file leaves a committed map that nothing links to and no later run
+/// would ever revisit.
 fn owned_paths_on_disk(root: &Path, planned: &BTreeSet<&str>) -> Vec<String> {
-    let mut directories: BTreeSet<&str> = BTreeSet::new();
-    for path in planned {
-        directories.insert(path.rsplit_once('/').map_or("", |(head, _)| head));
-    }
-
     let mut found = Vec::new();
-    for directory in directories {
+    let mut pending = vec![String::new()];
+
+    while let Some(directory) = pending.pop() {
         let absolute = if directory.is_empty() {
             root.to_path_buf()
         } else {
-            root.join(directory)
+            root.join(&directory)
         };
         let Ok(entries) = std::fs::read_dir(&absolute) else {
             continue;
         };
+
         for entry in entries.flatten() {
             let Ok(name) = entry.file_name().into_string() else {
                 continue;
             };
-            if !name.starts_with(super::OVERFLOW_PREFIX)
-                || !name.ends_with(super::MARKDOWN_EXTENSION)
-            {
-                continue;
-            }
             let path = if directory.is_empty() {
-                name
+                name.clone()
             } else {
                 format!("{directory}/{name}")
             };
-            if !planned.contains(path.as_str()) {
-                found.push(path);
+
+            match entry.file_type() {
+                Ok(file_type) if file_type.is_dir() => {
+                    if absolute.join(&name).join(super::MAP_FILE_NAME).is_file() {
+                        pending.push(path);
+                    }
+                }
+                Ok(_) => {
+                    if super::is_reserved_artifact_name(&name) && !planned.contains(path.as_str()) {
+                        found.push(path);
+                    }
+                }
+                Err(_) => {}
             }
         }
     }

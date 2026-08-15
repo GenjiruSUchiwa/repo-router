@@ -88,10 +88,47 @@ fn status_json_carries_the_versioned_contract() {
 
     assert_eq!(value["schema_version"], 1);
     assert_eq!(value["command"], "status");
-    assert_eq!(value["git"], "clean");
+    // A generation writes committed maps, so it leaves the tree dirty until the
+    // user commits them. `dirty` here is the artifacts, not stale work.
+    assert_eq!(value["git"], "dirty");
     assert_eq!(value["snapshot"], "fresh");
     assert!(value["head"].is_string());
     assert!(value["unresolved"].is_u64());
+}
+
+/// Committing the maps costs the snapshot its fast path.
+///
+/// The delta is `git status` — the working tree against `HEAD` — so a snapshot
+/// is only incrementally usable while `HEAD` stands still. Committing the maps
+/// moves it, which makes the next refresh a full fallback for every user of
+/// every repository. Pinned rather than hidden: the fallback still converges
+/// off the cache and writes nothing, and the day a `HEAD`-to-`HEAD` diff makes
+/// this incremental, this test is where that shows up.
+#[test]
+fn committing_the_generated_maps_moves_head_and_forces_a_full_fallback() {
+    let temp = repo();
+    run(temp.path(), &["map"]);
+    git(temp.path(), &["add", "-A"]);
+    git(temp.path(), &["commit", "-qm", "maps"]);
+
+    let status = json(&run(temp.path(), &["status", "--json"]));
+    assert_eq!(status["git"], "clean");
+    assert_eq!(status["snapshot"], "stale");
+
+    let refreshed = json(&run(temp.path(), &["refresh", "--json"]));
+    assert_eq!(refreshed["mode"], "fallback-full");
+    assert_eq!(refreshed["fallback_reason"], "head-changed");
+    // A full fallback is a full walk, not a full reparse, and it finds the
+    // artifacts already correct.
+    assert_eq!(refreshed["reparsed"], 0);
+    assert_eq!(refreshed["cached"], 1);
+
+    let after = json(&run(temp.path(), &["status", "--json"]));
+    assert_eq!(after["snapshot"], "fresh");
+    assert_eq!(
+        after["git"], "clean",
+        "the fallback rewrote a committed map"
+    );
 }
 
 #[test]

@@ -57,6 +57,7 @@ pub enum SnapshotIoError {
     Serialization(#[from] postcard::Error),
 }
 
+#[derive(Debug)]
 pub struct SnapshotStore {
     root: PathBuf,
     path: PathBuf,

@@ -44,8 +44,8 @@ pub use parse::{
 pub use purpose::{read_existing_purposes, ExistingPurposes};
 pub use render::{ArtifactKind, RenderedArtifactSet, RenderedFile};
 pub use validate::{
-    validate_text_artifacts, validated_map_catalog, ArtifactState, Conflict, ConflictReason,
-    MapCatalog, MapIdentity, TextValidation,
+    stage_text_artifacts, validate_text_artifacts, validated_map_catalog, ArtifactState, Conflict,
+    ConflictReason, MapCatalog, MapIdentity, StagedText, TextValidation,
 };
 
 /// The on-disk format version of every artifact this module writes.

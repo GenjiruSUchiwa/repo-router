@@ -6,7 +6,7 @@
 //! disagree about what happened, and neither can `status` disagree with the
 //! `refresh` it is describing.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 use clap::Args;
@@ -15,8 +15,10 @@ use rr_core::refresh::{
     render_refresh_json, render_refresh_text, render_status_json, render_status_text,
     RefreshCommand, RefreshMode, RefreshReport,
 };
+use rr_core::text::{StagedText, DEFAULT_MAP_BUDGET};
 
 use crate::output::Output;
+use crate::text_artifacts::{self, TextReport};
 
 /// Exit codes shared by the three commands.
 ///
@@ -90,10 +92,14 @@ pub fn run_refresh(args: &RefreshArgs, command: RefreshCommand) -> anyhow::Resul
     };
 
     let cancel = install_interrupt();
-    let report = match rr_git::refresh(&root, threads, mode, &cancel) {
-        Ok(report) => report,
-        Err(rr_git::Error::Cancelled) => return Ok(exit::INTERRUPTED),
-        Err(error) => return Err(anyhow::Error::new(error).context("refresh repository")),
+    let (report, text) = match publish(&root, threads, mode, &cancel) {
+        Ok(published) => published,
+        Err(Published::Interrupted) => return Ok(exit::INTERRUPTED),
+        Err(Published::Conflicts(message)) => {
+            Output::print_error(&message)?;
+            return Ok(exit::ERROR);
+        }
+        Err(Published::Failed(error)) => return Err(error),
     };
 
     if args.json {
@@ -101,9 +107,17 @@ pub fn run_refresh(args: &RefreshArgs, command: RefreshCommand) -> anyhow::Resul
             &render_refresh_json(&report, command).context("render report as JSON")?,
         )?;
     } else {
-        Output::print_text(&render_refresh_text(&report, command))?;
+        Output::print_text(&format!(
+            "{}{}",
+            render_refresh_text(&report, command),
+            text.clause()
+        ))?;
         if args.verbose {
             Output::print_text(&verbose_lines(&report))?;
+            let paths = text.verbose_lines();
+            if !paths.is_empty() {
+                Output::print_text(&paths)?;
+            }
         }
     }
 
@@ -139,6 +153,91 @@ pub fn run_status(args: &StatusArgs) -> anyhow::Result<u8> {
     // it says. Callers branch on `snapshot`, which distinguishes five states
     // where an exit code could only ever distinguish two.
     Ok(exit::OK)
+}
+
+/// Why a run stopped, when the reason is not an ordinary failure.
+enum Published {
+    /// The user pressed Ctrl-C.
+    Interrupted,
+    /// Committed files are in a state only a human can resolve.
+    Conflicts(String),
+    Failed(anyhow::Error),
+}
+
+impl From<anyhow::Error> for Published {
+    fn from(error: anyhow::Error) -> Self {
+        Self::Failed(error)
+    }
+}
+
+/// Publishes the snapshot and the text artifacts derived from it.
+///
+/// Both happen under one guard, in this order: stage the text and refuse on a
+/// conflict before anything is written, publish the snapshot, write the text,
+/// then read the whole generation back. A conflict therefore leaves the
+/// repository exactly as it was found, snapshot included.
+fn publish(
+    root: &Path,
+    threads: usize,
+    mode: RefreshMode,
+    cancel: &CancelToken,
+) -> Result<(RefreshReport, TextReport), Published> {
+    let budget = DEFAULT_MAP_BUDGET;
+    let prepared = match rr_git::prepare(root, threads, mode, cancel) {
+        Ok(prepared) => prepared,
+        Err(rr_git::Error::Cancelled) => return Err(Published::Interrupted),
+        Err(error) => {
+            return Err(Published::Failed(
+                anyhow::Error::new(error).context("refresh repository"),
+            ))
+        }
+    };
+
+    match prepared {
+        // The snapshot is current, so the guard is worth taking only if the
+        // text derived from it is not. Checking first keeps the common "nothing
+        // happened" run lock-free.
+        rr_git::Refresh::UpToDate { report, snapshot } => {
+            let staged = text_artifacts::stage(&snapshot, root, budget)?;
+            if staged.validation().is_up_to_date() {
+                return Ok((report, text_artifacts::unchanged(&staged)));
+            }
+            let text = republish_text(root, threads, budget)?;
+            Ok((report, text))
+        }
+        rr_git::Refresh::Prepared(mut prepared) => {
+            let staged = text_artifacts::stage(prepared.snapshot(), prepared.work_root(), budget)?;
+            refuse_on_conflict(&staged)?;
+            prepared.publish().map_err(anyhow::Error::new)?;
+            let text = text_artifacts::publish(&staged, prepared.work_root())?;
+            text_artifacts::confirm(prepared.snapshot(), prepared.work_root(), budget)?;
+            Ok((prepared.finish(), text))
+        }
+    }
+}
+
+/// Brings text artifacts back into agreement with a snapshot that is already
+/// published, under the guard and against the snapshot the guard finds.
+fn republish_text(root: &Path, threads: usize, budget: u32) -> Result<TextReport, Published> {
+    let Some(held) = rr_git::hold(root, threads).map_err(anyhow::Error::new)? else {
+        // The snapshot vanished between the two reads. Nothing to project from,
+        // and the next run rebuilds it.
+        return Ok(TextReport::default());
+    };
+    let staged = text_artifacts::stage(held.snapshot(), held.work_root(), budget)?;
+    refuse_on_conflict(&staged)?;
+    let text = text_artifacts::publish(&staged, held.work_root())?;
+    text_artifacts::confirm(held.snapshot(), held.work_root(), budget)?;
+    Ok(text)
+}
+
+fn refuse_on_conflict(staged: &StagedText) -> Result<(), Published> {
+    if staged.validation().is_publishable() {
+        return Ok(());
+    }
+    Err(Published::Conflicts(text_artifacts::conflict_report(
+        staged.validation().conflicts(),
+    )))
 }
 
 /// The counter breakdown behind the summary line.
