@@ -127,7 +127,15 @@ impl FactCache {
     /// # Errors
     /// Returns [`Error::CacheIo`] if the directory cannot be created or is not writable.
     pub fn open(repo_root: &Path) -> Result<Self> {
-        let root = repo_root.join(".rr").join("local").join("facts");
+        // Marking the state directory ignored before creating the cache inside
+        // it means Git never observes a moment where thousands of cache files
+        // exist without the rule that hides them.
+        crate::workspace::ensure_private(repo_root).map_err(|source| Error::CacheIo {
+            path: crate::workspace::state_dir(repo_root),
+            source,
+        })?;
+
+        let root = crate::workspace::facts_dir(repo_root);
         fs::create_dir_all(&root).map_err(|source| Error::CacheIo {
             path: root.clone(),
             source,

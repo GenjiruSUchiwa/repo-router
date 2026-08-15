@@ -8,7 +8,20 @@ repository.workspace = true
 
 [dependencies]
 thiserror = { workspace = true }
-gix = { version = "0.86.0", default-features = false, features = ["index", "sha1", "attributes"] }
+# `sha256` is not optional in the way it looks. This crate already hashes and
+# compares thirty-two-byte object names, so without it a SHA-256 repository
+# fails while *opening*, on an unreadable `extensions.objectFormat` error, long
+# before anything that could explain itself.
+gix = { version = "0.86.0", default-features = false, features = [
+    "index",
+    "sha1",
+    "sha256",
+    "attributes",
+    "status",
+    "dirwalk",
+] }
+gix-lock = "24.0.0"
+blake3 = { workspace = true }
 sha1 = { workspace = true }
 sha2 = { workspace = true }
 serde = { workspace = true }
@@ -21,8 +34,15 @@ rayon = { workspace = true }
 rustix = { version = "1", features = ["fs"] }
 
 [dev-dependencies]
+proptest = { workspace = true }
 serde_json = { workspace = true }
 tempfile = { workspace = true }
+
+# Already built for the library above; tests use it to set timestamps rather
+# than wait for them, which is the only way a racy-clean fixture is a fixture
+# and not a race of its own.
+[target.'cfg(unix)'.dev-dependencies]
+rustix = { version = "1", features = ["fs"] }
 
 [lints]
 workspace = true

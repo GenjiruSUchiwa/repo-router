@@ -149,6 +149,26 @@ pub fn is_generated(rel_path: &str, full_path: Option<&Path>) -> bool {
     false
 }
 
+/// The language discovery would file this path under, if it collects it at all.
+///
+/// This is the whole of what the *path* decides. Everything else
+/// [`classify_entry`] consults — the entry's type, the ignore rules that pruned
+/// the walk before it got here, the file's own first lines — needs the file to
+/// exist and the walk to have reached it.
+///
+/// Callers who only have a path therefore get a necessary condition, never a
+/// sufficient one: `None` means no walk under this configuration can ever
+/// produce that path, while `Some` means only that nothing about the name rules
+/// it out. Both halves live here so the two callers cannot drift apart.
+#[must_use]
+pub fn collected_lang(path: impl AsRef<Path>, cfg: &WalkCfg) -> Option<Lang> {
+    let lang = Lang::from_path(path)?;
+    match &cfg.languages {
+        Some(allowed) if !allowed.contains(&lang) => None,
+        _ => Some(lang),
+    }
+}
+
 /// Classifies a directory entry into a [`SourceFile`].
 #[must_use]
 pub fn classify_entry(root: &Path, entry: &DirEntry, cfg: &WalkCfg) -> Option<SourceFile> {
@@ -160,13 +180,7 @@ pub fn classify_entry(root: &Path, entry: &DirEntry, cfg: &WalkCfg) -> Option<So
     let full_path = entry.path();
     let rel_path = RelPath::from_path(root, full_path).ok()?;
 
-    let lang = Lang::from_path(full_path)?;
-
-    if let Some(allowed) = &cfg.languages {
-        if !allowed.contains(&lang) {
-            return None;
-        }
-    }
+    let lang = collected_lang(full_path, cfg)?;
 
     let generated = if is_generated(rel_path.as_str(), None) {
         true

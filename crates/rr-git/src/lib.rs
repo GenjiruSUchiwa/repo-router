@@ -7,18 +7,27 @@
 //! and index-based OID resolution with zero content reads on clean files.
 
 pub mod content;
+pub mod guard;
 pub mod map;
 pub mod oid;
+pub mod pipeline;
+pub mod plan;
+pub mod refresh;
 pub mod repo;
+pub mod rules;
 mod safe_open;
+pub mod status;
 
 pub use content::{
     acquire_for_source, acquire_non_git, revalidate_source, AcquireOutcome, AcquiredContent,
     ContentProbe, ContentRepresentation,
 };
+pub use guard::RepositoryWriteGuard;
 pub use map::build_map;
 pub use oid::{hash_blob, HashAlgo, Oid, OidError};
-pub use repo::{oid_of, GitRepo};
+pub use refresh::refresh;
+pub use repo::{oid_of, ChangeKind, GitRepo, HeadState, RepoState, WorktreeChange};
+pub use status::status;
 
 /// Git error types for `rr-git`.
 #[derive(Debug, thiserror::Error)]
@@ -34,8 +43,21 @@ pub enum Error {
     Index(#[from] Box<gix::worktree::open_index::Error>),
     #[error("core error: {0}")]
     Core(#[from] rr_core::Error),
+    /// Reading, encoding, or publishing the snapshot file failed.
+    #[error("snapshot error: {0}")]
+    Snapshot(#[from] rr_core::snapshot::SnapshotIoError),
     #[error("content acquisition failed: {0}")]
     Content(String),
+    /// The caller asked to stop before the work finished.
+    #[error("cancelled")]
+    Cancelled,
+    /// Another process is already publishing for this repository.
+    #[error("another rr process is refreshing this repository ({})", path.display())]
+    PublicationLocked { path: std::path::PathBuf },
+    /// The repository moved while the snapshot was being built, so the snapshot
+    /// no longer describes it and was not published.
+    #[error("the repository changed while refreshing; nothing was published")]
+    RepositoryChanged,
     /// Git object identifier validation failure.
     #[error("OID error: {0}")]
     Oid(#[from] OidError),

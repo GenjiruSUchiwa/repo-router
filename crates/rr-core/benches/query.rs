@@ -43,7 +43,7 @@ fn setup_benchmark_snapshot() -> rr_core::index::Snapshot {
         });
     }
 
-    let meta = SnapshotMeta::new(None, true);
+    let meta = SnapshotMeta::new(None, true, [0; 32]);
     let (snapshot, _) = SnapshotBuilder::new(meta).build(inputs).unwrap();
     snapshot
 }

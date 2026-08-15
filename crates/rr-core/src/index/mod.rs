@@ -96,21 +96,83 @@ pub struct SnapshotMeta {
     pub build_version: u32,
     /// Ranking configuration this index was frozen under.
     pub ranking: RankingStamp,
+    /// Digest of the membership and byte-representation rules this snapshot was
+    /// built under.
+    ///
+    /// An incremental refresh only means anything if the corpus definition did
+    /// not move underneath it, and Git status reports content changes, never
+    /// rule changes. Recording the rules is what lets a later run notice.
+    pub discovery_digest: [u8; 32],
+    /// Dirty paths whose records this snapshot is a statement about, sorted.
+    ///
+    /// A snapshot records the *working tree*, so a file that was dirty when it
+    /// was built holds worktree content — while Git status only ever reports
+    /// the difference from `HEAD`. Reverting such a file therefore changes what
+    /// the snapshot should say while producing no status entry at all, and the
+    /// stale record would survive every subsequent refresh.
+    ///
+    /// Keeping the previous dirty set is what closes that hole: a path that was
+    /// dirty then and is not dirty now must be reconsidered, whatever the
+    /// current delta happens to contain.
+    pub dirty_paths: Vec<crate::path::RelPath>,
+    /// Dirty paths that were on disk when this snapshot was built and that
+    /// discovery declined to collect anyway, sorted.
+    ///
+    /// Git reports a modified file whether or not this index has any interest
+    /// in it, and a tracked file inside an ignored directory is reported for
+    /// ever while never being walked. Without this list such a path sits in
+    /// every delta permanently: `rr status` answers `stale`, and the refresh it
+    /// asks for changes nothing, because there was never anything to change.
+    ///
+    /// It records an *observation*, not a deduction — the build walked the tree
+    /// with these files in it and produced no record for them — which is why it
+    /// is trustworthy enough to skip a path on. Paths that were absent then say
+    /// nothing about what discovery would collect and are not listed.
+    pub skipped_paths: Vec<crate::path::RelPath>,
 }
 
 impl SnapshotMeta {
     /// Builds metadata stamped with the current binary's lexical, build, and
     /// ranking configuration.
     #[must_use]
-    pub fn new(repo_head_oid: Option<Oid>, no_git: bool) -> Self {
+    pub fn new(repo_head_oid: Option<Oid>, no_git: bool, discovery_digest: [u8; 32]) -> Self {
         Self {
             repo_head_oid,
             no_git,
             lexical_profile: crate::lex::lexical_profile(),
             build_version: BUILD_VERSION,
             ranking: RankingStamp::of(&DEFAULT_RANKING_PROFILE),
+            discovery_digest,
+            dirty_paths: Vec::new(),
+            skipped_paths: Vec::new(),
         }
     }
+
+    /// Records the dirty paths this snapshot's own records depend on.
+    #[must_use]
+    pub fn with_dirty_paths(mut self, paths: Vec<crate::path::RelPath>) -> Self {
+        self.dirty_paths = settled(paths);
+        self
+    }
+
+    /// Records the dirty paths this build saw and did not index.
+    #[must_use]
+    pub fn with_skipped_paths(mut self, paths: Vec<crate::path::RelPath>) -> Self {
+        self.skipped_paths = settled(paths);
+        self
+    }
+}
+
+/// Puts a path list into the one order every build of the same tree produces.
+///
+/// Sorted and deduplicated here rather than trusted from the caller, since two
+/// builds of the same repository must produce identical bytes and the order the
+/// paths were observed in is not part of what was observed. Both lists are also
+/// searched by the planner, which needs them sorted for a different reason.
+fn settled(mut paths: Vec<crate::path::RelPath>) -> Vec<crate::path::RelPath> {
+    paths.sort();
+    paths.dedup();
+    paths
 }
 
 /// One indexed source file and its arena slice.
@@ -458,6 +520,48 @@ impl Snapshot {
     /// Returns [`Error::SnapshotInvariant`] describing the first violation.
     pub fn validate(&self) -> Result<()> {
         validate::snapshot(self)
+    }
+
+    /// Resolves an interned string.
+    #[must_use]
+    pub fn string(&self, id: StringId) -> Option<&str> {
+        self.strings.get(id.index()).map(String::as_str)
+    }
+
+    /// Resolves a file's recorded path.
+    #[must_use]
+    pub fn file_path(&self, file: &FileRecord) -> Option<&str> {
+        self.string(file.path)
+    }
+
+    /// Finds the record for `path`, if this snapshot indexed it.
+    ///
+    /// `files` is built from path-sorted inputs and validation proves the order
+    /// survived, so this is a binary search rather than a scan.
+    #[must_use]
+    pub fn file_by_path(&self, path: &str) -> Option<&FileRecord> {
+        let index = self
+            .files
+            .binary_search_by(|file| self.file_path(file).unwrap_or("").cmp(path))
+            .ok()?;
+        self.files.get(index)
+    }
+
+    /// Counts references and imports that local resolution could not pin to a
+    /// single definition.
+    #[must_use]
+    pub fn unresolved_count(&self) -> u64 {
+        let references = self
+            .references
+            .iter()
+            .filter(|record| record.resolution == Resolution::Unresolved)
+            .count();
+        let imports = self
+            .imports
+            .iter()
+            .filter(|record| record.resolution == Resolution::Unresolved)
+            .count();
+        u64::try_from(references.saturating_add(imports)).unwrap_or(u64::MAX)
     }
 
     /// Builds a [`Lexicon`] from the terms and strings in this snapshot.
@@ -886,7 +990,7 @@ mod tests {
 
     #[test]
     fn malformed_lexicon_returns_error_instead_of_panicking() {
-        let (mut snapshot, _) = SnapshotBuilder::new(SnapshotMeta::new(None, true))
+        let (mut snapshot, _) = SnapshotBuilder::new(SnapshotMeta::new(None, true, [0; 32]))
             .build(Vec::new())
             .unwrap();
         snapshot.terms.push(TermRecord {

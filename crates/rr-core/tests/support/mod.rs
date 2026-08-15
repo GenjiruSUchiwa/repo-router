@@ -62,7 +62,7 @@ pub fn fixture_snapshot(repository: &str) -> Snapshot {
         !inputs.is_empty(),
         "fixture repository {repository} has no Rust sources"
     );
-    let (snapshot, _counts) = SnapshotBuilder::new(SnapshotMeta::new(None, true))
+    let (snapshot, _counts) = SnapshotBuilder::new(SnapshotMeta::new(None, true, [0; 32]))
         .build(inputs)
         .expect("index a fixture repository");
     snapshot
@@ -89,7 +89,7 @@ pub fn synthetic_snapshot(sources: &[(&str, &str)]) -> Snapshot {
                 .expect("extract synthetic facts"),
         })
         .collect();
-    let (snapshot, _counts) = SnapshotBuilder::new(SnapshotMeta::new(None, true))
+    let (snapshot, _counts) = SnapshotBuilder::new(SnapshotMeta::new(None, true, [0; 32]))
         .build(inputs)
         .expect("index synthetic sources");
     snapshot
