@@ -21,8 +21,14 @@ use common::{
     set_index_mtime, set_mtime, write,
 };
 use rr_core::cancel::CancelToken;
+use rr_core::index::WorkerStats;
+use rr_core::path::RelPath;
 use rr_core::refresh::{RefreshMode, RefreshReport, ReportedMode};
 use rr_core::snapshot::SnapshotStore;
+use rr_core::walk::discover;
+use rr_core::FactCache;
+use rr_git::map::BuildContext;
+use rr_git::plan::{observe, Published};
 
 const THREADS: usize = 2;
 
@@ -742,5 +748,90 @@ fn the_first_commit_rebuilds_and_agrees() {
     assert_eq!(
         report.fallback_reason,
         Some(rr_core::refresh::FullReason::HeadChanged)
+    );
+}
+
+/// A file that goes missing while it is being read, and is back before the
+/// snapshot is assembled.
+///
+/// The build produces no record for it — there was nothing to read — and by
+/// assembly time it is once again a perfectly ordinary dirty source file with
+/// no record. That is indistinguishable, from the outside, from a file
+/// discovery looked at and declined, and recording it as declined settles the
+/// question the wrong way *for good*: the planner drops a declined path from
+/// every future delta, `status` answers `fresh`, the no-op path is taken, and
+/// no refresh ever looks at that file again.
+///
+/// The window cannot be scheduled by racing a real deletion against a real
+/// build. It does not have to be: `run` takes the per-file decision from its
+/// caller — that is how retention is injected — so a worker that reports one
+/// file as vanished is the ordinary API used ordinarily, not a hook cut for a
+/// test.
+///
+/// The second half is the one that matters. Publishing that snapshot and
+/// letting an ordinary refresh loose on it is what turns "the list is right"
+/// into "the file comes back", which is the only form of this the user ever
+/// experiences.
+#[test]
+fn a_path_that_vanished_mid_build_is_not_recorded_as_one_discovery_declined() {
+    let temp = seeded();
+    write(temp.path(), "src/ghost.rs", "pub fn ghost() -> u32 { 9 }\n");
+    let ghost = RelPath::try_from("src/ghost.rs").expect("bad path");
+
+    let context = BuildContext::open(temp.path(), THREADS).expect("open failed");
+    let files = discover(&context.work_root, &context.walk).expect("discovery failed");
+    let cache = FactCache::open(&context.work_root).expect("cache failed");
+    let observed = observe(&context, &CancelToken::new()).expect("observation failed");
+
+    assert!(
+        files.iter().any(|file| file.path == ghost),
+        "discovery has to offer it, or there is no vanishing to speak of"
+    );
+    assert!(
+        observed
+            .as_ref()
+            .is_some_and(|state| state.changes.iter().any(|change| change.path == ghost)),
+        "it has to be dirty, or it never reaches the skipped list at all"
+    );
+
+    let built = context
+        .run(&files, |worker, source| {
+            if source.path == ghost {
+                // Gone at the instant the worker reached it.
+                return Ok((None, WorkerStats::default()));
+            }
+            worker.process(source, &cache)
+        })
+        .expect("build failed");
+    let outcome = context
+        .assemble(built, observed.as_ref())
+        .expect("assembly failed");
+
+    assert!(
+        outcome.snapshot.file_by_path(ghost.as_str()).is_none(),
+        "the premise is that this build produced no record for it"
+    );
+    assert!(
+        temp.path().join("src/ghost.rs").is_file(),
+        "and that it is an ordinary file again by the time the list is written"
+    );
+    assert!(
+        !outcome.snapshot.meta.skipped_paths.contains(&ghost),
+        "a path discovery offered is no evidence about what discovery declines"
+    );
+
+    let store = SnapshotStore::new(temp.path());
+    let envelope = store.encode(&outcome.snapshot).expect("encoding failed");
+    store.publish(&envelope).expect("publication failed");
+
+    let report = refresh(temp.path(), RefreshMode::Incremental);
+    assert_eq!(report.mode, ReportedMode::Incremental);
+
+    let published = Published::load(&store).expect("loading failed");
+    let snapshot = published.snapshot().expect("nothing was published");
+    assert!(
+        snapshot.file_by_path(ghost.as_str()).is_some(),
+        "the next refresh has to reconsider it; otherwise the file is gone from \
+         the index for as long as nobody touches it again"
     );
 }
