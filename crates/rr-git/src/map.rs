@@ -14,7 +14,7 @@ use rr_core::cancel::CancelToken;
 use rr_core::index::{
     BuildReport, BuildStats, FileInput, SnapshotBuilder, SnapshotMeta, WorkerStats,
 };
-use rr_core::lang::Lang;
+use rr_core::parser::Registry;
 use rr_core::path::RelPath;
 use rr_core::walk::{collected_lang, discover, SourceFile, WalkCfg};
 use rr_core::FactCache;
@@ -173,7 +173,7 @@ impl BuildContext {
         Ok(Self {
             work_root,
             walk: WalkCfg {
-                languages: Some(vec![Lang::Rust]),
+                languages: Some(Registry::supported()),
                 threads: Some(threads),
                 ..WalkCfg::default()
             },

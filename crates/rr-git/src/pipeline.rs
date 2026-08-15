@@ -9,10 +9,10 @@
 use std::path::{Path, PathBuf};
 
 use rr_core::cache::CacheOutcome;
-use rr_core::facts::{Facts, ParseStatus};
+use rr_core::facts::{DegradedReason, Facts, ParseStatus};
 use rr_core::index::{ContentRepresentation, FileInput, WorkerStats};
 use rr_core::lang::Lang;
-use rr_core::parser::RustExtractor;
+use rr_core::parser::{degraded_facts, Registry};
 use rr_core::path::RelPath;
 use rr_core::walk::SourceFile;
 use rr_core::{CacheKey, FactCache, Oid};
@@ -32,14 +32,24 @@ enum Acquired {
     Vanished,
 }
 
+/// Whether facts are worth keeping for a later run.
+///
+/// Not a `DegradedReason`: that enum's `ParserReturnedNone` already means a
+/// real parse failure, which *is* worth caching. Separating the two is a
+/// serialized-schema change owned by #31.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Reusable {
+    Yes,
+    No,
+}
+
 /// One worker's share of the per-file work.
 ///
-/// The extractor and the repository handle are built once per worker rather
-/// than once per file, and a construction failure is carried rather than thrown
-/// so that discovering it does not depend on which file a thread happened to
-/// pick up first. The failure surfaces on first use, with its original message.
+/// The repository handle is built once per worker rather than once per file.
+/// The extractor registry is built lazily per language, so a construction
+/// failure surfaces on first use of that language, with its original message.
 pub struct Worker {
-    extractor: std::result::Result<RustExtractor, String>,
+    registry: Registry,
     repo: std::result::Result<Option<GitRepo>, String>,
     root: PathBuf,
 }
@@ -49,7 +59,7 @@ impl Worker {
     #[must_use]
     pub fn new(root: &Path) -> Self {
         Self {
-            extractor: RustExtractor::new().map_err(|error| error.to_string()),
+            registry: Registry::new(),
             repo: GitRepo::discover(root).map_err(|error| error.to_string()),
             root: root.to_path_buf(),
         }
@@ -87,13 +97,14 @@ impl Worker {
             Acquired::Pending(content) => content,
         };
 
-        let facts = self.extract(&content)?;
+        let (facts, reusable) = self.extract(source.lang, &content)?;
         stats.parses += 1;
         record_status(&mut stats, facts.status());
 
-        if cache
-            .put(&CacheKey::new(content.oid, Lang::Rust), &facts)
-            .is_err()
+        if reusable == Reusable::Yes
+            && cache
+                .put(&CacheKey::new(content.oid, source.lang), &facts)
+                .is_err()
         {
             // A cache that cannot be written still lets this run finish; only
             // the next one pays for it. Failing here would turn a full disk
@@ -130,7 +141,7 @@ impl Worker {
         cache: &FactCache,
     ) -> Result<(Option<FileInput>, WorkerStats)> {
         let mut stats = WorkerStats::default();
-        if let Some(facts) = lookup(cache, oid, &mut stats)? {
+        if let Some(facts) = lookup(cache, oid, source.lang, &mut stats)? {
             let input = input_from(source, oid, representation, facts);
             record_status(&mut stats, input.parse_status);
             return Ok((Some(input), stats));
@@ -163,7 +174,7 @@ impl Worker {
             // a clean repository costs nothing.
             ContentProbe::CleanGitBlob(oid) => {
                 stats.clean_probes += 1;
-                if let Some(facts) = lookup(cache, oid, stats)? {
+                if let Some(facts) = lookup(cache, oid, source.lang, stats)? {
                     return Ok(Acquired::Known(input_from(
                         source,
                         oid,
@@ -217,12 +228,18 @@ impl Worker {
         known_or_pending(source, content, cache, stats)
     }
 
-    fn extract(&mut self, content: &AcquiredContent) -> Result<Facts> {
-        let extractor = self
-            .extractor
-            .as_mut()
-            .map_err(|message| Error::Content(message.clone()))?;
-        extractor.extract(&content.bytes).map_err(Error::Core)
+    fn extract(&mut self, lang: Lang, content: &AcquiredContent) -> Result<(Facts, Reusable)> {
+        match self.registry.for_lang(lang) {
+            Some(Ok(extractor)) => extractor
+                .extract(&content.bytes)
+                .map(|facts| (facts, Reusable::Yes))
+                .map_err(Error::Core),
+            Some(Err(message)) => Err(Error::Content(message)),
+            None => Ok((
+                degraded_facts(&content.bytes, DegradedReason::ParserReturnedNone),
+                Reusable::No,
+            )),
+        }
     }
 }
 
@@ -233,7 +250,7 @@ fn known_or_pending(
     cache: &FactCache,
     stats: &mut WorkerStats,
 ) -> Result<Acquired> {
-    match lookup(cache, content.oid, stats)? {
+    match lookup(cache, content.oid, source.lang, stats)? {
         Some(facts) => Ok(Acquired::Known(input_from(
             source,
             content.oid,
@@ -249,8 +266,13 @@ fn known_or_pending(
 /// A corrupt entry and a missing one lead to the same work, so they return the
 /// same thing; they are counted apart because only one of them means something
 /// went wrong.
-fn lookup(cache: &FactCache, oid: Oid, stats: &mut WorkerStats) -> Result<Option<Facts>> {
-    match cached_facts(cache, &CacheKey::new(oid, Lang::Rust))? {
+fn lookup(
+    cache: &FactCache,
+    oid: Oid,
+    lang: Lang,
+    stats: &mut WorkerStats,
+) -> Result<Option<Facts>> {
+    match cached_facts(cache, &CacheKey::new(oid, lang))? {
         CacheOutcome::Hit(facts) => {
             stats.cache_hits += 1;
             Ok(Some(facts))

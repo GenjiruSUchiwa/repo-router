@@ -4,7 +4,11 @@ mod rust;
 
 pub use rust::RustExtractor;
 
+use std::collections::BTreeMap;
+
 use crate::facts::{DegradedReason, Facts};
+use crate::lang::Lang;
+use crate::Result;
 
 /// Bump on ANY change to the pinned Tree-sitter runtime/grammar version,
 /// queries/rust.scm, capture interpretation, use-tree expansion,
@@ -81,9 +85,88 @@ fn scan_idents(text: &str) -> Vec<String> {
     out
 }
 
-fn degraded_facts(content: &[u8], reason: DegradedReason) -> Facts {
+/// Builds degraded facts from a lexical scan, the fallback when no extractor
+/// applies.
+#[must_use]
+pub fn degraded_facts(content: &[u8], reason: DegradedReason) -> Facts {
     let (idents, scanned_bytes, truncated) = lexical_idents(content);
     Facts::degraded(idents, reason, scanned_bytes, truncated)
+}
+
+/// Produces [`Facts`] from source bytes. One implementation per language.
+pub trait Extractor: Send {
+    /// The language this extractor parses, so a registry entry can be checked
+    /// against the language it is filed under.
+    fn lang(&self) -> Lang;
+
+    /// Extracts facts from exactly these bytes.
+    ///
+    /// # Errors
+    /// Returns extraction invariant and facts validation failures.
+    fn extract(&mut self, content: &[u8]) -> Result<Facts>;
+}
+
+impl Extractor for RustExtractor {
+    fn lang(&self) -> Lang {
+        Lang::Rust
+    }
+
+    fn extract(&mut self, content: &[u8]) -> Result<Facts> {
+        RustExtractor::extract(self, content)
+    }
+}
+
+/// A built extractor, or why it could not be built.
+type Built = Result<Box<dyn Extractor>, String>;
+type Builder = fn() -> Built;
+
+/// Each language beside the only builder allowed to fill it, so the lookup and
+/// [`Registry::supported`] cannot disagree.
+const EXTRACTORS: &[(Lang, Builder)] = &[(Lang::Rust, build_rust)];
+
+fn build_rust() -> Built {
+    RustExtractor::new()
+        .map(|extractor| Box::new(extractor) as Box<dyn Extractor>)
+        .map_err(|error| error.to_string())
+}
+
+/// One lazily built extractor per supported language, keyed by [`Lang`].
+///
+/// Lazy because rayon builds one `Worker`, and so one registry, per thread.
+#[derive(Default)]
+pub struct Registry {
+    built: BTreeMap<Lang, Built>,
+}
+
+impl Registry {
+    /// Creates a registry with nothing built yet.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Returns the extractor for `lang`, building it on first use.
+    ///
+    /// `None` means no extractor exists for the language, so the caller
+    /// degrades. `Some(Err(_))` carries a construction failure so it surfaces
+    /// on first use rather than at registry construction — which is why
+    /// [`Registry::new`] cannot fail.
+    pub fn for_lang(&mut self, lang: Lang) -> Option<Result<&mut dyn Extractor, String>> {
+        let build = EXTRACTORS
+            .iter()
+            .find_map(|(candidate, build)| (*candidate == lang).then_some(*build))?;
+
+        match self.built.entry(lang).or_insert_with(build) {
+            Ok(extractor) => Some(Ok(extractor.as_mut())),
+            Err(message) => Some(Err(message.clone())),
+        }
+    }
+
+    /// The languages that have an extractor. Read by the walk allowlist.
+    #[must_use]
+    pub fn supported() -> Vec<Lang> {
+        EXTRACTORS.iter().map(|(lang, _)| *lang).collect()
+    }
 }
 
 #[cfg(test)]
@@ -131,5 +214,46 @@ mod tests {
         assert_eq!(idents, vec!["abc", "def", "ghi"]);
         assert_eq!(scanned as usize, content.len());
         assert!(!truncated);
+    }
+    #[test]
+    fn supported_lists_only_rust() {
+        assert_eq!(Registry::supported(), vec![Lang::Rust]);
+    }
+
+    #[test]
+    fn every_supported_language_is_served_by_its_own_extractor() {
+        for lang in Registry::supported() {
+            let mut registry = Registry::new();
+            let extractor = registry
+                .for_lang(lang)
+                .unwrap_or_else(|| panic!("{lang} is supported but has no extractor"))
+                .unwrap_or_else(|message| panic!("{lang} failed to build: {message}"));
+
+            // Not `is_some`: a builder filed under the wrong language answers
+            // every call, so asking whether something replied proves nothing.
+            // Only asking *what* replied catches a mismatched table row.
+            assert_eq!(
+                extractor.lang(),
+                lang,
+                "{lang} is served by a {} extractor",
+                extractor.lang()
+            );
+        }
+    }
+
+    #[test]
+    fn for_lang_returns_none_for_an_unsupported_language() {
+        let mut registry = Registry::new();
+        assert!(registry.for_lang(Lang::Python).is_none());
+    }
+
+    #[test]
+    fn a_broken_extractor_surfaces_on_first_use_not_at_construction() {
+        let mut registry = Registry::new();
+        registry.built.insert(Lang::Rust, Err("broken".into()));
+        assert!(matches!(
+            registry.for_lang(Lang::Rust),
+            Some(Err(message)) if message == "broken"
+        ));
     }
 }
