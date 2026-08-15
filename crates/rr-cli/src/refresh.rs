@@ -209,8 +209,12 @@ fn publish(
             let staged = text_artifacts::stage(prepared.snapshot(), prepared.work_root(), budget)?;
             refuse_on_conflict(&staged)?;
             prepared.publish().map_err(anyhow::Error::new)?;
-            let text = text_artifacts::publish(&staged, prepared.work_root())?;
-            text_artifacts::confirm(prepared.snapshot(), prepared.work_root(), budget)?;
+            let text = text_artifacts::publish(
+                &staged,
+                prepared.snapshot(),
+                prepared.work_root(),
+                budget,
+            )?;
             Ok((prepared.finish(), text))
         }
     }
@@ -226,9 +230,12 @@ fn republish_text(root: &Path, threads: usize, budget: u32) -> Result<TextReport
     };
     let staged = text_artifacts::stage(held.snapshot(), held.work_root(), budget)?;
     refuse_on_conflict(&staged)?;
-    let text = text_artifacts::publish(&staged, held.work_root())?;
-    text_artifacts::confirm(held.snapshot(), held.work_root(), budget)?;
-    Ok(text)
+    Ok(text_artifacts::publish(
+        &staged,
+        held.snapshot(),
+        held.work_root(),
+        budget,
+    )?)
 }
 
 fn refuse_on_conflict(staged: &StagedText) -> Result<(), Published> {

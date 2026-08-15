@@ -6,52 +6,18 @@
 //! command worked and the answer is not one to act on — staying separate from
 //! `1`, which means it did not work at all.
 
-use std::path::Path;
-use std::process::{Command, Output};
+mod common;
 
 use serde_json::Value;
 use tempfile::TempDir;
 
-fn run(dir: &Path, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_rr"))
-        .args(args)
-        .current_dir(dir)
-        .output()
-        .expect("failed to execute rr binary")
-}
-
-fn code(output: &Output) -> i32 {
-    output.status.code().expect("rr was killed by a signal")
-}
-
-fn stdout(output: &Output) -> String {
-    String::from_utf8_lossy(&output.stdout).into_owned()
-}
-
-fn json(output: &Output) -> Value {
-    serde_json::from_str(&stdout(output)).expect("stdout was not one JSON object")
-}
-
-fn git(dir: &Path, args: &[&str]) {
-    let output = Command::new("git")
-        .args(args)
-        .current_dir(dir)
-        .output()
-        .unwrap_or_else(|error| panic!("failed to run git {args:?}: {error}"));
-    assert!(output.status.success(), "git {args:?} failed");
-}
+use common::{code, commit_all, empty_repo, git, json, run, stdout, write};
 
 /// A repository with one committed source file and no snapshot.
 fn repo() -> TempDir {
-    let temp = TempDir::new().expect("failed to create temp dir");
-    git(temp.path(), &["init", "-q"]);
-    git(temp.path(), &["config", "user.name", "Test User"]);
-    git(temp.path(), &["config", "user.email", "test@example.com"]);
-    std::fs::create_dir_all(temp.path().join("src")).expect("failed to create src");
-    std::fs::write(temp.path().join("src/lib.rs"), "pub fn one() {}\n")
-        .expect("failed to write source");
-    git(temp.path(), &["add", "-A"]);
-    git(temp.path(), &["commit", "-qm", "seed"]);
+    let temp = empty_repo();
+    write(temp.path(), "src/lib.rs", "pub fn one() {}\n");
+    commit_all(temp.path(), "seed");
     temp
 }
 
@@ -108,8 +74,7 @@ fn status_json_carries_the_versioned_contract() {
 fn committing_the_generated_maps_moves_head_and_forces_a_full_fallback() {
     let temp = repo();
     run(temp.path(), &["map"]);
-    git(temp.path(), &["add", "-A"]);
-    git(temp.path(), &["commit", "-qm", "maps"]);
+    commit_all(temp.path(), "maps");
 
     let status = json(&run(temp.path(), &["status", "--json"]));
     assert_eq!(status["git"], "clean");

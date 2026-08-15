@@ -4,59 +4,18 @@
 //! second run touches nothing, that a hand-written file at a reserved path
 //! survives, and that a conflict costs the whole run rather than one file.
 
+mod common;
+
 use std::fmt::Write as _;
 use std::path::Path;
-use std::process::{Command, Output};
 
 use tempfile::TempDir;
 
-fn run(dir: &Path, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_rr"))
-        .args(args)
-        .current_dir(dir)
-        .output()
-        .expect("failed to execute rr binary")
-}
-
-fn code(output: &Output) -> i32 {
-    output.status.code().expect("rr was killed by a signal")
-}
-
-fn stdout(output: &Output) -> String {
-    String::from_utf8_lossy(&output.stdout).into_owned()
-}
-
-fn stderr(output: &Output) -> String {
-    String::from_utf8_lossy(&output.stderr).into_owned()
-}
-
-fn git(dir: &Path, args: &[&str]) {
-    let output = Command::new("git")
-        .args(args)
-        .current_dir(dir)
-        .output()
-        .unwrap_or_else(|error| panic!("failed to run git {args:?}: {error}"));
-    assert!(output.status.success(), "git {args:?} failed");
-}
-
-fn write(root: &Path, path: &str, contents: &str) {
-    let absolute = root.join(path);
-    if let Some(parent) = absolute.parent() {
-        std::fs::create_dir_all(parent).expect("failed to create parent");
-    }
-    std::fs::write(absolute, contents).expect("failed to write file");
-}
-
-fn read(root: &Path, path: &str) -> String {
-    std::fs::read_to_string(root.join(path)).expect("failed to read file")
-}
+use common::{code, commit_all, empty_repo, read, run, stderr, stdout, write};
 
 /// A repository with two directories, one of them nested.
 fn repo() -> TempDir {
-    let temp = TempDir::new().expect("failed to create temp dir");
-    git(temp.path(), &["init", "-q"]);
-    git(temp.path(), &["config", "user.name", "Test User"]);
-    git(temp.path(), &["config", "user.email", "test@example.com"]);
+    let temp = empty_repo();
     write(temp.path(), "lib.rs", "pub fn entry() -> u32 { 1 }\n");
     write(
         temp.path(),
@@ -68,8 +27,7 @@ fn repo() -> TempDir {
         "extra/other.rs",
         "pub fn other() -> u32 { 2 }\n",
     );
-    git(temp.path(), &["add", "-A"]);
-    git(temp.path(), &["commit", "-qm", "seed"]);
+    commit_all(temp.path(), "seed");
     temp
 }
 
@@ -148,8 +106,7 @@ fn running_again_touches_nothing() {
 fn generated_maps_never_re_enter_the_index() {
     let temp = repo();
     run(temp.path(), &["map"]);
-    git(temp.path(), &["add", "-A"]);
-    git(temp.path(), &["commit", "-qm", "maps"]);
+    commit_all(temp.path(), "maps");
 
     let refreshed = run(temp.path(), &["refresh", "--verbose"]);
     assert_eq!(code(&refreshed), 0);

@@ -121,12 +121,27 @@ pub fn conflict_report(conflicts: &[Conflict]) -> String {
     out
 }
 
-/// Writes one generation, in the order a reader can rely on.
+/// Writes one generation, in the order a reader can rely on, and reads it back.
+///
+/// Verification is not a step a caller can skip, because the failure it catches
+/// — a repository holding two generations at once — is invisible until someone
+/// reads a map that names a snapshot nobody has.
 ///
 /// # Errors
 /// Returns I/O failures, and an error when the bytes on disk do not read back
 /// as the generation that was just written.
-pub fn publish(staged: &StagedText, root: &Path) -> anyhow::Result<TextReport> {
+pub fn publish(
+    staged: &StagedText,
+    snapshot: &Snapshot,
+    root: &Path,
+    budget: u32,
+) -> anyhow::Result<TextReport> {
+    let report = write_generation(staged, root)?;
+    confirm(snapshot, root, budget)?;
+    Ok(report)
+}
+
+fn write_generation(staged: &StagedText, root: &Path) -> anyhow::Result<TextReport> {
     let validation = staged.validation();
     let mut report = TextReport {
         pending_purposes: validation.pending_purposes(),
@@ -177,12 +192,7 @@ pub fn publish(staged: &StagedText, root: &Path) -> anyhow::Result<TextReport> {
 }
 
 /// Reads the whole generation back and checks it says what was written.
-///
-/// # Errors
-/// Returns an error when any artifact is missing, unreadable, or no longer
-/// agrees with the snapshot — the mixed-generation case the guard exists to
-/// make detectable.
-pub fn confirm(snapshot: &Snapshot, root: &Path, budget: u32) -> anyhow::Result<()> {
+fn confirm(snapshot: &Snapshot, root: &Path, budget: u32) -> anyhow::Result<()> {
     let after = stage(snapshot, root, budget)?;
     let validation = after.validation();
     anyhow::ensure!(
