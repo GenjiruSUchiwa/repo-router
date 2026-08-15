@@ -20,7 +20,14 @@ use super::{encode, TextError, TextResult, TEXT_FORMAT_VERSION};
 /// Detected first because a conflicted file is *two* files, and every later
 /// diagnostic about it would be an accident of which side happened to come
 /// first in the byte stream.
-const CONFLICT_MARKERS: [&str; 3] = ["<<<<<<< ", "=======", ">>>>>>> "];
+///
+/// The bare `=======` separator is deliberately absent. It is also how Markdown
+/// underlines a setext heading, and the purpose slot is multi-line prose a human
+/// owns — so treating it as a marker refuses a file nobody merged, and tells its
+/// author to resolve a conflict that never happened. Every real conflict Git
+/// writes carries an opening and a closing marker too, both of which end in a
+/// space no separator line has, so nothing is lost by asking only for those.
+const CONFLICT_MARKERS: [&str; 3] = ["<<<<<<< ", "||||||| ", ">>>>>>> "];
 
 /// Which page of a scope a parsed map is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -503,7 +510,16 @@ fn unquote(value: &str) -> TextResult<String> {
             Some('r') => out.push('\r'),
             Some('t') => out.push('\t'),
             Some('u') => {
+                // Exactly four hexadecimal digits, checked before parsing:
+                // `from_str_radix` would otherwise accept a truncated escape at
+                // the end of the value, and a leading sign, as second spellings
+                // of a value this crate writes only one way.
                 let digits: String = characters.by_ref().take(4).collect();
+                if digits.len() != 4 || !digits.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+                    return Err(TextError::Frontmatter {
+                        reason: "quoted value has a malformed \\u escape",
+                    });
+                }
                 let code =
                     u32::from_str_radix(&digits, 16).map_err(|_| TextError::Frontmatter {
                         reason: "quoted value has a malformed \\u escape",
@@ -977,6 +993,20 @@ mod tests {
             decode(text.as_bytes()),
             Err(TextError::MergeConflict)
         ));
+    }
+
+    /// The purpose slot is prose a human owns, and `=======` underlines a
+    /// setext heading. Reading it as a conflict marker refuses a file nobody
+    /// merged — and says so in a message that sends its author looking for a
+    /// merge that never happened.
+    #[test]
+    fn a_setext_underline_is_not_a_merge_conflict() {
+        assert!(!has_conflict_markers("Routing\n=======\nfor auth.\n"));
+        assert!(!has_conflict_markers("a\n========\nb\n"));
+        assert!(has_conflict_markers(
+            "<<<<<<< HEAD\na\n=======\nb\n>>>>>>> x\n"
+        ));
+        assert!(has_conflict_markers("||||||| merged common ancestors\n"));
     }
 
     #[test]

@@ -332,6 +332,78 @@ fn assert_links_resolve(root: &Path) {
     }
 }
 
+/// Where the command was invoked from must not change what it does.
+///
+/// Artifact paths are repository-relative, so staging them against the working
+/// directory instead of the work root finds every map missing and turns a
+/// nothing-to-do run into one that takes the publication guard. Invisible in
+/// the report — both spellings say "unchanged" — so it is asserted where it
+/// shows: against a held lock, which only a run that reaches for it can fail.
+#[test]
+fn a_no_op_refresh_takes_no_lock_from_any_directory() {
+    let temp = repo();
+    run(temp.path(), &["map"]);
+    // Held by nobody, but `gix_lock` refuses a claim whose file already exists.
+    write(temp.path(), ".rr/local/publication.lock", "");
+
+    for from in [".", "src", "src/auth"] {
+        let output = run(&temp.path().join(from), &["refresh"]);
+        assert_eq!(
+            code(&output),
+            0,
+            "refresh from {from} reached for the guard: {}",
+            stderr(&output)
+        );
+        assert!(stdout(&output).contains("0 written"), "{from}");
+    }
+}
+
+/// The guard is still taken from a subdirectory when there is work to do.
+#[test]
+fn a_refresh_from_a_subdirectory_still_repairs_the_whole_repository() {
+    let temp = repo();
+    run(temp.path(), &["map"]);
+    std::fs::remove_file(temp.path().join("extra/MAP.md")).expect("remove map");
+
+    let output = run(&temp.path().join("src/auth"), &["refresh"]);
+
+    assert_eq!(code(&output), 0, "{}", stderr(&output));
+    assert!(temp.path().join("extra/MAP.md").is_file());
+    assert!(stdout(&output).contains("1 written"), "{}", stdout(&output));
+}
+
+/// `.rr/.gitignore` is written last, so validating it last means diagnosing it
+/// after the snapshot and every map are already replaced. Staged with the rest
+/// instead, because "nothing was written" has to be true when it is printed.
+#[test]
+fn a_malformed_managed_ignore_is_refused_before_anything_is_written() {
+    let temp = repo();
+    run(temp.path(), &["map"]);
+
+    let doubled = read(temp.path(), ".rr/.gitignore").repeat(2);
+    write(temp.path(), ".rr/.gitignore", &doubled);
+    let root_map = read(temp.path(), "MAP.md");
+    write(
+        temp.path(),
+        "src/auth/extra.rs",
+        "pub fn extra() -> u32 { 7 }\n",
+    );
+
+    let output = run(temp.path(), &["map"]);
+
+    assert_eq!(code(&output), 1, "{}", stdout(&output));
+    assert!(
+        stderr(&output).contains(".rr/.gitignore: managed ignore markers"),
+        "{}",
+        stderr(&output)
+    );
+    assert_eq!(read(temp.path(), "MAP.md"), root_map, "a map was written");
+    assert!(
+        stdout(&run(temp.path(), &["status"])).contains("snapshot: stale"),
+        "the snapshot was republished despite the conflict"
+    );
+}
+
 /// Every read here follows links, so an unchecked symlink would be judged on
 /// its target's bytes and then written through — rr's output landing somewhere
 /// rr never chose. The `.rr/SYMBOLS.md` case is the sharp one: that path is

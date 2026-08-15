@@ -302,6 +302,8 @@ fn compare(
         }
     }
 
+    classify_managed_ignore(root, &mut validation);
+
     validation.conflicts.sort_by(|left, right| {
         left.path
             .as_bytes()
@@ -310,6 +312,36 @@ fn compare(
     });
     validation.removable.sort();
     validation
+}
+
+/// Reports `.rr/.gitignore` when a human has to resolve it, and only then.
+///
+/// Asked here because the answer *can* be "resolve this first", and a publisher
+/// that discovered that while writing would already have replaced the snapshot
+/// and every map — the one thing staging exists to prevent. Whether the block
+/// is merely absent or out of date is deliberately not reported: this module
+/// never writes that file, so making it part of "up to date" would let the
+/// answer depend on a caller that may not exist.
+fn classify_managed_ignore(root: &Path, validation: &mut TextValidation) {
+    let path = super::IGNORE_PATH;
+    let existing = match std::fs::read_to_string(root.join(path)) {
+        Ok(text) => text,
+        // Absent is not a problem to report: the block is appended on the next
+        // write, and until then the directory is excluded by name anyway.
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return,
+        Err(_) => {
+            validation
+                .conflicts
+                .push(Conflict::new(path.to_owned(), ConflictReason::Unreadable));
+            return;
+        }
+    };
+    if super::apply_managed_block(Some(&existing)).is_err() {
+        validation.conflicts.push(Conflict::new(
+            path.to_owned(),
+            ConflictReason::ManagedIgnore,
+        ));
+    }
 }
 
 /// Decides one planned artifact's state.
