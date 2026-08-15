@@ -27,6 +27,7 @@ struct SnapshotDef {
     start_line: u32,
     end_line: u32,
     signature: String,
+    declaration: String,
     body_preview: String,
     test_explicit: bool,
     test_cfg: bool,
@@ -143,6 +144,7 @@ fn to_snapshot(path: &str, source: &str, facts: &Facts) -> SnapshotFile {
                     def.signature_span.start_byte(),
                     def.signature_span.end_byte(),
                 ),
+                declaration: def.signature.clone(),
                 body_preview: def
                     .body_idents
                     .iter()
@@ -406,5 +408,5 @@ fn invalid_utf8_fixture_degrades() {
 #[test]
 fn versions_are_pinned() {
     assert_eq!(EXTRACTOR_VERSION, 2);
-    assert_eq!(FACT_SCHEMA_VERSION, 1);
+    assert_eq!(FACT_SCHEMA_VERSION, 2);
 }

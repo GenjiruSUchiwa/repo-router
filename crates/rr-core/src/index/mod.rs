@@ -190,6 +190,13 @@ pub struct FileRecord {
     pub representation: ContentRepresentation,
     /// Whether the file was classified as generated.
     pub generated: bool,
+    /// Whether the file's path marks it as a test by language convention.
+    ///
+    /// Stored rather than recomputed so that every consumer — the text
+    /// projection, the route cache, the checker — answers this question the
+    /// same way, and so that changing the convention is a snapshot-version
+    /// change instead of a silent disagreement between two callers.
+    pub is_test: bool,
     /// Extraction outcome for this file.
     pub parse_status: ParseStatus,
     /// First symbol owned by this file (index into `symbols`).
@@ -299,6 +306,8 @@ pub struct SymbolRecord {
     pub span: Span,
     /// Signature span.
     pub signature_span: Span,
+    /// One-line display signature string.
+    pub signature: StringId,
     /// Test signals.
     pub test_signals: crate::facts::TestSignals,
     /// Per-field term frequencies.
@@ -767,6 +776,10 @@ mod validate {
             check(
                 sym.qualified_name.index() < n_strings,
                 "symbol qualified out of range",
+            )?;
+            check(
+                sym.signature.index() < n_strings,
+                "symbol signature out of range",
             )?;
             check(
                 sym.span.contains(sym.signature_span),

@@ -11,7 +11,13 @@ use serde::{Deserialize, Serialize};
 use crate::{Error, Result};
 
 /// Bump on ANY serialized field/type/serde-name/invariant change in this module.
-pub const FACT_SCHEMA_VERSION: u32 = 1;
+///
+/// Version 2 added [`Def::signature`]. A projection that shows a signature has
+/// to read it from facts somebody already extracted, because re-slicing the
+/// span later would mean opening a file the index has already spoken for — and
+/// two readings of the same declaration is exactly the second truth the text
+/// artifacts exist to rule out.
+pub const FACT_SCHEMA_VERSION: u32 = 2;
 
 /// A source range over one exact UTF-8 byte buffer.
 ///
@@ -333,6 +339,13 @@ pub struct Def {
     /// From the same expanded start through the byte before a body, or the whole item
     /// for semicolon-only definitions.
     pub signature_span: Span,
+    /// The declaration as one line, for readers that never see the source.
+    ///
+    /// Extracted here because this is the only place that holds both the span
+    /// and the bytes it indexes. It deliberately starts at the item rather than
+    /// at [`Def::span`]: attached documentation and attributes belong to the
+    /// definition but not to the line that names it.
+    pub signature: String,
     /// Source-order occurrences; duplicates retained; definition name excluded.
     pub signature_idents: Vec<String>,
     /// Source-order occurrences owned by this definition; duplicates retained;
@@ -344,6 +357,43 @@ pub struct Def {
     pub attribute_idents: Vec<String>,
     /// Explicit and `cfg(test)` test signals.
     pub test_signals: TestSignals,
+}
+
+/// Folds a declaration's source text into the single line a reader is shown.
+///
+/// Every maximal run of ASCII whitespace becomes one space and the ends are
+/// trimmed, so a signature wrapped across five lines in the source and the same
+/// signature written on one produce the same text. Anything else that would end
+/// a line — a C0/C1 control character, or the two Unicode line separators a
+/// Markdown renderer honours — is folded the same way rather than passed
+/// through, because a record that spans two lines is a record no line-oriented
+/// parser can read back.
+///
+/// The result can be empty only for input that is entirely whitespace; callers
+/// that need a non-empty display substitute the definition's name.
+#[must_use]
+pub fn display_signature(raw: &str) -> String {
+    let mut folded = String::with_capacity(raw.len());
+    let mut pending_space = false;
+    for character in raw.chars() {
+        if breaks_a_line(character) {
+            pending_space = !folded.is_empty();
+            continue;
+        }
+        if pending_space {
+            folded.push(' ');
+            pending_space = false;
+        }
+        folded.push(character);
+    }
+    folded
+}
+
+/// Whether this character cannot survive in a one-line record.
+const fn breaks_a_line(character: char) -> bool {
+    character.is_ascii_whitespace()
+        || character.is_control()
+        || matches!(character, '\u{2028}' | '\u{2029}')
 }
 
 /// An unresolved syntactic reference observation.
@@ -547,6 +597,20 @@ fn validate_facts(
         if !def.span.contains(def.signature_span) {
             return Err(Error::InvalidFacts {
                 reason: "signature span is not contained by definition span",
+            });
+        }
+        // Checked on the way in rather than on the way out: these facts also
+        // arrive from the on-disk cache, where a file written by a build with a
+        // different idea of canonical form would otherwise reach a renderer
+        // that has no source left to re-derive it from.
+        if def.signature.is_empty() {
+            return Err(Error::InvalidFacts {
+                reason: "definition signature is empty",
+            });
+        }
+        if display_signature(&def.signature) != def.signature {
+            return Err(Error::InvalidFacts {
+                reason: "definition signature is not in canonical one-line form",
             });
         }
     }
@@ -779,6 +843,7 @@ mod tests {
             visibility: Visibility::Private,
             span: span(start, end, 1, 1),
             signature_span: span(start, end, 1, 1),
+            signature: format!("fn {name}()"),
             signature_idents: Vec::new(),
             body_idents: Vec::new(),
             doc_idents: Vec::new(),
@@ -1102,7 +1167,11 @@ mod tests {
             .join("local")
             .join("facts")
             .join(oid.shard_prefix())
-            .join(format!("{}-rust-2-1.bin", oid.to_hex()));
+            .join(format!(
+                "{}-rust-{}-{FACT_SCHEMA_VERSION}.bin",
+                oid.to_hex(),
+                crate::parser::EXTRACTOR_VERSION
+            ));
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, bytes).unwrap();
 
