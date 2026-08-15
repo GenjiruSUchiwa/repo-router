@@ -32,6 +32,18 @@ enum Acquired {
     Vanished,
 }
 
+/// Whether facts are worth keeping for a later run.
+///
+/// Facts produced without an extractor describe rr's language support at the
+/// moment they were made, not the file. Storing them would keep serving a
+/// lexical-only entry after that language gains an extractor, and nothing short
+/// of editing the file or wiping the cache would dislodge it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Reusable {
+    Yes,
+    No,
+}
+
 /// One worker's share of the per-file work.
 ///
 /// The repository handle is built once per worker rather than once per file.
@@ -86,13 +98,14 @@ impl Worker {
             Acquired::Pending(content) => content,
         };
 
-        let facts = self.extract(source.lang, &content)?;
+        let (facts, reusable) = self.extract(source.lang, &content)?;
         stats.parses += 1;
         record_status(&mut stats, facts.status());
 
-        if cache
-            .put(&CacheKey::new(content.oid, source.lang), &facts)
-            .is_err()
+        if reusable == Reusable::Yes
+            && cache
+                .put(&CacheKey::new(content.oid, source.lang), &facts)
+                .is_err()
         {
             // A cache that cannot be written still lets this run finish; only
             // the next one pays for it. Failing here would turn a full disk
@@ -216,13 +229,16 @@ impl Worker {
         known_or_pending(source, content, cache, stats)
     }
 
-    fn extract(&mut self, lang: Lang, content: &AcquiredContent) -> Result<Facts> {
+    fn extract(&mut self, lang: Lang, content: &AcquiredContent) -> Result<(Facts, Reusable)> {
         match self.registry.for_lang(lang) {
-            Some(Ok(extractor)) => extractor.extract(&content.bytes).map_err(Error::Core),
+            Some(Ok(extractor)) => extractor
+                .extract(&content.bytes)
+                .map(|facts| (facts, Reusable::Yes))
+                .map_err(Error::Core),
             Some(Err(message)) => Err(Error::Content(message)),
-            None => Ok(degraded_facts(
-                &content.bytes,
-                DegradedReason::ParserReturnedNone,
+            None => Ok((
+                degraded_facts(&content.bytes, DegradedReason::ParserReturnedNone),
+                Reusable::No,
             )),
         }
     }
