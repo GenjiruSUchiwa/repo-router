@@ -530,7 +530,10 @@ fn check_budget(budget: u32) -> TextResult<usize> {
     // shell is not an error but an over-budget scope, reported through the same
     // channel as one oversize signature — refusing here would be the only place
     // in this module where a budget problem stops a map from existing.
-    Ok(budget as usize * BYTES_PER_TOKEN as usize)
+    // Widened before multiplying: on a 32-bit target the product of two u32s
+    // does not fit a `usize`, and a budget that wrapped would silently plan
+    // pages against a capacity nobody asked for.
+    Ok(usize::try_from(u64::from(budget) * u64::from(BYTES_PER_TOKEN)).unwrap_or(usize::MAX))
 }
 
 /// Everything one directory contributes, before ordering and planning.

@@ -70,6 +70,11 @@ pub enum Refresh {
     UpToDate {
         report: RefreshReport,
         snapshot: Arc<Snapshot>,
+        /// The working tree the snapshot describes, which is where derived
+        /// files belong. Not the directory the caller supplied: that one may be
+        /// any subdirectory of the repository, and artifact paths are relative
+        /// to the work root alone.
+        work_root: PathBuf,
     },
     /// Verified and locked. The snapshot is built but not yet published.
     Prepared(Box<PreparedRefresh>),
@@ -218,6 +223,7 @@ pub fn prepare(
             return Ok(Refresh::UpToDate {
                 report,
                 snapshot: Arc::clone(snapshot),
+                work_root: context.work_root.clone(),
             });
         }
     }

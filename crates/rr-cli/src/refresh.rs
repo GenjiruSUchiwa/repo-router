@@ -197,8 +197,16 @@ fn publish(
         // The snapshot is current, so the guard is worth taking only if the
         // text derived from it is not. Checking first keeps the common "nothing
         // happened" run lock-free.
-        rr_git::Refresh::UpToDate { report, snapshot } => {
-            let staged = text_artifacts::stage(&snapshot, root, budget)?;
+        rr_git::Refresh::UpToDate {
+            report,
+            snapshot,
+            work_root,
+        } => {
+            // The work root, never the supplied directory: artifact paths are
+            // repository-relative, so staging them against a subdirectory finds
+            // every one of them missing and takes the guard this branch exists
+            // to avoid.
+            let staged = text_artifacts::stage(&snapshot, &work_root, budget)?;
             if staged.validation().is_up_to_date() {
                 return Ok((report, text_artifacts::unchanged(&staged)));
             }

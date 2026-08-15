@@ -30,6 +30,37 @@ same latent mistake twice: the repair path for `.rr/SYMBOLS.md` is the one
 place rr writes without asking, and both times it nearly wrote somewhere it
 had no claim to.
 
+### What a later review pass found that this one missed
+
+Six more, all fixed. Reproduced each against the pre-review binary before
+accepting it — the first two are the ones I should have caught.
+
+| # | Defect | Why my pass missed it |
+|---|---|---|
+| 9 | `Refresh::UpToDate` staged text against the **working directory**, not the work root. Every map reads as missing, so a nothing-to-do `rr refresh` from any subdirectory reaches for the publication guard | My `--root` probe used `rr map`, and Full mode never reaches the `UpToDate` branch. The reports are identical either way; the difference shows only against a held lock |
+| 10 | `.rr/.gitignore` was written last and validated **never**. A malformed managed block failed the run *after* the snapshot and every map were replaced | `ConflictReason::ManagedIgnore` existed, so it looked handled. Nothing produced it |
+| 11 | A bare `=======` was read as a conflict marker — which is also a Markdown setext underline, in a purpose slot that is human prose. A purpose of `Routing\n=======\nfor auth.` locks the repository out with a merge that never happened | I tested conflict detection with a synthetic conflict, never with legal prose |
+| 12 | `unquote`'s `\u` escape accepted fewer than four digits, and a leading `+` | |
+| 13 | `budget as usize * BYTES_PER_TOKEN as usize` overflows on 32-bit targets | Not reachable from the CLI; library API only |
+| 14 | Freshness was a linear scan per file — a comparison per *pair* of artifacts | Fine at 44 pages, quadratic at thousands |
+
+Verified independently rather than taken on trust: a real `git merge` conflict
+(two bare `=======` separators in the file) is still detected through
+`<<<<<<< ` and `>>>>>>> `, so #11's fix loses nothing; #9 reproduces exactly as
+described — with the lock held, `rr refresh` exits 0 from the root and 1 from
+`src/`; #10's fix leaves both maps and the snapshot untouched.
+
+Findings 9 and 10 arrived with fixes but no regression tests. Added:
+`a_no_op_refresh_takes_no_lock_from_any_directory`,
+`a_refresh_from_a_subdirectory_still_repairs_the_whole_repository`, and
+`a_malformed_managed_ignore_is_refused_before_anything_is_written`.
+
+Still open, deliberately: **`--json` omits every text-artifact outcome.**
+`text.clause()` is appended only on the human path, so `rr refresh --json` can
+report `"outcome": "unchanged"` while it rewrote every committed map, and a
+conflict exits 1 with empty stdout. Fixing it means adding fields to a
+`schema_version: 1` contract — a versioning decision, not a bug fix.
+
 ### Verified negative — things that turned out to be fine
 
 Probed and found correct, listed so the coverage is legible:

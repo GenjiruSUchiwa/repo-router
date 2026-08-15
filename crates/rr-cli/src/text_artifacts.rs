@@ -5,6 +5,7 @@
 //! the guard the snapshot was published with — `.rr/SYMBOLS.md` first, maps
 //! deepest-first, and the root `MAP.md` last as the generation marker.
 
+use std::collections::BTreeSet;
 use std::fmt::Write as _;
 use std::path::Path;
 
@@ -149,11 +150,16 @@ fn write_generation(staged: &StagedText, root: &Path) -> anyhow::Result<TextRepo
         ..TextReport::default()
     };
 
+    // One membership set rather than a scan per file: the two lists are the
+    // same length, so asking the question linearly costs a comparison per pair
+    // of artifacts in the repository.
+    let fresh: BTreeSet<&str> = validation.fresh().iter().map(String::as_str).collect();
+
     // `files()` is already in publication order: the local index first, then
     // maps deepest-first with the root last. A crash therefore leaves the root
     // map — the generation marker — either wholly old or wholly new.
     for file in staged.rendered().files() {
-        let fresh = validation.fresh().iter().any(|path| path == file.path());
+        let fresh = fresh.contains(file.path());
         let symbols = file.kind() == ArtifactKind::Symbols;
 
         if fresh {
