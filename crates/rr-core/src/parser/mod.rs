@@ -95,11 +95,8 @@ pub fn degraded_facts(content: &[u8], reason: DegradedReason) -> Facts {
 
 /// Produces [`Facts`] from source bytes. One implementation per language.
 pub trait Extractor: Send {
-    /// The language this extractor parses.
-    ///
-    /// Exists so a registry entry can be checked against the language it is
-    /// filed under. Without it, an extractor wired to the wrong language
-    /// answers every call and reports nothing.
+    /// The language this extractor parses, so a registry entry can be checked
+    /// against the language it is filed under.
     fn lang(&self) -> Lang;
 
     /// Extracts facts from exactly these bytes.
@@ -119,17 +116,15 @@ impl Extractor for RustExtractor {
     }
 }
 
-type Builder = fn() -> Result<Box<dyn Extractor>, String>;
+/// A built extractor, or why it could not be built.
+type Built = Result<Box<dyn Extractor>, String>;
+type Builder = fn() -> Built;
 
-/// Every language that has an extractor, beside the only thing that may build
-/// it.
-///
-/// One table rather than a `match` for the lookup and a list for the answer:
-/// the pair is what makes them impossible to disagree. A language absent here
-/// is not walked, so it can never reach a parser that cannot read it.
+/// Each language beside the only builder allowed to fill it, so the lookup and
+/// [`Registry::supported`] cannot disagree.
 const EXTRACTORS: &[(Lang, Builder)] = &[(Lang::Rust, build_rust)];
 
-fn build_rust() -> Result<Box<dyn Extractor>, String> {
+fn build_rust() -> Built {
     RustExtractor::new()
         .map(|extractor| Box::new(extractor) as Box<dyn Extractor>)
         .map_err(|error| error.to_string())
@@ -137,13 +132,10 @@ fn build_rust() -> Result<Box<dyn Extractor>, String> {
 
 /// One lazily built extractor per supported language, keyed by [`Lang`].
 ///
-/// Lazy because `Worker` — and therefore this registry — is constructed once
-/// per rayon thread. Building every extractor eagerly would compile every
-/// grammar's query on every thread, nearly all of them for languages that
-/// thread never sees.
+/// Lazy because rayon builds one `Worker`, and so one registry, per thread.
 #[derive(Default)]
 pub struct Registry {
-    built: BTreeMap<Lang, Result<Box<dyn Extractor>, String>>,
+    built: BTreeMap<Lang, Built>,
 }
 
 impl Registry {
@@ -160,8 +152,6 @@ impl Registry {
     /// on first use rather than at registry construction — which is why
     /// [`Registry::new`] cannot fail.
     pub fn for_lang(&mut self, lang: Lang) -> Option<Result<&mut dyn Extractor, String>> {
-        // The builder travels with the language it belongs to, so the slot and
-        // its contents cannot be mismatched by adding a row.
         let build = EXTRACTORS
             .iter()
             .find_map(|(candidate, build)| (*candidate == lang).then_some(*build))?;
@@ -172,10 +162,7 @@ impl Registry {
         }
     }
 
-    /// The languages that have an extractor.
-    ///
-    /// The walk allowlist reads this, so a language rr cannot parse is never
-    /// collected in the first place.
+    /// The languages that have an extractor. Read by the walk allowlist.
     #[must_use]
     pub fn supported() -> Vec<Lang> {
         EXTRACTORS.iter().map(|(lang, _)| *lang).collect()

@@ -34,11 +34,10 @@ enum Acquired {
 
 /// Whether facts are worth keeping for a later run.
 ///
-/// Facts produced without an extractor describe rr's language support at the
-/// moment they were made, not the file. Storing them would keep serving a
-/// lexical-only entry after that language gains an extractor, and nothing short
-/// of editing the file or wiping the cache would dislodge it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Not a `DegradedReason`: that enum's `ParserReturnedNone` already means a
+/// real parse failure, which *is* worth caching. Separating the two is a
+/// serialized-schema change owned by #31.
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum Reusable {
     Yes,
     No,
