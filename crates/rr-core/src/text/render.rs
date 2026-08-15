@@ -1,15 +1,12 @@
 //! Canonical bytes, and the one place that knows how big they are.
 //!
-//! The planner in [`super::plan`] needs exact record sizes, and the only way to
-//! be exact is to ask the code that writes the bytes. Every line has one
-//! renderer here; [`BodySizer`] measures pages by calling those same renderers.
-//! A test packs a page, renders it, and asserts the two numbers agree — which
-//! is what keeps "estimated size" from quietly becoming a second format.
+//! The planner in [`super::plan`] needs exact record sizes, so [`BodySizer`]
+//! measures pages by calling the same renderers that write them. A test packs a
+//! page, renders it, and asserts the two agree.
 //!
-//! Output is always UTF-8 without a BOM and always LF, on every platform. A
-//! generated file whose bytes depend on the host that wrote it cannot be
-//! compared, and comparison is the only thing that makes an unchanged file
-//! detectable.
+//! Output is UTF-8 without a BOM and LF on every platform: bytes that depend on
+//! the host cannot be compared, and comparison is what detects an unchanged
+//! file.
 
 use std::fmt::Write as _;
 
@@ -50,12 +47,10 @@ const FIELD_SEPARATOR: &str = " — ";
 
 /// The text substituted for purpose content when computing `generated_hash`.
 ///
-/// A fixed sentinel rather than the real bytes, so that editing the one region
-/// a human owns does not make the file look tampered with. It is substituted by
-/// rendering the body a second time, never by searching the finished body for
-/// the purpose text — a search would find the wrong occurrence for a purpose
-/// that happens to repeat something else on the page, and would match
-/// everywhere at once for an empty one.
+/// A fixed sentinel, so editing the one region a human owns does not make the
+/// file look tampered with. Substituted by rendering the body a second time,
+/// never by searching the finished body — a search would hit the wrong
+/// occurrence, and every occurrence for an empty purpose.
 pub(crate) const PURPOSE_SENTINEL: &str = "rr:purpose";
 
 /// What kind of artifact a rendered file is.
@@ -387,12 +382,11 @@ const UNHASHED_FIELDS: [&str; 2] = ["tokens", "generated_hash"];
 
 /// Hashes the immutable frontmatter plus the body.
 ///
-/// Takes the *complete* field list and does the excluding itself. An earlier
-/// version relied on being called before the excluded fields existed, which
-/// silently excluded every field appended afterwards as well — and a renderer
+/// Takes the *complete* field list and excludes [`UNHASHED_FIELDS`] itself,
+/// rather than relying on being called before those fields exist. A renderer
 /// that excludes a field the reader includes writes files that verify against
-/// nothing. The rule is spelled here, once, and [`super::parse`] calls this
-/// same function with the fields it read.
+/// nothing, so the rule lives here once and [`super::parse`] calls the same
+/// function with the fields it read.
 pub(crate) fn generated_hash_of(fields: &[(&str, Value)], body: &str) -> Digest {
     let hashed: Vec<&(&str, Value)> = fields
         .iter()

@@ -1,52 +1,26 @@
 //! The text projection of a snapshot: `MAP.md` routers and `.rr/SYMBOLS.md`.
 //!
-//! # What this module is
-//!
-//! One [`TextProjection`] is built from one frozen [`Snapshot`] and every text
+//! One [`TextProjection`] is built from one frozen [`Snapshot`] and every
 //! artifact is rendered from it. Nothing here opens a source file, walks the
 //! worktree, or derives one artifact from another. Existing files contribute
-//! exactly one thing back: the validated contents of their `purpose` slot.
+//! one thing back: the validated contents of their `purpose` slot.
 //!
-//! That constraint is the whole point. A Markdown file that can disagree with
-//! the index is a second truth, and a second truth is worse than no text at
-//! all — a reader cannot tell which one is lying.
+//! Submodules, in reading order: [`digest`], [`encode`], [`model`], [`plan`],
+//! [`render`], [`parse`], [`purpose`], [`ignore`], [`validate`].
 //!
-//! # Reading order
+//! # Where this reads issue #11 rather than quotes it
 //!
-//! - [`digest`] — the one way structure becomes a stable name.
-//! - [`encode`] — three encodings with three jobs, deliberately not
-//!   interchangeable.
-//! - [`model`] — snapshot records become canonical, ordered, hashed records.
-//! - [`plan`] — the directory trie and the budgeted page planner.
-//! - [`render`] — canonical bytes.
-//! - [`parse`] — the strict, authoritative reader for those bytes.
-//! - [`purpose`] — the only region a human owns.
-//! - [`ignore`] — the managed block in `.rr/.gitignore`.
-//! - [`validate`] — ownership, freshness, conflicts, and the map catalog.
-//!
-//! # Two deliberate readings of the specification
-//!
-//! **`## API` and `## Tests` are directory-local, not recursive.** Issue #11's
-//! root-page sketch shows a nested file under the root map, but three of its
-//! own contracts require one owning map per symbol: `.rr/SYMBOLS.md` has a
-//! single `map` column, `MapCatalog::owner` returns a single identity, and
-//! `api_hash` is a per-scope invalidation key. A recursive listing would put
-//! every symbol in every ancestor map and leave all three undefined.
-//!
-//! **A record displays a qualified name and anchors a bare one.** Issue #11
-//! says an API record uses "the qualified name when #6 has one", and separately
-//! that a source anchor uses issue #7's grammar — and issue #7 builds anchors
-//! from the *bare* name. Both are honored: `## API` and the `symbol` column of
-//! `.rr/SYMBOLS.md` show the qualified spelling, which is the only one that
-//! distinguishes two `new` methods in one file, while every anchor carries the
-//! bare spelling `rr query` would print for the same location.
-//!
-//! **Link destinations are relative to the map that contains them; labels stay
-//! repository-relative.** A destination is navigation and has to work when the
-//! file is opened; a label is an identity, and the issue #7 anchor in a test
-//! label is meant to be copied into `rr query`. At the root map the two
-//! coincide, which is why the specification's example does not distinguish
-//! them.
+//! - **`## API` and `## Tests` are directory-local, not recursive.** Three of
+//!   the issue's own contracts need one owning map per symbol: the single `map`
+//!   column, [`MapCatalog::owner`], and `api_hash` as a per-scope key.
+//! - **A record displays the qualified name and anchors the bare one.** Issue
+//!   #11 asks for the qualified name; issue #7's anchor grammar is built from
+//!   the bare one. Both hold at once only by splitting them.
+//! - **Destinations are relative to the containing map; labels stay
+//!   repository-relative.** A destination has to resolve when the file is
+//!   opened; a label is an identity meant to be pasted into `rr query`. They
+//!   coincide at the root, which is why the issue's example does not separate
+//!   them.
 
 mod digest;
 mod encode;
@@ -108,6 +82,17 @@ pub const OVERFLOW_PREFIX: &str = "MAP.rr-";
 
 /// The extension shared by every artifact this module writes.
 const MARKDOWN_EXTENSION: &str = ".md";
+
+/// Whether a file of this name is one this module writes.
+///
+/// Discovery must skip these. Markdown is indexed, so an indexed map would
+/// change the `index_hash` its own frontmatter carries, and no run would
+/// converge.
+#[must_use]
+pub fn is_reserved_artifact_name(name: &str) -> bool {
+    name == MAP_FILE_NAME
+        || (name.starts_with(OVERFLOW_PREFIX) && name.ends_with(MARKDOWN_EXTENSION))
+}
 
 /// One estimated token per this many UTF-8 body bytes.
 const BYTES_PER_TOKEN: u32 = 4;

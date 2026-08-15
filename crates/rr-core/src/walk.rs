@@ -15,7 +15,7 @@ use crate::{Error, Result};
 /// Default excluded directory names.
 pub const DEFAULT_EXCLUDES: &[&str] = &[
     ".git",
-    ".rr",
+    crate::workspace::STATE_DIR,
     "node_modules",
     "target",
     "dist",
@@ -162,6 +162,15 @@ pub fn is_generated(rel_path: &str, full_path: Option<&Path>) -> bool {
 /// it out. Both halves live here so the two callers cannot drift apart.
 #[must_use]
 pub fn collected_lang(path: impl AsRef<Path>, cfg: &WalkCfg) -> Option<Lang> {
+    let path = path.as_ref();
+    // Not offered to configuration: a map rr wrote must never be a file rr indexes.
+    if path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(crate::text::is_reserved_artifact_name)
+    {
+        return None;
+    }
     let lang = Lang::from_path(path)?;
     match &cfg.languages {
         Some(allowed) if !allowed.contains(&lang) => None,
@@ -221,6 +230,13 @@ fn is_excluded_dir(entry: &DirEntry, cfg: &WalkCfg) -> bool {
     }
 
     let file_name = entry.file_name().to_str().unwrap_or("");
+
+    // rr's own work root, on every configuration: walking it means indexing the
+    // snapshot this walk is building. The rest of DEFAULT_EXCLUDES is convention
+    // a caller may turn off.
+    if file_name == crate::workspace::STATE_DIR {
+        return true;
+    }
 
     if cfg.use_default_excludes && DEFAULT_EXCLUDES.contains(&file_name) {
         return true;
@@ -415,6 +431,41 @@ mod tests {
         let file_path3 = tmp.path().join("regular.rs");
         fs::write(&file_path3, "// Normal file\npub fn baz() {}\n").unwrap();
         assert!(!is_generated("src/regular.rs", Some(&file_path3)));
+    }
+
+    /// rr's own output is not rr's input, on any configuration. Markdown is an
+    /// indexed language, so a discovered map would feed its own `index_hash`
+    /// back into the snapshot and no run would ever converge.
+    #[test]
+    fn generated_artifacts_are_never_discovered() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::create_dir_all(root.join(".rr/local")).unwrap();
+        fs::write(root.join("README.md"), "# Real documentation\n").unwrap();
+        fs::write(root.join("MAP.md"), "---\ntype: \"rr-map\"\n---\n").unwrap();
+        fs::write(root.join("src/MAP.md"), "---\ntype: \"rr-map\"\n---\n").unwrap();
+        fs::write(root.join("src/MAP.rr-00000000-00000001.md"), "page\n").unwrap();
+        fs::write(root.join(".rr/SYMBOLS.md"), "---\n").unwrap();
+        fs::write(root.join(".rr/local/notes.md"), "local\n").unwrap();
+
+        for use_default_excludes in [true, false] {
+            let cfg = WalkCfg {
+                use_default_excludes,
+                ..WalkCfg::default()
+            };
+            let paths: Vec<String> = discover(root, &cfg)
+                .unwrap()
+                .iter()
+                .map(|file| file.path.as_str().to_owned())
+                .collect();
+            assert_eq!(
+                paths,
+                vec!["README.md".to_owned()],
+                "use_default_excludes = {use_default_excludes}"
+            );
+        }
     }
 
     #[test]

@@ -1,15 +1,12 @@
 //! The strict, line-oriented reader for the bytes [`super::render`] writes.
 //!
-//! This parser is authoritative and deliberately narrow. It accepts exactly one
-//! spelling of everything and refuses the rest, including spellings a permissive
-//! YAML or Markdown library would happily normalize. That refusal is the point:
-//! a parser that accepts a second spelling and rewrites it turns every
-//! regeneration into a silent edit of a committed file, and turns
-//! `generated_hash` into a value that means nothing.
+//! Authoritative and deliberately narrow: exactly one spelling of everything,
+//! including spellings a permissive YAML or Markdown library would normalize.
+//! Accepting a second spelling and rewriting it would make every regeneration a
+//! silent edit of a committed file.
 //!
-//! It also never repairs. A file that does not parse keeps its bytes and
-//! becomes a reported conflict, because the only files this crate is allowed to
-//! replace are the ones it can prove it wrote.
+//! It never repairs. A file that does not parse keeps its bytes and becomes a
+//! reported conflict.
 
 use crate::path::RelPath;
 
@@ -151,12 +148,10 @@ pub struct ParsedSymbols {
 
 /// One `.rr/SYMBOLS.md` record, decoded.
 ///
-/// The file stores `symbol` and `map` percent-encoded so that no field can
-/// carry a tab or a newline. They are handed back decoded: a reader that had to
-/// decode them itself would need an encoder this crate does not publish, and
-/// two decoders is how the format acquires a second reading. `anchor` is
-/// already issue #7's own spelling and is passed through untouched, because
-/// that string is meant to be pasted into `rr query` verbatim.
+/// The file stores `symbol` and `map` percent-encoded so no field can carry a
+/// tab or newline; both are handed back decoded, since a caller decoding them
+/// itself would be a second reading of the format. `anchor` passes through
+/// untouched — it is issue #7's spelling, meant to be pasted into `rr query`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParsedSymbolRecord {
     pub symbol: String,

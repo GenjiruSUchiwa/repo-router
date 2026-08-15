@@ -1,13 +1,11 @@
 //! The managed block inside `.rr/.gitignore`.
 //!
-//! Scoped to `.rr/` on purpose. A pattern written into the repository root's
-//! `.gitignore` could hide a committed `MAP.md`, which is the one file this
-//! whole issue exists to put under version control. Rooting the patterns to
-//! `.rr/` makes that impossible rather than merely unlikely.
+//! Scoped to `.rr/` on purpose: a pattern in the root `.gitignore` could hide a
+//! committed `MAP.md`, the one file this issue exists to put under version
+//! control.
 //!
-//! Issue #12 adds `/ROUTES.md` through this same helper instead of maintaining
-//! a second block: two managed regions in one file is two chances for a merge
-//! to interleave them.
+//! Issue #12 adds `/ROUTES.md` through this same helper rather than a second
+//! managed block.
 
 use super::{TextError, TextResult};
 
@@ -48,12 +46,10 @@ fn owned_block() -> String {
 
 /// The contents `.rr/.gitignore` should have, given what it has now.
 ///
-/// Unrelated lines are preserved exactly, including their order. A missing
-/// block is appended after one blank separator line. Anything ambiguous —
-/// duplicate markers, a closing marker before its opening one, an opening
-/// marker that never closes — is refused rather than rewritten, because the
-/// ambiguity usually means a merge left two versions of the block and
-/// discarding either one loses somebody's edit.
+/// Unrelated lines are preserved exactly, in order; a missing block is appended
+/// after one blank line. Duplicate, inverted, or unclosed markers are refused
+/// rather than rewritten — they usually mean a merge left two versions of the
+/// block, and picking one loses somebody's edit.
 ///
 /// # Errors
 /// Returns [`TextError::ManagedIgnore`] for malformed or duplicated markers,

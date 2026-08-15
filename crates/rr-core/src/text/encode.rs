@@ -11,9 +11,8 @@
 //! - **display escaping** ([`escape_label`], [`code_span`]) keeps a name that
 //!   contains Markdown punctuation from being read as Markdown.
 //!
-//! Conflating the first two is the specific mistake this module exists to make
-//! hard: they encode different character sets, and a value round-tripped
-//! through the wrong one is silently wrong rather than loudly broken.
+//! The first two encode different character sets, so a value put through the
+//! wrong one is silently wrong rather than loudly broken.
 
 use super::{TextError, TextResult};
 use crate::path::RelPath;
@@ -170,24 +169,12 @@ const fn upper_hex_value(byte: u8) -> Option<u8> {
 
 /// Escapes text that is rendered as Markdown prose — a link label or a heading.
 ///
-/// Only characters that can actually change how the line parses are escaped.
-/// Escaping every ASCII punctuation mark would be simpler to write and worse to
-/// read: `token\_test\.rs` in every heading of every map costs tokens and
-/// legibility for names that were never ambiguous to begin with.
+/// Only characters that can change how the line parses, which is why `_`, `&`,
+/// `!` and `#` are context-dependent in [`needs_backslash`]: escaping all ASCII
+/// punctuation would put `token\_test\.rs` in every heading of every map.
 ///
-/// The rules, each guarding one real ambiguity:
-///
-/// - `\`, `` ` ``, `*`, `[`, `]`, `<` always start something.
-/// - `_` only creates emphasis at a word boundary, so `foo_bar` is left alone
-///   while `_foo_` is escaped.
-/// - `&` only matters when an entity reference could follow it.
-/// - `!` only matters immediately before a link.
-/// - `#` only matters at the start of the text or after a space, where it could
-///   be read as a heading marker or an ATX closing sequence.
-///
-/// This is display only. The parser recomputes the expected label from the
-/// record and compares, so no inverse of this function is needed and no second
-/// spelling can be smuggled through it.
+/// Display only — the parser recomputes the expected label and compares, so this
+/// needs no inverse.
 pub(crate) fn escape_label(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let characters: Vec<char> = text.chars().collect();
@@ -217,19 +204,14 @@ fn needs_backslash(character: char, previous: Option<char>, next: Option<char>) 
 
 /// Wraps text in a code span that survives whatever the text contains.
 ///
-/// `CommonMark` gives code spans no escape character at all, so the only way to
-/// include a backtick is to fence with a longer run — which is why this exists
-/// instead of another arm in [`escape_label`]. A leading or trailing backtick
-/// additionally needs padding spaces, because the reader strips one space from
-/// each end when both are present.
+/// `CommonMark` gives code spans no escape character, so a backtick is included
+/// by fencing with a longer run — hence a separate function from
+/// [`escape_label`]. A leading or trailing backtick also needs padding spaces,
+/// since the reader strips one space from each end when both are present.
 ///
-/// Two inputs have no code-span representation at all in `CommonMark` and are
-/// therefore preconditions rather than cases: text containing a line break, and
-/// empty text. Both are ruled out upstream — a projection refuses a snapshot
-/// with an empty name, signature, or path, and every displayed string has
-/// already been folded to one line. If one ever arrives anyway the output is
-/// text [`take_code_span`] refuses, which fails the staging validation loudly
-/// instead of publishing a file that reads as prose.
+/// Line breaks and empty text have no code-span spelling at all. Both are ruled
+/// out upstream; if one arrives anyway, the output is text [`take_code_span`]
+/// refuses, so staging validation fails loudly rather than publishing prose.
 pub(crate) fn code_span(text: &str) -> String {
     let fence = "`".repeat(longest_backtick_run(text) + 1);
     let needs_padding =

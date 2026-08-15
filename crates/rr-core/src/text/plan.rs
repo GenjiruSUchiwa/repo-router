@@ -1,14 +1,12 @@
 //! The deterministic, budgeted page planner.
 //!
-//! A directory whose records do not fit in one page is split into overflow
-//! pages, and if the links to those pages do not fit either, into a level of
-//! pages that link to pages. Nothing is ever truncated, elided, or summarized
-//! to make something fit — the budget decides how many files there are, never
-//! what they say.
+//! A directory whose records do not fit one page is split into overflow pages,
+//! and if the links to those do not fit either, into a level of pages that link
+//! to pages. Nothing is truncated or summarized to fit: the budget decides how
+//! many files there are, never what they say.
 //!
-//! Every size used here comes from the renderer that will actually write the
-//! bytes ([`super::render`]), not from a second estimate that could drift from
-//! it. A test renders each planned page and asserts the two agree.
+//! Sizes come from [`super::render`], the code that writes the bytes, not from
+//! a second estimate that could drift.
 
 use std::ops::Range;
 
@@ -182,14 +180,13 @@ impl ScopePlan {
     /// The router keeps the longest prefix of records it can, then links to the
     /// level-0 pages holding the rest.
     ///
-    /// How much the router can keep depends on how many links it must carry,
-    /// which depends on how much it kept. The loop settles that by assuming the
-    /// page count it discovered last time. Each attempt that does not settle
-    /// discovers strictly more pages than it assumed, so the assumption climbs
-    /// and the loop runs at most once per record — in practice twice.
+    /// How much it can keep depends on how many links it must carry, which
+    /// depends on how much it kept. The loop assumes the page count it found
+    /// last time; each unsettled attempt discovers strictly more pages than it
+    /// assumed, so it terminates in at most one pass per record.
     ///
-    /// Returns `None` when even a router holding no records cannot carry its
-    /// own navigation, which is where the pure-navigation levels take over.
+    /// `None` when a router holding no records still cannot carry its own
+    /// navigation — where the pure-navigation levels take over.
     fn router_keeping_a_prefix(
         records: Records<'_>,
         router_capacity: usize,
