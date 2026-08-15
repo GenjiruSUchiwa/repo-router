@@ -199,6 +199,17 @@ mod tests {
     }
 
     #[test]
+    fn every_supported_language_has_an_extractor() {
+        for lang in Registry::supported() {
+            let mut registry = Registry::new();
+            assert!(
+                registry.for_lang(lang).is_some(),
+                "{lang} is supported but has no extractor"
+            );
+        }
+    }
+
+    #[test]
     fn for_lang_returns_none_for_an_unsupported_language() {
         let mut registry = Registry::new();
         assert!(registry.for_lang(Lang::Python).is_none());
