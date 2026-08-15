@@ -100,9 +100,16 @@ fn dirty_rule_paths(observed: &RepoState) -> BTreeSet<&RelPath> {
 ///
 /// The order is part of the digest, so it is spelled out here once rather than
 /// left to whatever order the sources happen to be discovered in.
+///
+/// `info/` is read from the *common* directory rather than the git directory.
+/// The two are the same everywhere except in a linked worktree, where the git
+/// directory is a per-worktree `.git/worktrees/<name>` that holds no `info/` at
+/// all — so hashing that one would record "absent" for ever while the walk went
+/// on reading the real file, and an edit to it would change what discovery
+/// collects with nothing left to notice.
 fn external_rule_files(repo: Option<&GitRepo>) -> [(&'static str, Option<PathBuf>); 3] {
-    let git_dir = repo.map(|repo| repo.gix_repo().git_dir().to_path_buf());
-    let info = |name: &str| git_dir.as_ref().map(|dir| dir.join("info").join(name));
+    let common_dir = repo.map(|repo| repo.gix_repo().common_dir().to_path_buf());
+    let info = |name: &str| common_dir.as_ref().map(|dir| dir.join("info").join(name));
     [
         ("git-info-exclude", info("exclude")),
         ("git-info-attributes", info("attributes")),

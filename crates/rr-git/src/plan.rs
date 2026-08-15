@@ -211,9 +211,14 @@ fn draft_from(
         }
     }
 
+    // Not `GitStatusUnavailable`: the status was observed, and observed
+    // perfectly. Two of its items simply cannot both be true about one path.
+    // Reporting the delta's own contradiction as an unreadable repository sends
+    // whoever is holding the tool to look at Git, which is the one place the
+    // problem is not.
     let plan = draft
         .build()
-        .unwrap_or_else(|_| RefreshPlan::full(FullReason::GitStatusUnavailable));
+        .unwrap_or_else(|_| RefreshPlan::full(FullReason::ContradictoryDelta));
     evidence.into_planned(plan)
 }
 

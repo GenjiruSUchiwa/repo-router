@@ -14,8 +14,16 @@ use std::path::Path;
 
 use common::{git, git_add_and_commit, init_git_repo, write};
 use rr_core::cancel::CancelToken;
-use rr_core::refresh::{GitLabel, RefreshMode, RefreshOutcome, SnapshotLabel, StatusReport};
-use rr_git::{refresh, status};
+use rr_core::lang::Lang;
+use rr_core::path::RelPath;
+use rr_core::refresh::{
+    FullReason, GitLabel, RefreshMode, RefreshOutcome, SnapshotLabel, StatusReport,
+};
+use rr_core::snapshot::SnapshotStore;
+use rr_core::walk::WalkCfg;
+use rr_git::plan::{plan_for, Published};
+use rr_git::rules::discovery_digest;
+use rr_git::{refresh, status, ChangeKind, GitRepo, WorktreeChange};
 
 fn seed(dir: &Path) {
     write(dir, "src/lib.rs", "pub fn one() {}\n");
@@ -494,5 +502,70 @@ fn a_symlink_that_becomes_a_source_file_is_indexed() {
         report.outcome,
         RefreshOutcome::Unchanged,
         "the incremental snapshot disagrees with a full build of the same tree"
+    );
+}
+
+/// A delta that contradicts itself says so, instead of blaming Git.
+///
+/// `PlanDraft::build` rejects one path renamed to two targets, and the planner
+/// used to report that rejection as `git-status-unavailable` — a diagnosis that
+/// sends whoever is holding the tool to look at Git, which is the one place the
+/// problem is not. The status was observed, and observed perfectly; two of its
+/// items simply cannot both be true.
+///
+/// The observation is built by hand because Git will not produce this. That is
+/// the point: the branch exists for the case where Git, or the version of it
+/// vendored here, reports something this code cannot make sense of, and a
+/// branch reachable only through a bug still has to say something honest when
+/// it is reached.
+#[test]
+fn a_delta_that_contradicts_itself_is_not_reported_as_an_unreadable_repository() {
+    let temp = init_git_repo();
+    write(temp.path(), "src/lib.rs", "pub fn one() {}\n");
+    git_add_and_commit(temp.path(), "seed");
+    refresh(
+        temp.path(),
+        1,
+        RefreshMode::Full,
+        &rr_core::cancel::CancelToken::new(),
+    )
+    .expect("seed refresh failed");
+
+    let repo = GitRepo::discover(temp.path())
+        .expect("discovery failed")
+        .expect("fixture is not a git repository");
+    let mut observed = repo
+        .observe_state(&CancelToken::new())
+        .expect("observation failed");
+    // One file claiming to have moved to two places at once.
+    let moved = |target: &str| WorktreeChange {
+        kind: ChangeKind::Renamed,
+        path: RelPath::try_from(target).expect("bad path"),
+        source: Some(RelPath::try_from("src/lib.rs").expect("bad path")),
+    };
+    observed.changes = vec![moved("src/here.rs"), moved("src/there.rs")];
+
+    let store = SnapshotStore::new(temp.path());
+    let published = Published::load(&store).expect("loading the snapshot failed");
+    let walk = WalkCfg {
+        languages: Some(vec![Lang::Rust]),
+        threads: Some(1),
+        ..WalkCfg::default()
+    };
+    let digest = discovery_digest(Some(&repo), &walk, Some(&observed));
+
+    let planned = plan_for(
+        RefreshMode::Incremental,
+        &published,
+        Some(&observed),
+        digest,
+        Some(&repo),
+        &walk,
+    );
+
+    assert_eq!(
+        planned.plan.reason(),
+        Some(FullReason::ContradictoryDelta),
+        "the delta contradicted itself; Git did not fail to answer"
     );
 }

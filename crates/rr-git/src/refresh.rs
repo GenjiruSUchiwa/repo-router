@@ -50,9 +50,10 @@ pub fn refresh(
 
     let context = BuildContext::open(root, threads)?;
     let store = SnapshotStore::new(&context.work_root);
-    // One handle for both planning passes: planning probes content identity for
-    // the delta, and a handle that has already warmed its object cache is the
-    // one that makes the second pass nearly free.
+    // One handle for both planning passes and for the confirmation that follows
+    // them. Opening a repository means reading refs, config, and the index, and
+    // none of that changes between the three — so it is discovered once here
+    // rather than three times over.
     let repo = context.repo()?;
 
     // Everything needed to *decide* is gathered before anything is claimed or
@@ -131,7 +132,7 @@ pub fn refresh(
 
 /// Reports "nothing to do" without locking, building, or writing anything.
 ///
-/// Returns `None` when there is work, so the caller continues. The fast path
+/// Returns `false` when there is work, so the caller continues. The fast path
 /// is deliberately narrow: an incremental plan, an empty delta, and a snapshot
 /// whose own bytes are already on disk.
 fn is_no_op(store: &SnapshotStore, plan: &RefreshPlan) -> Result<bool> {
@@ -226,6 +227,12 @@ fn retained(
 /// claim about bytes that could have moved since. The set is derived by asking
 /// [`retained`] the same question the build asked, of the inputs the build
 /// produced, so a change to the retention rule cannot leave a read unverified.
+///
+/// The comparison is against the identity the input actually carries rather
+/// than against the mere existence of a retention answer, because retention is
+/// allowed to fail on its own terms: a pruned fact cache turns a retained file
+/// back into a read, and the input that comes back then names bytes somebody
+/// read rather than bytes the previous snapshot vouched for.
 fn acquired(
     published: &Published,
     plan: &RefreshPlan,
@@ -238,11 +245,9 @@ fn acquired(
     built
         .inputs()
         .filter(|input| {
-            retainable
-                .and_then(|snapshot| {
-                    retained(snapshot, plan, &input.path, input.language, input.generated)
-                })
-                .is_none()
+            retainable.and_then(|snapshot| {
+                retained(snapshot, plan, &input.path, input.language, input.generated)
+            }) != Some((input.oid, input.representation))
         })
         .map(|input| (input.path.clone(), input.oid, input.representation))
         .collect()
@@ -270,15 +275,28 @@ fn confirm_content(
     };
 
     for (path, oid, representation) in acquired {
-        let probe = repo.probe_content(path)?;
-        if probe == ContentProbe::ReadRequired {
-            *reads += 1;
-        }
-        let content = repo
-            .acquire_content(path, probe)?
-            .ok_or(Error::RepositoryChanged)?;
-        if content.oid != *oid || content.representation != *representation {
-            return Err(Error::RepositoryChanged);
+        match repo.probe_content(path)? {
+            // Git certifies the identity from the index stat, so the two names
+            // can be compared as they are. Fetching the blob to look at its
+            // name would only hand back the name the probe just supplied — a
+            // full object read, and a decompression, for an answer already in
+            // hand.
+            ContentProbe::CleanGitBlob(current) => {
+                if current != *oid || *representation != ContentRepresentation::GitCanonical {
+                    return Err(Error::RepositoryChanged);
+                }
+            }
+            // Nothing but the bytes settles this one, and a path that no longer
+            // yields any is a path that moved after it was read.
+            ContentProbe::ReadRequired => {
+                *reads += 1;
+                let content = repo
+                    .acquire_content(path, ContentProbe::ReadRequired)?
+                    .ok_or(Error::RepositoryChanged)?;
+                if content.oid != *oid || content.representation != *representation {
+                    return Err(Error::RepositoryChanged);
+                }
+            }
         }
     }
     Ok(())

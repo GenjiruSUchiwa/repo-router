@@ -80,9 +80,9 @@ pub fn run_refresh(args: &RefreshArgs, command: RefreshCommand) -> anyhow::Resul
     // like the repository was at fault.
     let threads = usize::from(args.threads.unwrap_or(1));
 
-    // `rr map` means "rebuild everything" by name, so it does not offer the
-    // flag: a `--full` that could only ever be true is a flag with no meaning,
-    // and a `--full=false` that quietly did nothing would be worse.
+    // `rr map` means "rebuild everything" by name, so the flag decides nothing
+    // there: a `--full` that could only ever be true says nothing, and a
+    // `--full=false` that quietly rebuilt anyway would be worse than silent.
     let mode = if args.full || command == RefreshCommand::Map {
         RefreshMode::Full
     } else {

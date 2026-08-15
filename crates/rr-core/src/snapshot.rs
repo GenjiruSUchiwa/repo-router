@@ -10,10 +10,10 @@ use crate::index::Snapshot;
 /// Bumped whenever the snapshot's own layout changes, so a file written by an
 /// older binary is rebuilt rather than misread.
 ///
-/// Version 4 added the two path lists an incremental refresh plans against.
-/// A version-3 file decodes without them and would look merely *empty* of dirty
-/// paths, which is a lie a reader has no way to detect — the refresh would then
-/// leave stale worktree records in place for ever.
+/// Version 4 added the discovery digest and the two path lists an incremental
+/// refresh plans against. An older file decodes without them and would look
+/// merely *empty* of dirty paths, which is a lie a reader has no way to detect —
+/// the refresh would then leave stale worktree records in place for ever.
 pub const SNAPSHOT_SCHEMA_VERSION: u32 = 4;
 pub const SNAPSHOT_MAGIC: [u8; 8] = *b"RRIDX\0\0\0";
 const HEADER_LEN: usize = 8 + 4 + 8 + 32;

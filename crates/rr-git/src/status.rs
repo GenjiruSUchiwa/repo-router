@@ -142,13 +142,17 @@ fn snapshot_label(plan: &RefreshPlan) -> SnapshotLabel {
 /// The distinction that matters is *observation* versus *ignorance*.
 /// `GitStatusUnavailable` is the only reason that reports no fact about the
 /// snapshot at all: calling it `stale` would tell every user outside Git that
-/// their snapshot is permanently out of date no matter what they do.
+/// their snapshot is permanently out of date no matter what they do. A
+/// contradictory delta is on the other side of that line — the repository was
+/// observed, and a rebuild will follow from what it said.
 const fn unusable_label(reason: FullReason) -> SnapshotLabel {
     match reason {
         FullReason::MissingSnapshot => SnapshotLabel::Missing,
         FullReason::IncompatibleSnapshot => SnapshotLabel::Incompatible,
         FullReason::CorruptSnapshot => SnapshotLabel::Corrupt,
-        FullReason::HeadChanged | FullReason::DiscoveryRulesChanged => SnapshotLabel::Stale,
+        FullReason::HeadChanged
+        | FullReason::DiscoveryRulesChanged
+        | FullReason::ContradictoryDelta => SnapshotLabel::Stale,
         FullReason::GitStatusUnavailable => SnapshotLabel::Unknown,
     }
 }

@@ -59,6 +59,9 @@ pub enum FullReason {
     /// The Git state could not be observed, including when there is no Git
     /// repository to observe.
     GitStatusUnavailable,
+    /// The Git state was observed, and what it said about one path could not
+    /// all be true at once.
+    ContradictoryDelta,
 }
 
 impl FullReason {
@@ -75,6 +78,7 @@ impl FullReason {
             Self::HeadChanged => "head-changed",
             Self::DiscoveryRulesChanged => "discovery-rules-changed",
             Self::GitStatusUnavailable => "git-status-unavailable",
+            Self::ContradictoryDelta => "contradictory-delta",
         }
     }
 
@@ -88,6 +92,7 @@ impl FullReason {
             Self::HeadChanged => "HEAD changed",
             Self::DiscoveryRulesChanged => "discovery rules changed",
             Self::GitStatusUnavailable => "git status unavailable",
+            Self::ContradictoryDelta => "contradictory delta",
         }
     }
 }

@@ -117,6 +117,13 @@ pub struct BuildContext {
 pub struct BuiltInputs {
     inputs: Vec<FileInput>,
     stats: WorkerStats,
+    /// Paths discovery offered that were gone by the time they were read.
+    ///
+    /// Normally empty. It is kept because "no record" has two causes that look
+    /// identical afterwards — discovery declined the path, or the path stopped
+    /// existing mid-build — and only the first is evidence about what discovery
+    /// collects.
+    vanished: Vec<RelPath>,
 }
 
 impl BuiltInputs {
@@ -216,14 +223,23 @@ impl BuildContext {
 
         let mut inputs = Vec::with_capacity(results.len());
         let mut stats = WorkerStats::default();
-        for result in results {
+        let mut vanished = Vec::new();
+        // `par_iter().collect()` preserves input order, so each result still
+        // sits opposite the file it came from — which is the only way to name
+        // the path behind a `None`.
+        for (source, result) in files.iter().zip(results) {
             let (input, file_stats) = result?;
             stats.add_assign(file_stats);
-            if let Some(input) = input {
-                inputs.push(input);
+            match input {
+                Some(input) => inputs.push(input),
+                None => vanished.push(source.path.clone()),
             }
         }
-        Ok(BuiltInputs { inputs, stats })
+        Ok(BuiltInputs {
+            inputs,
+            stats,
+            vanished,
+        })
     }
 
     /// Turns inputs into the finished snapshot and its report.
@@ -256,6 +272,13 @@ impl BuildContext {
                 .skipped
                 .into_iter()
                 .filter(|path| collected_lang(path.as_str(), &self.walk).is_some())
+                // A path this walk *did* offer and that merely stopped existing
+                // before it could be read is no evidence at all about what
+                // discovery collects. Recording it as declined would settle the
+                // question the wrong way for good: the planner would drop it
+                // from every future delta, status would answer `fresh`, and the
+                // no-op path would keep any refresh from ever looking again.
+                .filter(|path| !built.vanished.contains(path))
                 .filter(|path| is_regular_file(&self.work_root, path))
                 .collect();
             (split.indexed, skipped)
