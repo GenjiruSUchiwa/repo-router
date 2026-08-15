@@ -43,6 +43,19 @@ impl Output {
         Self::write_text(stdout, text)
     }
 
+    /// Prints a diagnostic to standard error.
+    ///
+    /// Separate from [`Self::print_text`] so a report a script is parsing on
+    /// stdout is never interleaved with the reason a run refused.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`io::Error`] if writing to `stderr` fails.
+    pub fn print_error(text: &str) -> io::Result<()> {
+        let stderr = io::stderr().lock();
+        Self::write_text(stderr, text)
+    }
+
     /// Writes raw output bytes to standard output without adding extra newlines.
     ///
     /// # Errors

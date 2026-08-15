@@ -12,7 +12,8 @@
 //! wanting, so the overwhelmingly common case of "nothing happened" costs one
 //! snapshot read and one status scan.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Instant;
 
 use rr_core::cancel::CancelToken;
@@ -45,6 +46,145 @@ pub fn refresh(
     mode: RefreshMode,
     cancel: &CancelToken,
 ) -> Result<RefreshReport> {
+    match prepare(root, threads, mode, cancel)? {
+        Refresh::UpToDate { report, .. } => Ok(report),
+        Refresh::Prepared(mut prepared) => {
+            prepared.publish()?;
+            Ok(prepared.finish())
+        }
+    }
+}
+
+/// What a refresh decided, and the means to act on it.
+///
+/// Split from [`refresh`] so a caller can derive files from the same snapshot
+/// while the publication guard is still held. Issue #11's text artifacts have
+/// to be written under the guard that published the snapshot they describe;
+/// two locks would let a second run publish between them.
+#[derive(Debug)]
+pub enum Refresh {
+    /// Nothing to build. Nothing was locked, created, or written.
+    ///
+    /// The published snapshot comes back with the report because artifacts
+    /// derived from it may still need work even when it does not.
+    UpToDate {
+        report: RefreshReport,
+        snapshot: Arc<Snapshot>,
+    },
+    /// Verified and locked. The snapshot is built but not yet published.
+    Prepared(Box<PreparedRefresh>),
+}
+
+/// The publication guard, held over the snapshot already on disk.
+///
+/// For a caller that found the snapshot current but something derived from it
+/// out of date, and so needs to write without rebuilding.
+#[derive(Debug)]
+#[must_use = "the guard is released as soon as this value is dropped"]
+pub struct HeldSnapshot {
+    _guard: RepositoryWriteGuard,
+    work_root: PathBuf,
+    snapshot: Arc<Snapshot>,
+}
+
+impl HeldSnapshot {
+    /// The snapshot that was published when the guard was taken.
+    #[must_use]
+    pub fn snapshot(&self) -> &Snapshot {
+        &self.snapshot
+    }
+
+    /// The working tree it describes.
+    #[must_use]
+    pub fn work_root(&self) -> &Path {
+        &self.work_root
+    }
+}
+
+/// Takes the publication guard and reads whatever snapshot is published.
+///
+/// Re-reads under the lock rather than trusting an earlier load, because the
+/// point of taking the guard is that the earlier reading may be stale.
+///
+/// # Errors
+/// Returns [`Error::PublicationLocked`] when another process is publishing, and
+/// I/O failures otherwise. A repository with no usable snapshot is `Ok(None)`.
+pub fn hold(root: &Path, threads: usize) -> Result<Option<HeldSnapshot>> {
+    let context = BuildContext::open(root, threads)?;
+    let guard = RepositoryWriteGuard::acquire(&context.work_root)?;
+    let store = SnapshotStore::new(&context.work_root);
+    let published = Published::load(&store)?;
+    Ok(published.snapshot().map(|snapshot| HeldSnapshot {
+        snapshot: Arc::clone(snapshot),
+        work_root: context.work_root,
+        _guard: guard,
+    }))
+}
+
+/// A built, verified snapshot holding the publication guard.
+///
+/// The guard is released when this value is dropped, so anything that must
+/// happen under it happens before then.
+#[derive(Debug)]
+#[must_use = "a prepared refresh holds the publication guard and publishes nothing on its own"]
+pub struct PreparedRefresh {
+    _guard: RepositoryWriteGuard,
+    work_root: PathBuf,
+    store: SnapshotStore,
+    snapshot: Snapshot,
+    envelope: Vec<u8>,
+    report: RefreshReport,
+    started: Instant,
+}
+
+impl PreparedRefresh {
+    /// The snapshot this run will publish.
+    #[must_use]
+    pub const fn snapshot(&self) -> &Snapshot {
+        &self.snapshot
+    }
+
+    /// The working tree the snapshot describes.
+    ///
+    /// Where derived files belong. Not the guard's own path, which names the
+    /// lock file inside `.rr/local`.
+    #[must_use]
+    pub fn work_root(&self) -> &Path {
+        &self.work_root
+    }
+
+    /// Writes the snapshot, keeping the guard for whatever follows.
+    ///
+    /// # Errors
+    /// Returns I/O failures from the atomic replacement.
+    pub fn publish(&mut self) -> Result<()> {
+        self.report.snapshot_updated = self.store.publish(&self.envelope)?;
+        self.report.outcome = if self.report.snapshot_updated {
+            RefreshOutcome::Updated
+        } else {
+            RefreshOutcome::Unchanged
+        };
+        Ok(())
+    }
+
+    /// Releases the guard and returns the report.
+    #[must_use]
+    pub fn finish(mut self) -> RefreshReport {
+        self.report.elapsed_ms = elapsed_ms(self.started);
+        self.report
+    }
+}
+
+/// Builds and verifies a snapshot without publishing it.
+///
+/// # Errors
+/// The same failures as [`refresh`].
+pub fn prepare(
+    root: &Path,
+    threads: usize,
+    mode: RefreshMode,
+    cancel: &CancelToken,
+) -> Result<Refresh> {
     let started = Instant::now();
     let mut report = RefreshReport::default();
 
@@ -71,13 +211,18 @@ pub fn refresh(
     );
     report.content_reads = planned.content_reads;
 
-    if is_no_op(&store, &planned.plan)? {
-        record_plan(&mut report, &planned.plan);
-        report.elapsed_ms = elapsed_ms(started);
-        return Ok(report);
+    if let Some(snapshot) = published.snapshot() {
+        if is_no_op(&store, &planned.plan)? {
+            record_plan(&mut report, &planned.plan);
+            report.elapsed_ms = elapsed_ms(started);
+            return Ok(Refresh::UpToDate {
+                report,
+                snapshot: Arc::clone(snapshot),
+            });
+        }
     }
 
-    let _guard = RepositoryWriteGuard::acquire(&context.work_root)?;
+    let guard = RepositoryWriteGuard::acquire(&context.work_root)?;
 
     // The repository is observed again under the lock. Between the first
     // observation and the claim, anything at all could have happened; planning
@@ -120,14 +265,15 @@ pub fn refresh(
     confirm_content(repo.as_ref(), &read, &mut report.content_reads)?;
     check_cancelled(cancel)?;
 
-    report.snapshot_updated = store.publish(&envelope)?;
-    report.outcome = if report.snapshot_updated {
-        RefreshOutcome::Updated
-    } else {
-        RefreshOutcome::Unchanged
-    };
-    report.elapsed_ms = elapsed_ms(started);
-    Ok(report)
+    Ok(Refresh::Prepared(Box::new(PreparedRefresh {
+        _guard: guard,
+        work_root: context.work_root,
+        store,
+        snapshot: outcome.snapshot,
+        envelope,
+        report,
+        started,
+    })))
 }
 
 /// Reports "nothing to do" without locking, building, or writing anything.

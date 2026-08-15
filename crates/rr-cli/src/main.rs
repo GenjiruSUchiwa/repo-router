@@ -1,6 +1,7 @@
 mod output;
 mod query;
 mod refresh;
+mod text_artifacts;
 
 use std::process::ExitCode;
 
