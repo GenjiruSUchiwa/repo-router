@@ -1,12 +1,10 @@
 //! What is on disk, compared against what the snapshot says should be.
 //!
-//! This module answers one question per artifact — fresh, stale, missing, or
-//! conflicting — and never acts on the answer. Acting is the caller's job,
-//! because the caller holds the publication guard and this does not.
+//! One question per artifact — fresh, stale, missing, or conflicting — and no
+//! action on the answer: acting belongs to whoever holds the publication guard.
 //!
-//! Conflicts are collected, not thrown. A run that stops at the first problem
-//! makes a human fix one file, run again, and find the next; the contract here
-//! is that one run names every file that needs attention.
+//! Conflicts are collected, not thrown, so one run names every file that needs
+//! attention instead of one per run.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -305,12 +303,8 @@ fn classify(
 
 /// Whether a damaged artifact of this kind is rewritten rather than reported.
 ///
-/// `.rr/SYMBOLS.md` is declared fully replaceable: it holds nothing a human
-/// authored, so a copy rr wrote and something later damaged is repaired in
-/// place instead of stopping the run. That licence covers damage *inside* an rr
-/// artifact only. A file that never claimed to be rr's, or one a merge left
-/// conflicted, is somebody else's work sitting at a reserved path — it is
-/// reported, never overwritten.
+/// `.rr/SYMBOLS.md` is fully replaceable, so rr repairs its own damaged copy.
+/// A foreign or merge-conflicted file there is still reported, never seized.
 fn repairs_in_place(kind: ArtifactKind, outcome: Result<bool, ConflictReason>) -> bool {
     kind == ArtifactKind::Symbols
         && !matches!(
@@ -486,15 +480,12 @@ impl MapCatalog {
 
 /// Builds the catalog, but only from artifacts that are actually valid on disk.
 ///
-/// The validation is the point. A catalog built from a projection alone would
-/// name maps that may not exist, and issue #12 would then learn routes to files
-/// no reader can open.
+/// A catalog built from a projection alone would name maps that may not exist,
+/// leaving issue #12 with routes to files no reader can open.
 ///
 /// # Errors
-/// Returns an error when the snapshot cannot be projected, and
-/// [`crate::Error::Text`] with [`super::TextError::IndexHashMismatch`] when the
-/// artifacts on disk do not agree with the snapshot — the case a caller must
-/// repair before trusting any route.
+/// When the snapshot cannot be projected, and [`super::TextError::IndexHashMismatch`]
+/// when the artifacts on disk disagree with it — repair before trusting a route.
 pub fn validated_map_catalog(
     snapshot: &Snapshot,
     root: &Path,

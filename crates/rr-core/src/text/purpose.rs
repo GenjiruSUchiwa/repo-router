@@ -1,14 +1,12 @@
 //! The one region of a generated file that a human owns.
 //!
-//! Everything else in a map is rewritten from the snapshot on every run. The
-//! purpose slot is not: it is read back, validated, and copied through
-//! byte-for-byte. That asymmetry is the whole reason maps are committed rather
-//! than generated into `.rr/` alongside `SYMBOLS.md`.
+//! Everything else in a map is rewritten from the snapshot every run; the
+//! purpose slot is read back, validated, and copied through byte-for-byte.
+//! That asymmetry is why maps are committed rather than generated into `.rr/`.
 //!
-//! The rules are deliberately unforgiving. A slot that is malformed, oversize,
-//! duplicated, or contains its own markers is a conflict, never something to
-//! trim or repair — the alternative is a generator that silently edits prose
-//! somebody wrote.
+//! A slot that is malformed, oversize, duplicated, or contains its own markers
+//! is a conflict, never something to trim: the alternative is a generator that
+//! silently edits prose somebody wrote.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -69,16 +67,13 @@ impl ExistingPurposes {
 
 /// Reads the purpose slot of every router the plan will write.
 ///
-/// Reads only the maps the new plan needs. A map for a directory that no longer
-/// exists has no purpose to preserve, and reading it would only invite the
-/// question of where that text should go.
+/// Only the maps the new plan needs: a map for a vanished directory has no
+/// purpose to preserve.
 ///
 /// # Errors
-/// Returns an error only for a file that exists and cannot be read at all.
-/// A file that parses but holds an unusable slot is left for
-/// [`super::validate_text_artifacts`] to report as a conflict, because that is
-/// the function whose job is to enumerate every problem rather than stop at the
-/// first.
+/// Only for a file that exists and cannot be read at all. An unusable slot is
+/// left to [`super::validate_text_artifacts`], which enumerates every problem
+/// instead of stopping at the first.
 pub fn read_existing_purposes(
     root: &Path,
     projection: &TextProjection,
@@ -137,15 +132,13 @@ pub(crate) fn validate(purpose: &str) -> TextResult<()> {
 
 /// The deterministic pending value a scope gets on its first generation.
 ///
-/// Terms come from issue #5's normalizer over the scope's own map-visible
-/// symbol names, counted once per symbol so that a name repeated across ten
-/// overloads does not outvote ten distinct names. Ties break on raw bytes, so
-/// two machines seed the same sentence.
+/// Terms come from issue #5's normalizer over the scope's map-visible names,
+/// counted once per symbol so ten overloads do not outvote ten distinct names.
+/// Ties break on raw bytes, so two machines seed the same sentence.
 ///
-/// Terms are added only while the rendered sentence still fits the slot. The
-/// issue's eight-term ceiling is not itself a byte guarantee — eight long
-/// identifiers overflow 160 bytes — and a seed that failed its own validator
-/// would make the very first run a conflict.
+/// Terms are added only while the sentence still fits: the issue's eight-term
+/// ceiling is not a byte guarantee, and a seed that failed its own validator
+/// would make the first run a conflict.
 pub(crate) fn seed(scope: &Scope) -> String {
     let terms = ranked_terms(scope);
     let mut chosen: Vec<&str> = Vec::new();

@@ -464,13 +464,12 @@ impl TextProjection {
 
 /// Hashes every snapshot-derived field either artifact exposes.
 ///
-/// Purpose text, token estimates, and the generator's own version are
-/// deliberately absent: a repository whose maps differ only in prose a human
-/// wrote is the same projection, and treating it as a different one would
-/// republish every file on every edit.
+/// Purpose text, token estimates, and the generator version are absent: maps
+/// differing only in human prose are the same projection, and treating them
+/// otherwise would republish every file on every edit.
 ///
-/// A free function taking the parts rather than a method taking `self`, so the
-/// hash cannot be computed against a half-built projection.
+/// A free function over the parts rather than a method, so the hash cannot be
+/// taken against a half-built projection.
 fn index_hash_of(
     budget: u32,
     fidelity: Fidelity,
