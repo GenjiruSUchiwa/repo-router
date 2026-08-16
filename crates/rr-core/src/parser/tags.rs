@@ -3,12 +3,13 @@
 use std::ops::Range;
 use std::sync::OnceLock;
 
+use tree_sitter::{Node, Parser, Query, QueryCursor, QueryMatch, StreamingIterator};
 use tree_sitter_language::LanguageFn;
 use tree_sitter_tags::{TagsConfiguration, TagsContext};
 
 use crate::facts::{
-    def_key, reference_key, Def, DefKind, DegradedReason, Facts, OwnerIndex, ParseStatus,
-    Reference, ReferenceKind, Span, TestSignals, Visibility,
+    def_key, import_key, reference_key, Def, DefKind, DegradedReason, Facts, Import, ImportKind,
+    OwnerIndex, ParseStatus, Reference, ReferenceKind, Span, TestSignals, Visibility,
 };
 use crate::lang::Lang;
 use crate::{Error, Result};
@@ -31,6 +32,8 @@ pub struct LanguageSpec {
     pub kinds: &'static [(&'static str, DefKind)],
     /// Reference capture suffixes, without the `reference.` prefix.
     pub reference_kinds: &'static [(&'static str, ReferenceKind)],
+    /// The imports pass, or `None` for a language rr extracts no imports from.
+    pub imports: Option<&'static ImportSpec>,
     /// Visibility judged from the bare definition name — the only evidence a
     /// tags query surfaces.
     pub visibility: fn(&str) -> Visibility,
@@ -68,11 +71,65 @@ pub struct LanguageSpec {
     pub config: OnceLock<std::result::Result<TagsConfiguration, String>>,
 }
 
+/// One language's import extraction: a plain `tree_sitter::Query` run over its
+/// own parse of the same bytes.
+///
+/// Separate from [`LanguageSpec::tags_query`] because it has to be.
+/// `tree-sitter-tags` accepts `@name`, `@ignore`, `@doc`, `@local.*`,
+/// `@definition.*` and `@reference.*`, and rejects everything else with
+/// `InvalidCapture`; there is no capture through which a tags query could name
+/// an import, whatever the query says.
+pub struct ImportSpec {
+    /// The query source.
+    pub query: &'static str,
+    /// `@import.<suffix>` anchor suffixes and the kind each one produces.
+    ///
+    /// A suffix here may not be one of the reserved slot names `path`, `name`,
+    /// `alias`, `glob`, `public`, `callee`.
+    pub kinds: &'static [(&'static str, ImportKind)],
+    /// Byte substrings without which the source cannot contain an import.
+    ///
+    /// Checked before parsing. Must be a *superset* test: every construct the
+    /// query can match has to contain at least one of these literally, or a
+    /// file with imports would be reported as having none.
+    pub markers: &'static [&'static str],
+    /// Compiled query and resolved capture indices, once per process.
+    pub compiled: OnceLock<std::result::Result<CompiledImports, String>>,
+}
+
+/// An imports query with its capture indices resolved once, so the hot loop
+/// compares `u32`s instead of capture names.
+pub struct CompiledImports {
+    query: Query,
+    /// `(capture index, kind)` per `@import.<kind>` anchor.
+    anchors: Vec<(u32, ImportKind)>,
+    path: u32,
+    name: Option<u32>,
+    alias: Option<u32>,
+    glob: Option<u32>,
+    public: Option<u32>,
+    callee: Option<u32>,
+}
+
 /// Stateful generic tags extractor: one tags parser/context per worker.
 pub struct TagsExtractor {
     spec: &'static LanguageSpec,
     config: &'static TagsConfiguration,
     context: TagsContext,
+    imports: Option<ImportsPass>,
+}
+
+/// The imports pass's own parser and cursor, one per worker.
+///
+/// Its own parser rather than `TagsContext::parser`: `generate_tags` borrows
+/// the context mutably for as long as its tag iterator lives, and the pass has
+/// to run after that borrow ends. Reusing the field would also lean on a public
+/// field of a foreign crate that is an implementation detail rather than an
+/// API. One `Parser` per worker per language is a cheap price for neither.
+struct ImportsPass {
+    compiled: &'static CompiledImports,
+    parser: Parser,
+    cursor: QueryCursor,
 }
 
 impl TagsExtractor {
@@ -90,11 +147,34 @@ impl TagsExtractor {
             Ok(config)
         });
         match config {
-            Ok(config) => Ok(Self {
-                spec,
-                config,
-                context: TagsContext::new(),
-            }),
+            Ok(config) => {
+                let imports = match spec.imports {
+                    None => None,
+                    Some(import_spec) => {
+                        let language: tree_sitter::Language = spec.language.into();
+                        let compiled = import_spec
+                            .compiled
+                            .get_or_init(|| compile_imports(&language, import_spec))
+                            .as_ref()
+                            .map_err(Clone::clone)?;
+                        let mut parser = Parser::new();
+                        parser
+                            .set_language(&language)
+                            .map_err(|error| error.to_string())?;
+                        Some(ImportsPass {
+                            compiled,
+                            parser,
+                            cursor: QueryCursor::new(),
+                        })
+                    }
+                };
+                Ok(Self {
+                    spec,
+                    config,
+                    context: TagsContext::new(),
+                    imports,
+                })
+            }
             Err(message) => Err(message.clone()),
         }
     }
@@ -196,10 +276,15 @@ impl TagsExtractor {
             reference.owner = owners.nearest(reference.span);
         }
 
+        // Runs here and not earlier: it needs the same `OwnerIndex` the
+        // references were assigned from, so a block-local import and a call in
+        // the same block cannot disagree about which definition owns them.
+        let imports = self.collect_imports(source, &lines, &owners)?;
+
         Facts::from_parts(
             defs,
             references,
-            Vec::new(),
+            imports,
             ParseStatus::Tags { parse_errors },
         )
     }
@@ -235,6 +320,223 @@ fn validate_kind_maps(
         }
     }
     Ok(())
+}
+
+fn compile_imports(
+    language: &tree_sitter::Language,
+    spec: &'static ImportSpec,
+) -> std::result::Result<CompiledImports, String> {
+    let query = Query::new(language, spec.query).map_err(|error| {
+        format!(
+            "imports query at {}:{}: {}",
+            error.row, error.column, error.message
+        )
+    })?;
+
+    let mut anchors = Vec::new();
+    let (mut path, mut name, mut alias) = (None, None, None);
+    let (mut glob, mut public, mut callee) = (None, None, None);
+    for (index, capture) in query.capture_names().iter().enumerate() {
+        let index = u32::try_from(index).map_err(|_| "capture index overflow".to_string())?;
+        let Some(suffix) = capture.strip_prefix("import.") else {
+            return Err(format!(
+                "imports query capture `@{capture}` is not `@import.*`"
+            ));
+        };
+        match suffix {
+            "path" => path = Some(index),
+            "name" => name = Some(index),
+            "alias" => alias = Some(index),
+            "glob" => glob = Some(index),
+            "public" => public = Some(index),
+            "callee" => callee = Some(index),
+            _ => {
+                let kind = spec
+                    .kinds
+                    .iter()
+                    .find_map(|(candidate, kind)| (*candidate == suffix).then_some(*kind))
+                    .ok_or_else(|| format!("missing import kind mapping for `{suffix}`"))?;
+                anchors.push((index, kind));
+            }
+        }
+    }
+
+    let path = path.ok_or_else(|| "imports query has no @import.path".to_string())?;
+    if anchors.is_empty() {
+        return Err("imports query has no @import.<kind> anchor".to_string());
+    }
+    if spec.markers.is_empty() {
+        // `collect_imports` reads an empty marker list as "no file can contain
+        // an import" and returns none for every file in the language. Caught
+        // here because nothing downstream can: the language extracts zero
+        // imports, quietly, and no test can tell that apart from a language
+        // that genuinely has none.
+        return Err("imports spec has no markers prefilter".to_string());
+    }
+    Ok(CompiledImports {
+        query,
+        anchors,
+        path,
+        name,
+        alias,
+        glob,
+        public,
+        callee,
+    })
+}
+
+impl TagsExtractor {
+    /// Extracts this file's imports, or nothing for a language with no imports
+    /// query.
+    ///
+    /// Parses the source a second time. `tree-sitter-tags` builds its tree
+    /// inside `generate_tags` and never yields it, so a second query over the
+    /// same file needs a second tree. The `markers` prefilter is what keeps
+    /// that off files that cannot contain an import at all.
+    fn collect_imports(
+        &mut self,
+        source: &str,
+        lines: &LineIndex,
+        owners: &OwnerIndex,
+    ) -> Result<Vec<Import>> {
+        let Some(pass) = self.imports.as_mut() else {
+            return Ok(Vec::new());
+        };
+        let markers = self.spec.imports.map_or(&[][..], |spec| spec.markers);
+        if !markers.iter().any(|marker| source.contains(marker)) {
+            return Ok(Vec::new());
+        }
+
+        let Some(tree) = pass.parser.parse(source.as_bytes(), None) else {
+            // The tags pass parsed these bytes with this grammar, so this
+            // cannot fail for a reason the file explains. Reporting an empty
+            // import list would state that the file has none.
+            return Err(Error::ExtractionInvariant {
+                message: "imports pass could not parse a source the tags pass parsed",
+            });
+        };
+
+        let mut imports = Vec::new();
+        let mut matches =
+            pass.cursor
+                .matches(&pass.compiled.query, tree.root_node(), source.as_bytes());
+        while let Some(query_match) = matches.next() {
+            if let Some(import) = build_import(pass.compiled, query_match, source, lines, owners)? {
+                imports.push(import);
+            }
+        }
+        imports.sort_by(|left, right| import_key(left).cmp(&import_key(right)));
+        Ok(imports)
+    }
+}
+
+fn build_import(
+    compiled: &CompiledImports,
+    query_match: &QueryMatch<'_, '_>,
+    source: &str,
+    lines: &LineIndex,
+    owners: &OwnerIndex,
+) -> Result<Option<Import>> {
+    let mut anchor: Option<(Node<'_>, ImportKind)> = None;
+    let mut path_node: Option<Node<'_>> = None;
+    let mut name_node: Option<Node<'_>> = None;
+    let mut alias_node: Option<Node<'_>> = None;
+    let mut callee_node: Option<Node<'_>> = None;
+    let mut is_glob = false;
+    let mut is_public = false;
+
+    for capture in query_match.captures {
+        let index = capture.index;
+        if let Some((_, kind)) = compiled
+            .anchors
+            .iter()
+            .find(|(candidate, _)| *candidate == index)
+        {
+            anchor = Some((capture.node, *kind));
+        } else if index == compiled.path {
+            path_node = Some(capture.node);
+        } else if Some(index) == compiled.name {
+            name_node = Some(capture.node);
+        } else if Some(index) == compiled.alias {
+            alias_node = Some(capture.node);
+        } else if Some(index) == compiled.callee {
+            callee_node = Some(capture.node);
+        } else if Some(index) == compiled.glob {
+            is_glob = true;
+        } else if Some(index) == compiled.public {
+            is_public = true;
+        }
+    }
+
+    let (Some((anchor, kind)), Some(path_node)) = (anchor, path_node) else {
+        return Err(Error::ExtractionInvariant {
+            message: "imports query matched without both an anchor and a path",
+        });
+    };
+
+    // `require` is a function name, not a keyword, so the query has to match
+    // every call taking one string and let this reject the rest by name:
+    // `describe("a case")` imports nothing. Read here rather than through an
+    // `#eq?` predicate for the reason `LanguageSpec::refine` gives — this crate
+    // does not depend on predicate evaluation.
+    //
+    // Name equality is the whole test. There is no scope analysis behind it, so
+    // a file that shadows `require` with its own function or parameter still
+    // records the call; the unit test pins that. What it costs is one specifier
+    // no module graph would have resolved anyway, and resolving bindings inside
+    // a pass whose only job is reading declarations costs more than that.
+    if let Some(callee) = callee_node {
+        if node_text(callee, source)? != "require" {
+            return Ok(None);
+        }
+    }
+
+    let path = unquote(node_text(path_node, source)?);
+    if path.is_empty() {
+        // `import ""` names no module. Nothing to record and nothing to claim.
+        return Ok(None);
+    }
+
+    let span = span_for_range(&anchor.byte_range(), lines, source)?;
+    Ok(Some(Import {
+        kind,
+        path: path.to_owned(),
+        name: text_of(name_node, source)?,
+        alias: text_of(alias_node, source)?,
+        is_public,
+        is_glob,
+        span,
+        owner: owners.nearest_import_owner(span),
+    }))
+}
+
+fn text_of(node: Option<Node<'_>>, source: &str) -> Result<Option<String>> {
+    node.map(|node| node_text(node, source).map(|text| unquote(text).to_owned()))
+        .transpose()
+}
+
+fn node_text<'a>(node: Node<'_>, source: &'a str) -> Result<&'a str> {
+    source
+        .get(node.byte_range())
+        .ok_or(Error::ExtractionInvariant {
+            message: "imports query node is not a source substring",
+        })
+}
+
+/// A quoted specifier without its quotes; anything else unchanged.
+///
+/// Escape sequences are left as written. This field records what the file says,
+/// not what a resolver would compute from it, and a specifier is not a path
+/// until something resolves it.
+fn unquote(text: &str) -> &str {
+    let bytes = text.as_bytes();
+    let (Some(&open), Some(&close)) = (bytes.first(), bytes.last()) else {
+        return text;
+    };
+    if bytes.len() < 2 || open != close || !matches!(open, b'"' | b'\'' | b'`') {
+        return text;
+    }
+    text.get(1..text.len() - 1).unwrap_or(text)
 }
 
 fn definition_kind(
@@ -671,12 +973,20 @@ pub(crate) static PYTHON: LanguageSpec = LanguageSpec {
         ("function", DefKind::Function),
     ],
     reference_kinds: &[("call", ReferenceKind::Call)],
+    imports: Some(&PYTHON_IMPORTS),
     visibility: python_visibility,
     test_attribute: python_test_attribute,
     test_scope: python_test_scope,
     refine: keep_as_captured,
     doc_is_leading_body_string: true,
     config: OnceLock::new(),
+};
+
+static PYTHON_IMPORTS: ImportSpec = ImportSpec {
+    query: include_str!("queries/python-imports.scm"),
+    kinds: &[("import", ImportKind::Import), ("from", ImportKind::From)],
+    markers: &["import"],
+    compiled: OnceLock::new(),
 };
 
 /// Every word TypeScript allows between the start of a member declaration and
@@ -862,7 +1172,11 @@ const TYPESCRIPT_REFERENCE_KINDS: &[(&str, ReferenceKind)] = &[
 ///
 /// Spelled once so the two cannot drift: everything below the first two fields
 /// is the language, and the language is the same one.
-const fn typescript_spec(lang: Lang, language: LanguageFn) -> LanguageSpec {
+const fn typescript_spec(
+    lang: Lang,
+    language: LanguageFn,
+    imports: &'static ImportSpec,
+) -> LanguageSpec {
     LanguageSpec {
         lang,
         language,
@@ -870,6 +1184,7 @@ const fn typescript_spec(lang: Lang, language: LanguageFn) -> LanguageSpec {
         locals_query: "",
         kinds: TYPESCRIPT_KINDS,
         reference_kinds: TYPESCRIPT_REFERENCE_KINDS,
+        imports: Some(imports),
         visibility: typescript_visibility,
         test_attribute: never_a_test_signal,
         test_scope: never_a_test_signal,
@@ -879,9 +1194,33 @@ const fn typescript_spec(lang: Lang, language: LanguageFn) -> LanguageSpec {
     }
 }
 
+const TYPESCRIPT_IMPORT_KINDS: &[(&str, ImportKind)] = &[
+    ("import", ImportKind::Import),
+    ("from", ImportKind::From),
+    ("require", ImportKind::Require),
+];
+
+/// The same query source and the same kinds as [`TSX_IMPORTS`], and its own
+/// `OnceLock`, for the reason [`TSX`] is its own static: a compiled query owns
+/// its grammar.
+static TYPESCRIPT_IMPORTS: ImportSpec = ImportSpec {
+    query: include_str!("queries/typescript-imports.scm"),
+    kinds: TYPESCRIPT_IMPORT_KINDS,
+    markers: &["import", "require", "from"],
+    compiled: OnceLock::new(),
+};
+
+static TSX_IMPORTS: ImportSpec = ImportSpec {
+    query: include_str!("queries/typescript-imports.scm"),
+    kinds: TYPESCRIPT_IMPORT_KINDS,
+    markers: &["import", "require", "from"],
+    compiled: OnceLock::new(),
+};
+
 pub(crate) static TYPESCRIPT: LanguageSpec = typescript_spec(
     Lang::TypeScript,
     tree_sitter_typescript::LANGUAGE_TYPESCRIPT,
+    &TYPESCRIPT_IMPORTS,
 );
 
 /// TSX: the same query against a different grammar.
@@ -893,8 +1232,11 @@ pub(crate) static TYPESCRIPT: LanguageSpec = typescript_spec(
 /// them apart: a compiled `TagsConfiguration` holds its grammar, so one shared
 /// between these two specs would hand every `.tsx` file the `.ts` parser —
 /// which is why each of these is its own `static` rather than one built twice.
-pub(crate) static TSX: LanguageSpec =
-    typescript_spec(Lang::Tsx, tree_sitter_typescript::LANGUAGE_TSX);
+pub(crate) static TSX: LanguageSpec = typescript_spec(
+    Lang::Tsx,
+    tree_sitter_typescript::LANGUAGE_TSX,
+    &TSX_IMPORTS,
+);
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
@@ -941,6 +1283,7 @@ mod tests {
             locals_query: "",
             kinds: &[],
             reference_kinds: &[],
+            imports: None,
             visibility: python_visibility,
             test_attribute: python_test_attribute,
             test_scope: python_test_scope,
@@ -955,6 +1298,7 @@ mod tests {
             locals_query: "",
             kinds: &[],
             reference_kinds: &[],
+            imports: None,
             visibility: python_visibility,
             test_attribute: python_test_attribute,
             test_scope: python_test_scope,
@@ -1118,6 +1462,13 @@ mod tests {
 
     fn typescript(source: &str) -> Facts {
         TagsExtractor::new(&TYPESCRIPT)
+            .unwrap()
+            .extract(source.as_bytes())
+            .unwrap()
+    }
+
+    fn python(source: &str) -> Facts {
+        TagsExtractor::new(&PYTHON)
             .unwrap()
             .extract(source.as_bytes())
             .unwrap()
@@ -1378,5 +1729,316 @@ mod tests {
             typescript(source).status(),
             ParseStatus::Tags { parse_errors: true }
         ));
+    }
+
+    /// `import os.path` spells one path that already ends in its leaf, so the
+    /// whole path is `path` and `name` stays `None` — the same convention Rust
+    /// `use` follows.
+    #[test]
+    fn a_python_import_records_the_module_verbatim() {
+        let facts = python("import os.path\n");
+        let imports = facts.imports();
+        assert_eq!(imports.len(), 1);
+        assert_eq!(imports[0].kind, ImportKind::Import);
+        assert_eq!(imports[0].path, "os.path");
+        assert!(imports[0].name.is_none());
+        assert!(imports[0].alias.is_none());
+        assert!(!imports[0].is_glob);
+        assert!(!imports[0].is_public);
+    }
+
+    #[test]
+    fn a_python_aliased_import_records_the_local_name() {
+        let facts = python("import os.path as p\n");
+        let imports = facts.imports();
+        assert_eq!(imports.len(), 1);
+        assert_eq!(imports[0].path, "os.path");
+        assert_eq!(imports[0].alias.as_deref(), Some("p"));
+    }
+
+    #[test]
+    fn a_python_from_import_separates_source_from_leaf() {
+        let facts = python("from x import y\n");
+        let imports = facts.imports();
+        assert_eq!(imports.len(), 1);
+        assert_eq!(imports[0].kind, ImportKind::From);
+        assert_eq!(imports[0].path, "x");
+        assert_eq!(imports[0].name.as_deref(), Some("y"));
+        assert!(imports[0].alias.is_none());
+    }
+
+    /// `..pkg` is relative to the importing module's package, which rr does
+    /// not resolve. The specifier is stored verbatim, and the predicate agrees
+    /// that it is not a path this index's resolver can follow.
+    #[test]
+    fn a_python_relative_import_is_not_presented_as_canonical() {
+        let facts = python("from ..pkg import y\n");
+        let imports = facts.imports();
+        assert_eq!(imports.len(), 1);
+        assert_eq!(imports[0].path, "..pkg");
+        assert_eq!(imports[0].name.as_deref(), Some("y"));
+        assert!(!imports[0].kind.resolves_by_path());
+    }
+
+    #[test]
+    fn a_python_star_import_is_a_glob() {
+        let facts = python("from x import *\n");
+        let imports = facts.imports();
+        assert_eq!(imports.len(), 1);
+        assert_eq!(imports[0].kind, ImportKind::From);
+        assert_eq!(imports[0].path, "x");
+        assert!(imports[0].name.is_none());
+        assert!(imports[0].is_glob);
+    }
+
+    /// `from __future__ import annotations` enables a compiler flag rather
+    /// than naming a module rr could index, and its statement has no node
+    /// whose text is `__future__` to point `@import.path` at. Recorded as a
+    /// decision in the query header; pinned here so a grammar change cannot
+    /// silently start extracting it.
+    #[test]
+    fn a_python_future_import_is_not_recorded() {
+        let facts = python("from __future__ import annotations\n");
+        assert!(facts.imports().is_empty());
+    }
+
+    #[test]
+    fn a_typescript_default_import_is_an_import_kind() {
+        let facts = typescript("import x from \"m\";\n");
+        let imports = facts.imports();
+        assert_eq!(imports.len(), 1);
+        assert_eq!(imports[0].kind, ImportKind::Import);
+        assert_eq!(imports[0].path, "m");
+        assert!(imports[0].name.is_none());
+        assert_eq!(imports[0].alias.as_deref(), Some("x"));
+        assert!(!imports[0].is_glob);
+    }
+
+    #[test]
+    fn a_typescript_named_import_is_a_from_kind() {
+        let facts = typescript("import { A } from \"m\";\n");
+        let imports = facts.imports();
+        assert_eq!(imports.len(), 1);
+        assert_eq!(imports[0].kind, ImportKind::From);
+        assert_eq!(imports[0].path, "m");
+        assert_eq!(imports[0].name.as_deref(), Some("A"));
+        assert!(imports[0].alias.is_none());
+    }
+
+    /// Without the `!alias` negation the plain pattern also matches `{ A as B }`
+    /// and the declaration lands twice.
+    #[test]
+    fn a_typescript_aliased_specifier_is_recorded_once() {
+        let facts = typescript("import { A as B } from \"m\";\n");
+        let imports = facts.imports();
+        assert_eq!(imports.len(), 1);
+        assert_eq!(imports[0].kind, ImportKind::From);
+        assert_eq!(imports[0].name.as_deref(), Some("A"));
+        assert_eq!(imports[0].alias.as_deref(), Some("B"));
+    }
+
+    /// D5: `import * as ns from "m"` binds exactly one name; `is_glob` marks a
+    /// declaration that brings in names it does not write down, and this one
+    /// writes its name down.
+    #[test]
+    fn a_typescript_namespace_import_is_not_a_glob() {
+        let facts = typescript("import * as ns from \"m\";\n");
+        let imports = facts.imports();
+        assert_eq!(imports.len(), 1);
+        assert_eq!(imports[0].kind, ImportKind::Import);
+        assert_eq!(imports[0].path, "m");
+        assert_eq!(imports[0].alias.as_deref(), Some("ns"));
+        assert!(!imports[0].is_glob);
+    }
+
+    /// The `.` anchor is what separates a bare import from every clause form:
+    /// a bare import's first named child is its source. One match, no alias.
+    #[test]
+    fn a_typescript_side_effect_import_is_recorded_once() {
+        let bare = typescript("import \"m\";\n");
+        assert_eq!(bare.imports().len(), 1);
+        assert_eq!(bare.imports()[0].kind, ImportKind::Import);
+        assert_eq!(bare.imports()[0].path, "m");
+        assert!(bare.imports()[0].alias.is_none());
+
+        let clause = typescript("import x from \"m\";\n");
+        assert_eq!(clause.imports().len(), 1);
+        assert_eq!(clause.imports()[0].alias.as_deref(), Some("x"));
+    }
+
+    /// `export default "hi"` opens with a string too, under the `value` field;
+    /// the `source:` field requirement is what keeps it out of the `export *`
+    /// pattern.
+    #[test]
+    fn an_export_default_string_is_not_an_import() {
+        let facts = typescript("export default \"hi\";\n");
+        assert!(facts.imports().is_empty());
+    }
+
+    /// D3: `require` is an ordinary identifier, and only a call to the *global*
+    /// The query matches every call taking one string; the callee name is read
+    /// in Rust, not through a query predicate, and is what drops the rest.
+    #[test]
+    fn a_typescript_require_is_matched_by_its_callee_name() {
+        let facts = typescript("const cj = require(\"m\");\n");
+        let imports = facts.imports();
+        assert_eq!(imports.len(), 1);
+        assert_eq!(imports[0].kind, ImportKind::Require);
+        assert_eq!(imports[0].path, "m");
+        // The binding is already a variable definition in `typescript.scm`;
+        // recording it as an alias would file one declaration under two names.
+        assert!(imports[0].alias.is_none());
+        // Nor does the binding own it: this is where JavaScript writes a
+        // module-scope import, so it has to reach every symbol in the file,
+        // exactly as `import cj from "m"` does.
+        assert!(imports[0].owner.is_none());
+
+        // Matches the pattern, and only the callee guard rejects it. Deleting
+        // the guard makes this case fail, which the shadowing case below cannot
+        // do — every `describe("…")` in the repository would become an import.
+        assert!(typescript("describe(\"a case\");\n").imports().is_empty());
+        // Rejected a step earlier, by `function: (identifier)`: a member call
+        // is a `member_expression` and never reaches the guard.
+        assert!(typescript("thing.require(\"m\");\n").imports().is_empty());
+        // Pinned as a limitation on record, not as correct behaviour: the guard
+        // compares text and does no scope analysis, so a shadowed `require`
+        // still records.
+        assert_eq!(
+            typescript("function require(p: string) { return p; }\nrequire(\"./shim\");\n")
+                .imports()
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn a_typescript_re_export_is_public() {
+        let facts = typescript("export { A } from \"m\";\n");
+        let imports = facts.imports();
+        assert_eq!(imports.len(), 1);
+        assert_eq!(imports[0].kind, ImportKind::From);
+        assert_eq!(imports[0].name.as_deref(), Some("A"));
+        assert!(imports[0].is_public);
+    }
+
+    #[test]
+    fn a_typescript_star_re_export_is_a_glob() {
+        let facts = typescript("export * from \"m\";\n");
+        let imports = facts.imports();
+        assert_eq!(imports.len(), 1);
+        assert_eq!(imports[0].kind, ImportKind::From);
+        assert_eq!(imports[0].path, "m");
+        assert!(imports[0].name.is_none());
+        assert!(imports[0].is_glob);
+        assert!(imports[0].is_public);
+    }
+
+    /// One declaration, two facts: the default clause has no leaf, the named
+    /// clause does, and each anchor keeps its own span so their keys differ.
+    #[test]
+    fn a_typescript_mixed_default_and_named_import_is_two_facts() {
+        let facts = typescript("import x, { A } from \"m\";\n");
+        let imports = facts.imports();
+        assert_eq!(imports.len(), 2);
+        let by_kind = |kind: ImportKind| {
+            imports
+                .iter()
+                .find(|import| import.kind == kind)
+                .unwrap_or_else(|| panic!("no {kind:?} import"))
+        };
+        let plain = by_kind(ImportKind::Import);
+        assert_eq!(plain.path, "m");
+        assert_eq!(plain.alias.as_deref(), Some("x"));
+        let named = by_kind(ImportKind::From);
+        assert_eq!(named.path, "m");
+        assert_eq!(named.name.as_deref(), Some("A"));
+    }
+
+    /// Fact order is the sort key's order, not the source's, and every import
+    /// carries the smallest enclosing definition when one exists.
+    #[test]
+    fn imports_are_sorted_and_owned_by_the_nearest_definition() {
+        let facts = typescript(
+            "import top from \"m-top\";\nnamespace N {\n    import ir = require(\"m-nested\");\n}\n",
+        );
+        let imports = facts.imports();
+        assert_eq!(imports.len(), 2);
+        // Sorted by the key's first component, the span start: source order.
+        assert_eq!(imports[0].path, "m-top");
+        assert!(imports[0].owner.is_none());
+        assert_eq!(imports[1].path, "m-nested");
+        assert_eq!(
+            imports[1]
+                .owner
+                .and_then(|id| facts.def(id))
+                .map(|def| def.name.as_str()),
+            Some("N")
+        );
+    }
+
+    /// The imports query is compiled against both TypeScript grammars, and a
+    /// `.tsx` file's imports arrive the same way a `.ts` file's do.
+    #[test]
+    fn the_imports_pass_runs_against_both_typescript_grammars() {
+        let source =
+            "import { A } from \"m\";\nexport const Badge = (props: P) => <b>{props.label}</b>;\n";
+        let mut tsx = TagsExtractor::new(&TSX).unwrap();
+        let facts = tsx.extract(source.as_bytes()).unwrap();
+        let imports = facts.imports();
+        assert_eq!(imports.len(), 1);
+        assert_eq!(imports[0].kind, ImportKind::From);
+        assert_eq!(imports[0].name.as_deref(), Some("A"));
+    }
+
+    /// The `None` arm: a language rr extracts no imports from reports none
+    /// rather than failing.
+    #[test]
+    fn a_language_with_no_imports_query_extracts_no_imports() {
+        static NO_IMPORTS: LanguageSpec = LanguageSpec {
+            lang: Lang::Python,
+            language: tree_sitter_python::LANGUAGE,
+            tags_query: include_str!("queries/python.scm"),
+            locals_query: "",
+            kinds: &[
+                ("constant", DefKind::Variable),
+                ("class", DefKind::Class),
+                ("function", DefKind::Function),
+            ],
+            reference_kinds: &[("call", ReferenceKind::Call)],
+            imports: None,
+            visibility: python_visibility,
+            test_attribute: python_test_attribute,
+            test_scope: python_test_scope,
+            refine: keep_as_captured,
+            doc_is_leading_body_string: true,
+            config: OnceLock::new(),
+        };
+        let mut extractor = TagsExtractor::new(&NO_IMPORTS).unwrap();
+        let facts = extractor
+            .extract(b"import os\ndef f():\n    pass\n")
+            .unwrap();
+        assert!(facts.imports().is_empty());
+        assert!(facts.defs().iter().any(|def| def.name == "f"));
+    }
+
+    /// The marker prefilter is a superset test: a file whose only "import" is
+    /// a substring of an identifier passes the prefilter and still yields no
+    /// imports, and a file carrying no marker at all is never parsed twice.
+    #[test]
+    fn an_import_free_file_is_not_parsed_twice() {
+        assert!(python("result = imported_count + 1\n").imports().is_empty());
+        assert!(python("x = 1\n").imports().is_empty());
+        assert!(typescript("const harvested = 1;\n").imports().is_empty());
+    }
+
+    /// `export { A } from "m"` carries neither `import` nor `require`; `from`
+    /// in the marker set is what keeps the prefilter from skipping it.
+    #[test]
+    fn a_re_export_only_file_is_not_skipped_by_the_prefilter() {
+        let facts = typescript("export { A } from \"m\";\n");
+        let imports = facts.imports();
+        assert_eq!(imports.len(), 1);
+        assert_eq!(imports[0].kind, ImportKind::From);
+        assert!(imports[0].is_public);
     }
 }

@@ -67,9 +67,13 @@ The new import kinds are inert on purpose. `ImportKind::resolves_by_path` answer
 `false` for `Import`, `From`, and `Require`, because the resolver in
 `index::build` splits a path on `::` and rejoins it onto the importing file's
 module path — so `react` imported from `app` would be looked up as `app::react`
-and could *find* an unrelated local symbol. Step 3 below flips those rows on as
-it teaches the resolver each language's separators, one line and one test each.
-Until then an unresolved import is a true statement; a wrong one would not be.
+and could *find* an unrelated local symbol. That answer is settled rather than
+deferred: for the tier-2 languages `path` is a specifier (`./Button`, `..`,
+`react`), and no separator table turns one into a definition rr holds — that
+takes a module graph (tsconfig paths, extension resolution, `node_modules`,
+package layout), which is out of scope by decision. A row flips to `true` only
+alongside a resolver that can follow that language's specifiers. Until then an
+unresolved import is a true statement; a wrong one would not be.
 
 Two entries did not land. `Visibility::Package` names Java's package-private and
 Go's lowercase; `ImportKind::Include` names C's `#include`. Neither is reachable
@@ -238,10 +242,15 @@ count the parameter twice.
 
 Recorded here rather than discovered later:
 
-- **No imports, in either language.** `ImportKind::Import`/`From`/`Require`
-  are still inert, and neither query has an import pattern. `import { X } from
-  "y"` is invisible to rr today. This is the largest remaining gap and the
-  obvious next piece of work.
+- **Imports are read, not resolved.** #40 closed the extraction half with a
+  second pass: `tree-sitter-tags` accepts only its own capture vocabulary and
+  offers no channel to widen, so each tier-2 language gained a plain
+  `tree_sitter::Query` (`python-imports.scm`, `typescript-imports.scm`) run
+  over its own second parse of the same bytes. What it records is what the
+  declaration says — `Import::path` holds the specifier verbatim, `Import::name`
+  the leaf selected out of it. Turning either into a definition rr holds is a
+  module graph and stays out of scope, so `resolves_by_path` answers false for
+  every tier-2 kind and these imports reach the index as lexical evidence only.
 - **`export` is not visibility.** A non-exported TypeScript declaration reads
   as `Public`, because visibility here is the `#` prefix and the modifier, not
   the export list.

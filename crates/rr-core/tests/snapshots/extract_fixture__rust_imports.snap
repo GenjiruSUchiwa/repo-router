@@ -35,84 +35,98 @@ references: []
 imports:
   - kind: Use
     path: "crate::a::b"
+    name: ~
     alias: ~
     is_public: false
     is_glob: false
     owner: ~
   - kind: Use
     path: "crate::a"
+    name: ~
     alias: ~
     is_public: false
     is_glob: false
     owner: ~
   - kind: Use
     path: "crate::a::b"
+    name: ~
     alias: ~
     is_public: false
     is_glob: false
     owner: ~
   - kind: Use
     path: "crate::a::c"
+    name: ~
     alias: d
     is_public: false
     is_glob: false
     owner: ~
   - kind: Use
     path: "crate::a::nested::e"
+    name: ~
     alias: ~
     is_public: false
     is_glob: false
     owner: ~
   - kind: Use
     path: "crate::a::nested::*"
+    name: ~
     alias: ~
     is_public: false
     is_glob: true
     owner: ~
   - kind: Use
     path: "crate::internal::Client"
+    name: ~
     alias: ApiClient
     is_public: true
     is_glob: false
     owner: ~
   - kind: ExternCrate
     path: alloc
+    name: ~
     alias: allocator
     is_public: false
     is_glob: false
     owner: ~
   - kind: Use
     path: "super::x"
+    name: ~
     alias: ~
     is_public: false
     is_glob: false
     owner: ~
   - kind: Use
     path: "self::y"
+    name: ~
     alias: ~
     is_public: false
     is_glob: false
     owner: ~
   - kind: Use
     path: a
+    name: ~
     alias: _
     is_public: false
     is_glob: false
     owner: ~
   - kind: Use
     path: "crate::a::b"
+    name: ~
     alias: ~
     is_public: false
     is_glob: false
     owner: ~
   - kind: Use
     path: "crate::z"
+    name: ~
     alias: ~
     is_public: false
     is_glob: false
     owner: block_local
   - kind: Use
     path: "crate::inside_mod::Item"
+    name: ~
     alias: ~
     is_public: false
     is_glob: false

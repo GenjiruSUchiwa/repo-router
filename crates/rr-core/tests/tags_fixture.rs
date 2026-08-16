@@ -15,6 +15,19 @@ struct SnapshotFile {
     status: String,
     defs: Vec<SnapshotDef>,
     references: Vec<SnapshotRef>,
+    imports: Vec<SnapshotImport>,
+}
+
+#[derive(Debug, PartialEq, Serialize)]
+struct SnapshotImport {
+    kind: String,
+    path: String,
+    name: Option<String>,
+    alias: Option<String>,
+    is_public: bool,
+    is_glob: bool,
+    line: u32,
+    owner: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Serialize)]
@@ -120,6 +133,20 @@ fn to_snapshot(path: &str, facts: &Facts) -> SnapshotFile {
                 name: reference.name.clone(),
                 line: reference.span.start_line(),
                 owner: owner_name(facts, reference.owner),
+            })
+            .collect(),
+        imports: facts
+            .imports()
+            .iter()
+            .map(|import| SnapshotImport {
+                kind: format!("{:?}", import.kind),
+                path: import.path.clone(),
+                name: import.name.clone(),
+                alias: import.alias.clone(),
+                is_public: import.is_public,
+                is_glob: import.is_glob,
+                line: import.span.start_line(),
+                owner: owner_name(facts, import.owner),
             })
             .collect(),
     }
@@ -436,4 +463,45 @@ fn typescript_signature_text_is_sliced_from_the_span_not_reconstructed() {
             [def.signature_span.start_byte() as usize..def.signature_span.end_byte() as usize];
         assert_eq!(def.signature, display_signature(raw));
     }
+}
+
+#[test]
+fn a_python_imports_fixture_has_a_readable_golden_projection() {
+    let (_, facts) = facts_for(Lang::Python, "python", "imports.py");
+    insta::assert_yaml_snapshot!("python_imports", to_snapshot("imports.py", &facts));
+}
+
+#[test]
+fn a_typescript_imports_fixture_has_a_readable_golden_projection() {
+    let (_, facts) = facts_for(Lang::TypeScript, "typescript", "imports.ts");
+    insta::assert_yaml_snapshot!("typescript_imports", to_snapshot("imports.ts", &facts));
+}
+
+/// The audit that should have run in #31: every `ImportKind` variant is either
+/// produced by something or a promise the schema does not keep. The union over
+/// the Rust, Python and TypeScript import fixtures is compared against
+/// `ImportKind::ALL` rather than a list written out here, so a variant added
+/// without a producer fails this test instead of shipping as a field no
+/// extractor ever fills.
+#[test]
+fn every_import_kind_variant_has_a_producer() {
+    use rr_core::ImportKind;
+
+    let mut produced = std::collections::BTreeSet::new();
+    for (lang, language, name) in [
+        (Lang::Rust, "rust", "imports.rs"),
+        (Lang::Python, "python", "imports.py"),
+        (Lang::TypeScript, "typescript", "imports.ts"),
+    ] {
+        let (_, facts) = facts_for(lang, language, name);
+        for import in facts.imports() {
+            produced.insert(import.kind);
+        }
+    }
+    // `BTreeSet` iterates in `Ord` order, which is declaration order, which is
+    // the order of `ALL`.
+    assert_eq!(
+        produced.into_iter().collect::<Vec<_>>(),
+        ImportKind::ALL.to_vec()
+    );
 }

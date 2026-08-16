@@ -21,12 +21,12 @@ use crate::Result;
 /// `Lang` is already a cache-key field: a Python grammar bump must not
 /// invalidate every cached Rust fact.
 pub const RUST_EXTRACTOR_VERSION: u32 = 3;
-pub const PYTHON_EXTRACTOR_VERSION: u32 = 4;
+pub const PYTHON_EXTRACTOR_VERSION: u32 = 5;
 /// TypeScript and TSX share a query and count separately, because they are two
 /// grammars: a `.tsx` fix that reparses every `.ts` file would be the global
 /// constant this module exists to avoid.
-pub const TYPESCRIPT_EXTRACTOR_VERSION: u32 = 1;
-pub const TSX_EXTRACTOR_VERSION: u32 = 1;
+pub const TYPESCRIPT_EXTRACTOR_VERSION: u32 = 2;
+pub const TSX_EXTRACTOR_VERSION: u32 = 2;
 
 /// The extractor version for `lang`, `0` when rr has no extractor for it.
 #[must_use]

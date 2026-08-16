@@ -661,6 +661,7 @@ references:
 imports:
   - kind: Use
     path: "super::*"
+    name: ~
     alias: ~
     is_public: false
     is_glob: true

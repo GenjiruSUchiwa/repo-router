@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 use rr_core::extractor_version;
 use rr_core::parser::RustExtractor;
+use rr_core::parser::RUST_EXTRACTOR_VERSION;
 use rr_core::{
     DefKind, DegradedReason, Facts, Lang, ParseStatus, ReferenceKind, FACT_SCHEMA_VERSION,
 };
@@ -50,6 +51,7 @@ struct SnapshotRef {
 struct SnapshotImport {
     kind: String,
     path: String,
+    name: Option<String>,
     alias: Option<String>,
     is_public: bool,
     is_glob: bool,
@@ -180,6 +182,7 @@ fn to_snapshot(path: &str, source: &str, facts: &Facts) -> SnapshotFile {
             .map(|import| SnapshotImport {
                 kind: format!("{:?}", import.kind),
                 path: import.path.clone(),
+                name: import.name.clone(),
                 alias: import.alias.clone(),
                 is_public: import.is_public,
                 is_glob: import.is_glob,
@@ -380,6 +383,22 @@ fn rust_imports_golden() {
     insta::assert_yaml_snapshot!("rust_imports", to_snapshot("imports.rs", &source, &facts));
 }
 
+/// Issue #40's second pass is a tier-2 addition; Rust's hand-written extractor
+/// is untouched by it, and so is its version and its output. The `rust_imports`
+/// golden above pins the exact output; this test pins the two properties a
+/// golden cannot: the version holds, and a Rust path always ends in its own
+/// leaf, so `Import::name` is `None` for every one of them.
+#[test]
+fn rust_imports_are_unchanged_by_the_tier_two_pass() {
+    assert_eq!(RUST_EXTRACTOR_VERSION, 3);
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/rust/imports.rs");
+    let (_source, facts) = extract_path(&path);
+    assert!(!facts.imports().is_empty());
+    for import in facts.imports() {
+        assert!(import.name.is_none(), "{} carried a name", import.path);
+    }
+}
+
 #[test]
 fn recovered_fixture_retains_neighbors() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/rust/recovered.rs");
@@ -499,8 +518,8 @@ fn a_rust_repository_indexes_identically_across_the_schema_bump() {
 #[test]
 fn versions_are_pinned() {
     assert_eq!(extractor_version(Lang::Rust), 3);
-    assert_eq!(extractor_version(Lang::Python), 4);
-    assert_eq!(extractor_version(Lang::TypeScript), 1);
-    assert_eq!(extractor_version(Lang::Tsx), 1);
-    assert_eq!(FACT_SCHEMA_VERSION, 4);
+    assert_eq!(extractor_version(Lang::Python), 5);
+    assert_eq!(extractor_version(Lang::TypeScript), 2);
+    assert_eq!(extractor_version(Lang::Tsx), 2);
+    assert_eq!(FACT_SCHEMA_VERSION, 5);
 }

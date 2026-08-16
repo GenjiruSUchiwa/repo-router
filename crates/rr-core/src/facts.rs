@@ -29,7 +29,15 @@ use crate::{Error, Result};
 /// Version 4 adds [`ParseStatus::Tags`], a validated tier-2 result produced
 /// from a grammar's `tags.scm`. The status is serialized positionally, so the
 /// new variant is appended rather than inserted between existing variants.
-pub const FACT_SCHEMA_VERSION: u32 = 4;
+/// Version 5 adds [`Import::name`], the leaf a specifier-based language spells
+/// in a slot separate from its source. Postcard writes struct fields in order
+/// and reads them back positionally, so inserting `name` after `path` shifts
+/// every field behind it: this struct decoding a version-4 payload reads that
+/// payload's `alias` into `name` — both `Option<String>`, so the misread need
+/// not even fail — and every later field lands one slot early. The version in
+/// the cache file name keeps the two apart: a stale entry is never found,
+/// never misread, and simply reparsed.
+pub const FACT_SCHEMA_VERSION: u32 = 5;
 
 /// A source range over one exact UTF-8 byte buffer.
 ///
@@ -306,6 +314,47 @@ impl DefKind {
         Self::Variable,
     ];
 
+    /// Whether an import written inside this kind's span belongs to it alone.
+    ///
+    /// True for a kind whose span encloses a *body*: a `use` inside a function
+    /// is that function's, and an `import` inside a TypeScript `namespace` is
+    /// that namespace's. No other symbol in the file may claim either.
+    ///
+    /// False for a module, whose body is the file's own scope — the answer
+    /// `nearest_import_owner` has given since it was written. False too for a
+    /// kind whose span encloses a name and an initializer rather than a body:
+    /// `const express = require("express")` is where JavaScript writes a
+    /// module-scope import, and filing it under `express` would hide the
+    /// dependency from every other symbol in the file while the identical
+    /// `import express from "express"` reached all of them. Two spellings of
+    /// one dependency have to index alike.
+    ///
+    /// Matched exhaustively on purpose: a new kind has to answer this.
+    pub(crate) const fn owns_nested_imports(self) -> bool {
+        match self {
+            Self::Module
+            | Self::Const
+            | Self::Static
+            | Self::Variable
+            | Self::Field
+            | Self::TypeAlias
+            | Self::AssociatedType => false,
+            Self::Function
+            | Self::Method
+            | Self::TraitMethod
+            | Self::Constructor
+            | Self::Property
+            | Self::Namespace
+            | Self::Struct
+            | Self::Enum
+            | Self::Union
+            | Self::Trait
+            | Self::Interface
+            | Self::Class
+            | Self::Macro => true,
+        }
+    }
+
     /// Stable kebab-case identifier matching the serde name.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
@@ -424,23 +473,37 @@ pub enum ImportKind {
 }
 
 impl ImportKind {
+    /// Every kind, in declaration order.
+    ///
+    /// Exists for the reason [`DefKind::ALL`] does: a test can prove it covers
+    /// all of them rather than the handful its fixtures happen to contain.
+    pub const ALL: [Self; 5] = [
+        Self::Use,
+        Self::ExternCrate,
+        Self::Import,
+        Self::From,
+        Self::Require,
+    ];
+
     /// Whether [`Import::path`] is a path *this index's resolver* can follow to
     /// a definition it holds.
     ///
     /// Answered about the resolver, not about the language. `index::build`
     /// splits a path on `::` and rejoins it onto the importing file's module
-    /// path, so `use` is the only kind it can follow today. A TypeScript
-    /// `./Button` or a Python `os.path` is one segment to that splitter, and one
-    /// segment gets pasted onto the importing module — `./Button` imported from
-    /// `ui` would be looked up as `ui::./Button`, or worse, `react` from `app`
-    /// would be looked up as `app::react` and *find* an unrelated local symbol
-    /// of that name. Unresolved is a true statement about what rr knows;
-    /// a resolution to the wrong definition is not.
+    /// path, so Rust's `use` is the only kind that survives it. The other four
+    /// are false for a reason no extractor work changes: their `path` is a
+    /// specifier, not a path. `./Button`, `..` and `react` name a module the
+    /// way a filesystem or a package resolver understands it, and turning one
+    /// into a definition rr holds means building a module graph — tsconfig
+    /// paths, extension resolution, `node_modules`, package layout. That graph
+    /// is out of scope by decision, not by omission, so this is a settled
+    /// answer rather than a placeholder: a row flips to `true` only alongside a
+    /// resolver that can follow that language's specifiers, and the issue that
+    /// builds one owns this predicate.
     ///
-    /// So the new kinds are false here until #33 brings both an extractor that
-    /// emits them and a resolver that knows their separators. Flipping a row on
-    /// is then a one-line change with that resolver's tests behind it, which is
-    /// the point of the seam.
+    /// Unresolved is a true statement about what rr knows; a resolution to the
+    /// wrong definition is not — `react` imported from `app` and looked up as
+    /// `app::react` would *find* an unrelated local symbol of that name.
     ///
     /// One predicate rather than a condition repeated at every resolution site:
     /// the two sites in `index::build` disagreeing about which kinds resolve is
@@ -627,13 +690,36 @@ pub struct Reference {
 pub struct Import {
     /// Import kind.
     pub kind: ImportKind,
-    /// Canonical leaf path, e.g. `crate::a::b`.
+    /// What the declaration names as its source, in the language's own terms.
+    ///
+    /// Rust: a canonical module path whose last segment is the imported leaf,
+    /// e.g. `crate::a::b`. A specifier-based language: the module specifier
+    /// **exactly as written** — `./sibling`, `..`, `react` — unresolved,
+    /// unnormalized, and with its escape sequences left undecoded. Resolving a
+    /// specifier to a file needs a module graph rr does not build, and a `path`
+    /// that looked canonical without being canonical is the failure this field
+    /// is documented against. [`ImportKind::resolves_by_path`] is the predicate
+    /// that says which of the two this is; no consumer may render `path` as a
+    /// location rr resolved.
     pub path: String,
+    /// The leaf selected out of `path`, when the language names it separately
+    /// from the source it comes from.
+    ///
+    /// `Some` exactly when leaf and source occupy two syntactic slots:
+    /// `from x import y` and `import { y } from "x"` both give `path = "x"`,
+    /// `name = Some("y")`. `None` when the language spells one path that
+    /// already ends in its leaf (Rust `use a::b::c`, Python `import os.path`),
+    /// and `None` when the declaration selects no leaf at all
+    /// (`import "./effect"`, `from x import *`).
+    pub name: Option<String>,
     /// Alias when present.
     pub alias: Option<String>,
     /// Whether the declaration is public.
     pub is_public: bool,
-    /// Whether the leaf is a glob (`*`).
+    /// Whether the leaf brings in names it does not write down.
+    ///
+    /// `from x import *` and `export * from "m"` do. `import * as ns from "m"`
+    /// does not: it binds one name, and is an aliased whole-module import.
     pub is_glob: bool,
     /// Span of the leaf clause (or `*`), not necessarily the complete declaration.
     pub span: Span,
@@ -957,14 +1043,16 @@ impl OwnerIndex {
         self.lookup(span, false)
     }
 
-    /// Smallest containing non-module definition. Imports directly under a
-    /// `mod` body sit at module scope and carry no owner; only block-local
-    /// imports inside a definition do.
+    /// Smallest containing definition an import can belong to, per
+    /// [`DefKind::owns_nested_imports`]. Imports directly under a `mod` body
+    /// sit at module scope and carry no owner, and so does one written in a
+    /// binding's initializer; only an import inside a definition's *body* is
+    /// local to it.
     pub(crate) fn nearest_import_owner(&self, span: Span) -> Option<LocalDefId> {
         self.lookup(span, true)
     }
 
-    fn lookup(&self, span: Span, skip_modules: bool) -> Option<LocalDefId> {
+    fn lookup(&self, span: Span, for_import: bool) -> Option<LocalDefId> {
         let first_after = self
             .spans
             .partition_point(|candidate| candidate.start_byte() <= span.start_byte());
@@ -977,7 +1065,7 @@ impl OwnerIndex {
             if !candidate.contains(span) {
                 continue;
             }
-            if skip_modules && self.kinds[index] == DefKind::Module {
+            if for_import && !self.kinds[index].owns_nested_imports() {
                 continue;
             }
             let len = candidate.byte_len();
@@ -1030,12 +1118,15 @@ fn imports_sorted(imports: &[Import]) -> bool {
 
 /// Canonical import sort key; the extractor sorts with the same key the
 /// validator checks.
-pub(crate) fn import_key(import: &Import) -> (u32, u32, ImportKind, &str, Option<&str>) {
+pub(crate) fn import_key(
+    import: &Import,
+) -> (u32, u32, ImportKind, &str, Option<&str>, Option<&str>) {
     (
         import.span.start_byte(),
         import.span.end_byte(),
         import.kind,
         import.path.as_str(),
+        import.name.as_deref(),
         import.alias.as_deref(),
     )
 }
@@ -1379,6 +1470,7 @@ mod tests {
             Import {
                 kind,
                 path: format!("pkg{index}"),
+                name: None,
                 alias: None,
                 is_public: false,
                 is_glob: false,
@@ -1436,6 +1528,7 @@ mod tests {
             Import {
                 kind: ImportKind::Use,
                 path: "b".into(),
+                name: None,
                 alias: None,
                 is_public: false,
                 is_glob: false,
@@ -1445,6 +1538,7 @@ mod tests {
             Import {
                 kind: ImportKind::Use,
                 path: "a".into(),
+                name: None,
                 alias: None,
                 is_public: false,
                 is_glob: false,
@@ -1556,6 +1650,7 @@ mod tests {
         let imports = vec![Import {
             kind: ImportKind::Use,
             path: "crate::a".into(),
+            name: None,
             alias: Some("b".into()),
             is_public: true,
             is_glob: false,
