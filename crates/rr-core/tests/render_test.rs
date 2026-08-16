@@ -289,5 +289,10 @@ fn render_text_counts_exactly_the_bytes_it_fenced() {
         assert_eq!(source_bytes(&rendered), packet.content().len());
         let (_, rest) = rendered.split_once("---\n").expect("fenced");
         assert_eq!(&rest[..packet.content().len()], packet.content());
+        assert_eq!(
+            &rest[packet.content().len()..],
+            "\n",
+            "the counted region is followed by the structural LF and nothing else"
+        );
     }
 }

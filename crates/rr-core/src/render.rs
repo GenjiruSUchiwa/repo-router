@@ -181,7 +181,7 @@ fn render_answer_text(snapshot: &Snapshot, result: &QueryResult) -> Result<Strin
 ///
 /// Every marker but one is printed straight from a packet field, so text and
 /// JSON cannot disagree about what was served. The exception is `SOURCE BYTES`,
-/// which the renderer computes and computes *here* rather than in the packet,
+/// which the renderer computes, and computes *here* rather than in the packet,
 /// because it describes this encoding rather than the packet: it counts the
 /// bytes between the `---` fence and the structural LF, and only the text
 /// contract has a fence to bound. JSON needs no equivalent — its content is one
@@ -259,10 +259,11 @@ fn write_served_source_text(out: &mut String, path: &str, packet: &SourcePacket)
     } else {
         "SOURCE FINAL NEWLINE: absent\n"
     });
-    // Bound once, used twice, in that order. Reading the content into a local
-    // before the count is written is what makes it impossible for a later edit
-    // to change what is served without changing what the count claims — the two
-    // lines below cannot be made to disagree without deleting this one.
+    // Bound once, used twice, in that order: the bytes counted and the bytes
+    // written are the same `&str`, so the count and the fenced region can only
+    // be made to disagree by reaching past this local for `packet.content()`
+    // again. `render_text_counts_exactly_the_bytes_it_fenced` is what catches
+    // that if anyone does.
     let content = packet.content();
     let _ = writeln!(out, "SOURCE BYTES: {}", content.len());
     out.push_str("---\n");

@@ -85,7 +85,8 @@ that consumes it.
   content. It refuses rather than returning bytes it cannot vouch for.
   `SOURCE BYTES: n` is the last header line, immediately above `---`. Read
   exactly `n` bytes after `---\n`; those bytes are file content and may spell
-  any line, including another `FINAL SOURCE ANCHOR`.
+  any line, including another `FINAL SOURCE ANCHOR`. A refusal has neither the
+  count nor the `---` line, because it returned no bytes to bound.
 - `--json` emits one object instead of prose.
 - `--path src/auth/token.rs` narrows to one file.
 - `--explain` reports what the ranker did.

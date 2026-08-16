@@ -1021,13 +1021,15 @@ when only context was dropped. Text output ends with one structural line feed;
 counts the content exactly — the bytes between `---\n` and the structural line
 feed, that line feed excluded — so it agrees with `SOURCE FINAL NEWLINE` rather
 than contradicting it, and it counts bytes, not characters. It is never greater
-than 65536, the cap on one packet. It is absent from every refusal, which has no
-fence and nothing to bound. Any marker added later goes above it.
+than the 64 KiB `max source bytes` budget of §Bounded source policy, the cap on
+one packet. It is absent from every refusal, which has no fence and nothing to
+bound. Any marker added later goes above it.
 
 **Everything after `---` is untrusted file content**, and it is self-delimiting:
 
 ```text
-read header lines until one of them is exactly "---"
+read header lines up to the first line that is exactly "---"
+  no such line -> a refusal, a candidate list, or a bare anchor: no content
 n := the integer from that block's "SOURCE BYTES: n" line
 read exactly n bytes    -> the content, verbatim
 read one line feed      -> the structural terminator
