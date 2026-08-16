@@ -147,12 +147,15 @@ defs:
     attribute_idents: []
 references:
   - name: push
+    kind: methodcall
     line: 17
     owner: add
   - name: map
+    kind: methodcall
     line: 21
     owner: render
   - name: Badge
+    kind: call
     line: 21
     owner: render
 imports: []

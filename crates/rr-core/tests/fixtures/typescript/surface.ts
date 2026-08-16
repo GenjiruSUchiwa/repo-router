@@ -18,6 +18,11 @@ export enum Ceiling {
 /** The ceiling used when nothing says otherwise. */
 export const DEFAULT_CEILING = 3;
 
+var legacy = 1;
+
+/** Shared across the surface. */
+export var shared = 1;
+
 // Prefix every internal key carries.
 // A run of two lines is one document.
 const INTERNAL_PREFIX = "rr";

@@ -265,8 +265,8 @@ pub enum DefKind {
     /// structurally, and a reader looking for one should not be handed the
     /// other.
     Interface,
-    /// A stored member of a type. A TypeScript class field, a Python class
-    /// attribute.
+    /// A stored member of a type. A TypeScript class field, a TypeScript enum
+    /// member, a Python class attribute.
     Field,
     /// A member reached like a field and computed like a method. A TypeScript
     /// getter or setter, a Python `@property`.

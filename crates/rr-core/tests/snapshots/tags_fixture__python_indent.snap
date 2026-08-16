@@ -69,9 +69,11 @@ defs:
     attribute_idents: []
 references:
   - name: helper
+    kind: call
     line: 7
     owner: run
   - name: helper
+    kind: call
     line: 12
     owner: after
 imports: []
