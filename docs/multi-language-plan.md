@@ -190,7 +190,7 @@ Every `DefKind` row #31 added is now produced by something:
 |---|---|---|
 | `Class` | TypeScript, Python | |
 | `Interface` | TypeScript | Kept apart from `Trait`, which stays Rust's |
-| `Field` | TypeScript | Class fields and interface property signatures |
+| `Field` | TypeScript | Class fields, interface property signatures, and constructor parameter properties |
 | `Property` | TypeScript | Getters and setters only |
 | `Constructor` | TypeScript | |
 | `Namespace` | TypeScript | `Module` stays what Rust means by `mod` |
@@ -219,6 +219,20 @@ That is what the `refine: fn(&mut Def)` hook is, and it is the one structural
 change the second language cost. Python's is a no-op and documented as such.
 It has to run before the definitions are sorted, because `def_key` holds the
 kind and a kind changed afterwards would leave the order it was sorted into.
+
+One further assumption gave way, in `assign_nesting` rather than in
+`LanguageSpec`: that a definition is named under whatever contains it. A
+TypeScript parameter property — `constructor(private readonly repo: Repo)` —
+is written inside the constructor's parameter list and is a field of the
+class, so containment alone files it as `Service.constructor.repo`, a path
+nothing refers to it by. `naming_owners` separates the frames a definition is
+*named* under from the frames it *sits* inside, and it is the only construct
+across four languages where the two differ. It is expressed in the vocabulary
+rather than in node names — a field is state on a type, and no callable
+declares one — which is what makes it inert for Rust and Python instead of a
+TypeScript special case leaking into shared code. The exclusion parent stays
+the lexical one, because it is still the constructor's text that must not
+count the parameter twice.
 
 ### What tier 2 does not claim
 

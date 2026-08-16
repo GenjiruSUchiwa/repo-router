@@ -97,3 +97,18 @@ function join(base: string, path: string): string {
     "use strict";
     return `${base}/${path}`;
 }
+
+/** Fields declared where the parameters go, which is a thing TypeScript does. */
+export class Connection {
+    constructor(
+        private readonly client: Client,
+        public label: string,
+        protected retries = 0,
+        readonly opened?: Date,
+        untracked: string = "",
+    ) {}
+
+    describe(): string {
+        return `${this.label}/${this.untracked}`;
+    }
+}

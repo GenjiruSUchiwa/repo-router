@@ -588,6 +588,113 @@ defs:
       - a
       - path
     attribute_idents: []
+  - name: Connection
+    local_qualified: ~
+    kind: class
+    visibility: public
+    start_line: 102
+    end_line: 114
+    signature: "export class Connection {"
+    signature_idents:
+      - export
+      - class
+    body_idents: []
+    doc_idents:
+      - Fields
+      - declared
+      - where
+      - the
+      - parameters
+      - go
+      - which
+      - is
+      - a
+      - thing
+      - TypeScript
+      - does
+    attribute_idents: []
+  - name: constructor
+    local_qualified: Connection.constructor
+    kind: constructor
+    visibility: public
+    start_line: 103
+    end_line: 109
+    signature: constructor(
+    signature_idents: []
+    body_idents:
+      - untracked
+      - string
+    doc_idents: []
+    attribute_idents: []
+  - name: client
+    local_qualified: Connection.client
+    kind: field
+    visibility: private
+    start_line: 104
+    end_line: 104
+    signature: "private readonly client: Client"
+    signature_idents:
+      - private
+      - readonly
+      - Client
+    body_idents: []
+    doc_idents: []
+    attribute_idents: []
+  - name: label
+    local_qualified: Connection.label
+    kind: field
+    visibility: public
+    start_line: 105
+    end_line: 105
+    signature: "public label: string"
+    signature_idents:
+      - public
+      - string
+    body_idents: []
+    doc_idents: []
+    attribute_idents: []
+  - name: retries
+    local_qualified: Connection.retries
+    kind: field
+    visibility: protected
+    start_line: 106
+    end_line: 106
+    signature: protected retries = 0
+    signature_idents:
+      - protected
+    body_idents: []
+    doc_idents: []
+    attribute_idents: []
+  - name: opened
+    local_qualified: Connection.opened
+    kind: field
+    visibility: public
+    start_line: 107
+    end_line: 107
+    signature: "readonly opened?: Date"
+    signature_idents:
+      - readonly
+      - Date
+    body_idents: []
+    doc_idents: []
+    attribute_idents: []
+  - name: describe
+    local_qualified: Connection.describe
+    kind: method
+    visibility: public
+    start_line: 111
+    end_line: 113
+    signature: "describe(): string {"
+    signature_idents:
+      - string
+    body_idents:
+      - return
+      - this
+      - label
+      - this
+      - untracked
+    doc_idents: []
+    attribute_idents: []
 references:
   - name: Client
     line: 26

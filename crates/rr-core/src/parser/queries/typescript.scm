@@ -40,10 +40,8 @@
 ; Deliberately not covered, so that nothing claims more than it read:
 ; `var` at module scope, enum members, destructured bindings, string- and
 ; computed-named members, string-named ambient modules (`declare module "x"`),
-; parameter properties (`constructor(private repo: Repo)`, which declares a
-; field in a parameter list), `export`-as-visibility, JSX component references,
-; and `describe`/`it` as test scopes — those are calls, and file naming already
-; answers the question.
+; `export`-as-visibility, JSX component references, and `describe`/`it` as test
+; scopes — those are calls, and file naming already answers the question.
 
 ; ---------------------------------------------------------------------------
 ; Exported declarations, plain and ambient. First, so they win the tag for
@@ -275,6 +273,25 @@
   ] @definition.field
   (#strip! @doc "^[/\\*\\s]+|[\\s\\*/]+$")
   (#select-adjacent! @doc @definition.field))
+
+; Parameter properties: a field declared in the constructor's parameter list,
+; which is the one place TypeScript declares state somewhere other than a class
+; body. `constructor(private readonly repo: Repo)` is a `repo` field and a
+; `repo` parameter at once, and dropping it loses a field that the rest of the
+; class refers to as if it had been written out.
+;
+; What separates one from an ordinary parameter is a modifier, and both spelling
+; are matched structurally rather than by predicate: `accessibility_modifier` is
+; a named node, `readonly` an anonymous token, and a plain parameter has
+; neither. `pattern:` is named explicitly so that a default value —
+; `private repo: Repo = fallback`, whose `fallback` is an `identifier` sibling —
+; is not read as a second field.
+[
+  (required_parameter (accessibility_modifier) pattern: (identifier) @name)
+  (required_parameter "readonly" pattern: (identifier) @name)
+  (optional_parameter (accessibility_modifier) pattern: (identifier) @name)
+  (optional_parameter "readonly" pattern: (identifier) @name)
+] @definition.field
 
 ; ---------------------------------------------------------------------------
 ; Bindings that are part of a surface. Anchored on the two scopes a module can

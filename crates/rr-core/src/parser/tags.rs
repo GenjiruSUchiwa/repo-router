@@ -530,12 +530,18 @@ fn assign_nesting(
             stack.pop();
         }
         if let Some(&parent) = stack.last() {
-            let mut segments = stack
-                .iter()
-                .map(|parent| defs[*parent].name.as_str())
-                .collect::<Vec<_>>();
-            segments.push(defs[index].name.as_str());
-            defs[index].local_qualified = Some(segments.join(separator));
+            let owners = naming_owners(defs, &stack, index);
+            if !owners.is_empty() {
+                let mut segments = owners
+                    .iter()
+                    .map(|owner| defs[*owner].name.as_str())
+                    .collect::<Vec<_>>();
+                segments.push(defs[index].name.as_str());
+                defs[index].local_qualified = Some(segments.join(separator));
+            }
+            // The exclusion parent stays the lexical one: a parameter property
+            // is written inside the constructor's text, so it is the
+            // constructor that must not count it twice.
             direct_children[parent].push(defs[index].span);
         }
         let inside_test_scope = stack
@@ -554,6 +560,32 @@ fn assign_nesting(
         exclusions.extend(header_exclusions[index].iter().copied());
         exclusions.extend(direct_children[index].iter().copied());
         def.body_idents = scan_excluding(source, def.span, &exclusions);
+    }
+}
+
+/// The definitions this one is *named* under, which is not always the ones it
+/// sits inside.
+///
+/// Containment answers the question for everything rr indexes but one
+/// construct: a TypeScript parameter property is written in the constructor's
+/// parameter list and is a field of the class. `constructor(private repo: Repo)`
+/// declares what the rest of the class reads as `this.repo` and what a caller
+/// names `Service.repo`, so qualifying it `Service.constructor.repo` would file
+/// it under a path nothing refers to it by.
+///
+/// Recognised through the vocabulary rather than through node names, which is
+/// what makes it safe to run for every language: a field is state on a type,
+/// no callable declares one, and `DefKind::Constructor` is produced by exactly
+/// one `refine`. For Rust and Python this never fires.
+fn naming_owners<'a>(defs: &[Def], stack: &'a [usize], index: usize) -> &'a [usize] {
+    let hoisted = defs[index].kind == DefKind::Field
+        && stack
+            .last()
+            .is_some_and(|parent| defs[*parent].kind == DefKind::Constructor);
+    if hoisted {
+        &stack[..stack.len() - 1]
+    } else {
+        stack
     }
 }
 
@@ -1238,6 +1270,74 @@ mod tests {
         );
         assert!(facts.defs().iter().any(|def| def.name == "exported"));
         assert!(!facts.defs().iter().any(|def| def.name == "local"));
+    }
+
+    /// A parameter property declares a field from inside the parameter list,
+    /// which is the one construct rr indexes whose lexical parent is not its
+    /// owner. Both halves are asserted here: that the field is found at all,
+    /// and that it is named `Service.repo` rather than the
+    /// `Service.constructor.repo` containment alone would give it.
+    #[test]
+    fn a_typescript_parameter_property_is_a_field_of_the_class_not_the_constructor() {
+        let facts = typescript(
+            "class Service {\n    constructor(private readonly repo: Repo, public label: string, protected retries = 0, readonly opened?: Date, plain: string, fallbackish: X = defaulted) {}\n}\n",
+        );
+        let field = |name: &str| {
+            facts
+                .defs()
+                .iter()
+                .find(|def| def.name == name)
+                .unwrap_or_else(|| panic!("{name} was not extracted"))
+        };
+
+        for name in ["repo", "label", "retries", "opened"] {
+            assert_eq!(kind_of(&facts, name), "field");
+            assert_eq!(
+                field(name).local_qualified.as_deref(),
+                Some(format!("Service.{name}").as_str()),
+                "{name} was not named as a member of its class"
+            );
+        }
+
+        // The modifier is what makes it a declaration. A parameter without one
+        // declares nothing, and neither does a default value that happens to be
+        // an identifier sitting beside the name.
+        assert!(!facts.defs().iter().any(|def| def.name == "plain"));
+        assert!(!facts.defs().iter().any(|def| def.name == "fallbackish"));
+        assert!(!facts.defs().iter().any(|def| def.name == "defaulted"));
+
+        // And each modifier still means what it means everywhere else, with
+        // bare `readonly` saying nothing about visibility.
+        assert_eq!(field("repo").visibility, Visibility::Private);
+        assert_eq!(field("label").visibility, Visibility::Public);
+        assert_eq!(field("retries").visibility, Visibility::Protected);
+        assert_eq!(field("opened").visibility, Visibility::Public);
+    }
+
+    /// The hoist is keyed on the constructor, so an ordinary nested definition
+    /// must be unaffected by it — a class declared inside a method is still
+    /// named through that method.
+    #[test]
+    fn only_a_parameter_property_is_lifted_out_of_the_member_it_sits_in() {
+        let facts = typescript(
+            "class Outer {\n    build() {\n        class Inner {\n            held = 1;\n        }\n        return Inner;\n    }\n}\n",
+        );
+        let qualified = |name: &str| {
+            facts
+                .defs()
+                .iter()
+                .find(|def| def.name == name)
+                .unwrap()
+                .local_qualified
+                .clone()
+        };
+        assert_eq!(qualified("build").as_deref(), Some("Outer.build"));
+        assert_eq!(qualified("Inner").as_deref(), Some("Outer.build.Inner"));
+        assert_eq!(
+            qualified("held").as_deref(),
+            Some("Outer.build.Inner.held"),
+            "a class-body field was hoisted out of its class"
+        );
     }
 
     /// A receiver-typed call is one rr cannot resolve without knowing the
