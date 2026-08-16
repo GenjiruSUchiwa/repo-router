@@ -21,6 +21,17 @@ pub struct BlockMarkers {
     pub end: &'static str,
 }
 
+/// The reason carried by a refusal for two begin or two end markers.
+///
+/// Exported so a caller can tell the two refusals apart by identity rather than
+/// by matching on the prose, which [`TextError`]'s own documentation is explicit
+/// about avoiding.
+pub const DUPLICATE_MARKERS_REASON: &str = "the managed block markers appear more than once";
+
+/// The reason carried by a refusal for an unpaired or inverted marker pair.
+pub const MALFORMED_MARKERS_REASON: &str =
+    "the managed block is missing a marker or its markers are inverted";
+
 /// The contents a file should have, given what it has now.
 ///
 /// Unrelated lines are preserved exactly, in order; a missing block is appended
@@ -43,7 +54,7 @@ pub fn apply_block(
     let ends = marker_lines(&existing, markers.end);
     if begins.len() > 1 || ends.len() > 1 {
         return Err(TextError::ManagedIgnore {
-            reason: "the managed block markers appear more than once",
+            reason: DUPLICATE_MARKERS_REASON,
         });
     }
     let lines: Vec<&str> = existing.lines().collect();
@@ -63,7 +74,7 @@ pub fn apply_block(
             Ok(out)
         }
         _ => Err(TextError::ManagedIgnore {
-            reason: "the managed block is missing a marker or its markers are inverted",
+            reason: MALFORMED_MARKERS_REASON,
         }),
     }
 }
@@ -84,7 +95,10 @@ fn append_block(existing: &str, block: &str) -> String {
         if !existing.ends_with('\n') {
             out.push('\n');
         }
-        if !existing.ends_with("\n\n") && !out.ends_with("\n\n") {
+        // `out` now ends in exactly the newlines `existing` did, plus at most the
+        // one just added, so one test covers both: a file already ending in a
+        // blank line does not gain a second one.
+        if !out.ends_with("\n\n") {
             out.push('\n');
         }
     }

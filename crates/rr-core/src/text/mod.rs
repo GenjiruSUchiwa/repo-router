@@ -33,7 +33,7 @@ mod purpose;
 mod render;
 mod validate;
 
-pub use block::{apply_block, BlockMarkers};
+pub use block::{apply_block, BlockMarkers, DUPLICATE_MARKERS_REASON, MALFORMED_MARKERS_REASON};
 pub use digest::{ApiHash, Digest};
 pub use ignore::{
     apply_managed_block, managed_ignore_block, IGNORE_BEGIN_MARKER, IGNORE_END_MARKER,
