@@ -9,7 +9,11 @@ use rr_core::parser::RustExtractor;
 use rr_core::path::RelPath;
 use rr_core::render::{decode_anchor, encode_anchor, render_json, render_text};
 use rr_core::result::{Candidate, Confidence, NoneReason, Pipeline, QueryResult, TargetId};
-use rr_core::ParseStatus;
+use rr_core::verify::{
+    finish_source, resolve_indexed_source, verify_source, AcquiredSource, PendingSource,
+    Revalidation, SourceResult,
+};
+use rr_core::{AcquiredContent, ParseStatus};
 
 fn build_test_snapshot() -> rr_core::index::Snapshot {
     let mut extractor = RustExtractor::new().unwrap();
@@ -209,4 +213,81 @@ fn test_invalid_result_invariants_fail_before_rendering() {
     };
     assert!(render_text(&snapshot, &empty_candidates).is_err());
     assert!(render_json(&snapshot, &empty_candidates).is_err());
+}
+
+/// A one-file snapshot and the answer `--source` would produce for its whole
+/// file.
+///
+/// Built through the real path — `resolve_indexed_source`, `verify_source`,
+/// `finish_source` — because `SourcePacket`'s fields are private and its only
+/// constructor is the one that requires the final race check to have passed.
+/// The acquired bytes are the indexed bytes, so identity matches and the
+/// packet is served.
+fn served_whole_file(source: &str) -> (rr_core::index::Snapshot, QueryResult) {
+    let mut extractor = RustExtractor::new().unwrap();
+    let oid = Oid::from_raw(&[7; 32]).unwrap();
+    let inputs = vec![FileInput {
+        path: RelPath::new("src/lib.rs").unwrap(),
+        oid,
+        representation: ContentRepresentation::RawNoGit,
+        generated: false,
+        language: Lang::Rust,
+        parse_status: ParseStatus::Complete,
+        facts: extractor.extract(source.as_bytes()).unwrap(),
+    }];
+    let (snapshot, _) = SnapshotBuilder::new(SnapshotMeta::new(None, true, [0; 32]))
+        .build(inputs)
+        .unwrap();
+
+    let target = TargetId::File(snapshot.files[0].id);
+    let indexed = resolve_indexed_source(&snapshot, target).unwrap();
+    let acquired = AcquiredContent {
+        oid,
+        representation: ContentRepresentation::RawNoGit,
+        bytes: source.as_bytes().to_vec(),
+    };
+    let PendingSource::Pending(pending) =
+        verify_source(&indexed, AcquiredSource::Acquired(&acquired)).unwrap()
+    else {
+        panic!("the acquired bytes are the indexed bytes; verification must serve");
+    };
+    let result = QueryResult::Direct {
+        candidate: Candidate::new(target, Some(Confidence::ONE)),
+        pipeline: Pipeline::Exact,
+        source: Some(finish_source(pending, Revalidation::Fresh)),
+    };
+    (snapshot, result)
+}
+
+/// The value of the `SOURCE BYTES` marker in one text answer.
+fn source_bytes(stdout: &str) -> usize {
+    stdout
+        .lines()
+        .find_map(|line| line.strip_prefix("SOURCE BYTES: "))
+        .expect("a served packet states its byte count")
+        .parse()
+        .expect("the byte count is a decimal integer")
+}
+
+#[test]
+fn render_text_counts_exactly_the_bytes_it_fenced() {
+    for source in [
+        "pub fn with_newline() -> u8 { 1 }\n",
+        "pub fn no_newline() -> u8 { 7 }",
+        "// caf\u{e9} \u{2014} non-ascii\npub fn unicode_body() -> u8 { 1 }\n",
+    ] {
+        let (snapshot, result) = served_whole_file(source);
+        let rendered = render_text(&snapshot, &result).unwrap();
+        let QueryResult::Direct {
+            source: Some(SourceResult::Served(packet)),
+            ..
+        } = &result
+        else {
+            panic!("expected a served packet");
+        };
+
+        assert_eq!(source_bytes(&rendered), packet.content().len());
+        let (_, rest) = rendered.split_once("---\n").expect("fenced");
+        assert_eq!(&rest[..packet.content().len()], packet.content());
+    }
 }

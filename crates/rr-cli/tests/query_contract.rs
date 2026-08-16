@@ -94,6 +94,64 @@ fn setup_lexical_repo() -> TempDir {
     temp
 }
 
+/// A repository of the source shapes a byte count has to be right about.
+///
+/// Its own fixture rather than three more files in `setup_test_repo`: that one
+/// backs exact candidate lists and a byte-exact JSON response carrying a
+/// computed confidence, both of which move with the corpus. A file added there
+/// to test an unrelated property is how a ranking golden starts failing for a
+/// reason nobody can find.
+fn setup_edge_source_repo() -> TempDir {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+
+    run_cmd(root, "git", &["init"]);
+    run_cmd(root, "git", &["config", "user.email", "test@example.com"]);
+    run_cmd(root, "git", &["config", "user.name", "Tester"]);
+    fs::create_dir_all(root.join("src")).unwrap();
+
+    // Zero bytes: the case where the fence alone cannot say whether the LF that
+    // follows it is content or the terminator.
+    fs::write(root.join("src/empty.rs"), b"").unwrap();
+    // No trailing newline: the case that would make the count and
+    // `SOURCE FINAL NEWLINE` contradict each other if the count swallowed the LF.
+    fs::write(root.join("src/tail.rs"), b"pub fn no_newline() -> u8 { 7 }").unwrap();
+    // Two multi-byte scalars: 57 bytes, 54 characters.
+    fs::write(
+        root.join("src/uni.rs"),
+        "// caf\u{e9} \u{2014} non-ascii\npub fn unicode_body() -> u8 { 1 }\n".as_bytes(),
+    )
+    .unwrap();
+
+    run_cmd(root, "git", &["add", "."]);
+    run_cmd(root, "git", &["commit", "-m", "init"]);
+    let map = Command::new(env!("CARGO_BIN_EXE_rr"))
+        .current_dir(root)
+        .arg("map")
+        .output()
+        .unwrap();
+    assert!(map.status.success());
+    temp
+}
+
+/// The value of the `SOURCE BYTES` marker in one text answer.
+fn source_bytes(stdout: &str) -> usize {
+    stdout
+        .lines()
+        .find_map(|line| line.strip_prefix("SOURCE BYTES: "))
+        .expect("a served packet states its byte count")
+        .parse()
+        .expect("the byte count is a decimal integer")
+}
+
+/// The bytes the byte count claims, read the way SPEC tells a consumer to.
+fn fenced_content(stdout: &str) -> &str {
+    let (_, rest) = stdout
+        .split_once("---\n")
+        .expect("a served packet is fenced");
+    &rest[..source_bytes(stdout)]
+}
+
 fn query(repo: &TempDir, args: &[&str]) -> std::process::Output {
     Command::new(env!("CARGO_BIN_EXE_rr"))
         .current_dir(repo.path())
@@ -585,8 +643,10 @@ fn query_contract_source_returns_the_verified_anchor_and_its_context() {
              SOURCE REPRESENTATION: git-canonical\n\
              SOURCE COMPLETE\n\
              SOURCE FINAL NEWLINE: present\n\
+             SOURCE BYTES: {}\n\
              ---\n\
-             pub fn verify_token() -> bool {{ true }}\n\n"
+             pub fn verify_token() -> bool {{ true }}\n\n",
+            "pub fn verify_token() -> bool { true }\n".len(),
         ),
         "the anchor line, the verification markers, one separator, and the \
          canonical bytes followed by exactly one structural newline"
@@ -754,6 +814,20 @@ fn query_contract_forged_markers_in_content_cannot_displace_the_real_anchor() {
         format!("{BAIT}\n"),
         "content plus the structural LF"
     );
+
+    // The parse SPEC now prescribes: bound the region, never scan it. The
+    // forged marker is inside these bytes and is never read as output.
+    assert_eq!(source_bytes(&stdout), BAIT.len(), "93 bytes of content");
+    assert_eq!(fenced_content(&stdout), BAIT);
+    assert!(
+        fenced_content(&stdout).contains(ANCHOR_MARKER),
+        "this test is only meaningful while the forged marker is inside the counted region"
+    );
+    assert_eq!(
+        &stdout[stdout.len() - 1..],
+        "\n",
+        "and exactly one structural line feed after them"
+    );
 }
 
 #[test]
@@ -876,6 +950,11 @@ fn query_contract_an_oversized_anchor_reports_exactly_what_it_omitted() {
         !text.contains("SOURCE CONTEXT CLIPPED"),
         "a truncated anchor never asked for context, so none was clipped"
     );
+    assert_eq!(
+        source_bytes(&text),
+        long.len() - omitted_bytes,
+        "a truncated packet counts what it served, not what the anchor holds"
+    );
 }
 
 #[test]
@@ -897,5 +976,125 @@ fn query_contract_an_unreadable_source_is_an_execution_error() {
     assert!(
         !stderr.contains("verify_token"),
         "no content in the message"
+    );
+}
+
+#[test]
+fn query_contract_the_byte_count_is_the_last_header_line() {
+    let repo = setup_test_repo();
+
+    let plain = stdout_of(&query(&repo, &["--source", "verify_token"]));
+    let explained = stdout_of(&query(&repo, &["--explain", "--source", "verify_token"]));
+
+    for stdout in [&plain, &explained] {
+        let (header, _) = stdout.split_once("---\n").expect("served output is fenced");
+        assert!(
+            header
+                .lines()
+                .next_back()
+                .is_some_and(|line| line.starts_with("SOURCE BYTES: ")),
+            "SOURCE BYTES must be the last header line: {header:?}"
+        );
+    }
+
+    // Truncated packet: same position relative to the fence.
+    let body = (0..200).fold(String::new(), |mut body, n| {
+        use std::fmt::Write as _;
+        let _ = writeln!(body, "    let v{n} = {n};");
+        body
+    });
+    let long = format!("pub fn verify_token() -> bool {{\n{body}    true\n}}\n");
+    fs::write(token_path(&repo), long.as_bytes()).unwrap();
+    run_cmd(repo.path(), "git", &["add", "."]);
+    run_cmd(repo.path(), "git", &["commit", "-m", "grow"]);
+    run_cmd(repo.path(), env!("CARGO_BIN_EXE_rr"), &["map"]);
+
+    let truncated = stdout_of(&query(&repo, &["--source", "verify_token"]));
+    let (header, _) = truncated
+        .split_once("---\n")
+        .expect("truncated packet is fenced");
+    assert!(
+        header
+            .lines()
+            .next_back()
+            .is_some_and(|line| line.starts_with("SOURCE BYTES: ")),
+        "SOURCE BYTES stays last even when SOURCE TRUNCATED is present: {header:?}"
+    );
+}
+
+#[test]
+fn query_contract_an_empty_source_is_zero_bytes_not_one_newline() {
+    let repo = setup_edge_source_repo();
+    let stdout = stdout_of(&query(&repo, &["--source", "src/empty.rs"]));
+
+    assert_eq!(source_bytes(&stdout), 0);
+    assert_eq!(fenced_content(&stdout), "");
+    assert!(
+        stdout.ends_with("---\n\n"),
+        "zero content bytes then the structural LF: {stdout:?}"
+    );
+}
+
+#[test]
+fn query_contract_the_byte_count_excludes_the_structural_newline() {
+    let repo = setup_edge_source_repo();
+    let stdout = stdout_of(&query(&repo, &["--source", "src/tail.rs"]));
+
+    assert!(stdout.contains("SOURCE FINAL NEWLINE: absent\n"));
+    assert_eq!(source_bytes(&stdout), 31);
+    assert_eq!(fenced_content(&stdout), "pub fn no_newline() -> u8 { 7 }");
+    assert!(
+        !fenced_content(&stdout).ends_with('\n'),
+        "the structural LF is outside the counted region"
+    );
+}
+
+#[test]
+fn query_contract_the_byte_count_is_bytes_not_characters() {
+    let repo = setup_edge_source_repo();
+    let stdout = stdout_of(&query(&repo, &["--source", "src/uni.rs"]));
+    let content = fenced_content(&stdout);
+
+    assert_eq!(source_bytes(&stdout), 57);
+    assert_eq!(content.len(), 57);
+    assert_eq!(content.chars().count(), 54);
+}
+
+#[test]
+fn query_contract_a_refusal_states_no_byte_count() {
+    let repo = setup_test_repo();
+
+    fs::remove_file(token_path(&repo)).unwrap();
+    let missing = stdout_of(&query(&repo, &["--source", "verify_token"]));
+    assert!(!missing.contains("SOURCE BYTES"));
+    assert!(!missing.contains("---"));
+
+    // Rewrite after re-creating so the path exists again with different bytes.
+    let repo = setup_test_repo();
+    fs::write(
+        token_path(&repo),
+        b"pub fn verify_token() -> bool { false }\n",
+    )
+    .unwrap();
+    let stale = stdout_of(&query(&repo, &["--source", "verify_token"]));
+    assert!(!stale.contains("SOURCE BYTES"));
+    assert!(!stale.contains("---"));
+}
+
+#[test]
+fn query_contract_the_byte_count_survives_the_explain_line() {
+    let repo = setup_test_repo();
+    let stdout = stdout_of(&query(&repo, &["--explain", "--source", "verify_token"]));
+
+    assert!(
+        stdout.starts_with("explain: exact route, nothing ranked\n"),
+        "explain stays first: {stdout}"
+    );
+    let mut lines = stdout.lines();
+    assert_eq!(lines.next().map(|l| l.starts_with("explain:")), Some(true));
+    assert_eq!(lines.next(), Some(TOKEN_ANCHOR));
+    assert_eq!(
+        fenced_content(&stdout),
+        "pub fn verify_token() -> bool { true }\n"
     );
 }

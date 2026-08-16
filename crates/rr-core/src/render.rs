@@ -179,10 +179,20 @@ fn render_answer_text(snapshot: &Snapshot, result: &QueryResult) -> Result<Strin
 
 /// Appends the source packet or refusal to the text answer.
 ///
-/// Every marker is printed straight from a packet field: the renderer performs
-/// no arithmetic of its own, so text and JSON cannot disagree about what was
-/// served. The content is followed by one structural LF that is not part of the
-/// source, which is what `SOURCE FINAL NEWLINE` distinguishes it from.
+/// Every marker but one is printed straight from a packet field, so text and
+/// JSON cannot disagree about what was served. The exception is `SOURCE BYTES`,
+/// which the renderer computes and computes *here* rather than in the packet,
+/// because it describes this encoding rather than the packet: it counts the
+/// bytes between the `---` fence and the structural LF, and only the text
+/// contract has a fence to bound. JSON needs no equivalent — its content is one
+/// string member and cannot escape its own field, which is why `--source` was
+/// never forgeable there.
+///
+/// The content is followed by one structural LF that is not part of the source.
+/// That LF is what `SOURCE FINAL NEWLINE` distinguishes the content's own last
+/// byte from, and it is deliberately outside `SOURCE BYTES`: counting it would
+/// let a file that does not end in a newline be described by two markers of the
+/// same output that contradict each other.
 fn write_source_text(out: &mut String, path: &str, source: &SourceResult) -> Result<()> {
     let path = encode_anchor(path, None);
     match source {
@@ -249,8 +259,14 @@ fn write_served_source_text(out: &mut String, path: &str, packet: &SourcePacket)
     } else {
         "SOURCE FINAL NEWLINE: absent\n"
     });
+    // Bound once, used twice, in that order. Reading the content into a local
+    // before the count is written is what makes it impossible for a later edit
+    // to change what is served without changing what the count claims — the two
+    // lines below cannot be made to disagree without deleting this one.
+    let content = packet.content();
+    let _ = writeln!(out, "SOURCE BYTES: {}", content.len());
     out.push_str("---\n");
-    out.push_str(packet.content());
+    out.push_str(content);
     out.push('\n');
 }
 

@@ -1007,6 +1007,7 @@ SOURCE WINDOW: src/auth/token.rs:6-18
 SOURCE REPRESENTATION: git-canonical
 SOURCE COMPLETE
 SOURCE FINAL NEWLINE: present
+SOURCE BYTES: 412
 ---
 <bounded canonical content>
 ```
@@ -1016,15 +1017,30 @@ omitted)` when a budget cut the anchor, and `SOURCE CONTEXT CLIPPED` is added
 when only context was dropped. Text output ends with one structural line feed;
 `SOURCE FINAL NEWLINE` describes the content itself, not that terminator.
 
-**Everything after `---` is untrusted file content.** Without `--source` the
-anchor is the last line of the output, and a caller may read the tail. With
-`--source` it is the *first* line and the tail is repository bytes, which may
-contain anything — including a line that reads exactly like an anchor marker. A
-caller that greps for `FINAL SOURCE ANCHOR` and takes the last match can be
-handed an anchor chosen by whoever wrote the file. Take the **first** marker
-line, or bound the content with `SOURCE WINDOW`, which states its exact line
-range. Callers that cannot make that guarantee should read `--json`, where the
-content is a single string member and cannot escape its own field.
+`SOURCE BYTES` is always the **last** header line, immediately above `---`. It
+counts the content exactly — the bytes between `---\n` and the structural line
+feed, that line feed excluded — so it agrees with `SOURCE FINAL NEWLINE` rather
+than contradicting it, and it counts bytes, not characters. It is never greater
+than 65536, the cap on one packet. It is absent from every refusal, which has no
+fence and nothing to bound. Any marker added later goes above it.
+
+**Everything after `---` is untrusted file content**, and it is self-delimiting:
+
+```text
+read header lines until one of them is exactly "---"
+n := the integer from that block's "SOURCE BYTES: n" line
+read exactly n bytes    -> the content, verbatim
+read one line feed      -> the structural terminator
+```
+
+A consumer that does this never looks at the content, so nothing in the content
+can be mistaken for output. A consumer that scans instead can be: repository
+bytes may spell a line that reads exactly like an anchor marker, and one that
+greps for `FINAL SOURCE ANCHOR` and takes the last match is handed an anchor
+chosen by whoever wrote the file. Where scanning is unavoidable, take the
+**first** marker line, or bound the content with `SOURCE WINDOW`, which states
+its exact line range. Callers that can do neither should read `--json`, where
+the content is a single string member and cannot escape its own field.
 
 Refused source:
 
