@@ -445,10 +445,11 @@ impl TextProjection {
         self.fidelity
     }
 
-    /// Scopes whose plan contains one indivisible record larger than the budget.
+    /// Scopes whose first record of some section cannot fit the page.
     ///
-    /// Reported rather than fixed: the alternative is truncating a signature,
-    /// and a truncated signature is a wrong signature.
+    /// Reported rather than fixed: the record is omitted and the remainder
+    /// line covers it. Ordinary truncation — a record that fits the page but
+    /// not its section's share — is not this.
     pub fn over_budget_scopes(&self) -> impl Iterator<Item = &str> {
         self.over_budget.iter().map(String::as_str)
     }

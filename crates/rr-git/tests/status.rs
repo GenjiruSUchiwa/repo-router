@@ -157,7 +157,7 @@ fn a_reverted_file_is_reported_stale_even_though_git_says_nothing() {
 }
 
 #[test]
-fn a_moved_head_is_stale_with_an_uncountable_number_of_paths() {
+fn a_moved_head_is_stale_with_the_paths_the_commit_touched() {
     let temp = init_git_repo();
     seed(temp.path());
     published(temp.path());
@@ -168,8 +168,19 @@ fn a_moved_head_is_stale_with_an_uncountable_number_of_paths() {
 
     assert_eq!(report.git, GitLabel::Clean);
     assert_eq!(report.snapshot, SnapshotLabel::Stale);
-    // A commit can move any number of files. Reporting a count here would mean
-    // inventing one, so the field says it is unknown instead of saying zero.
+    assert_eq!(report.stale_paths, Some(1));
+}
+
+#[test]
+fn a_changed_rule_is_stale_with_an_uncountable_number_of_paths() {
+    let temp = init_git_repo();
+    seed(temp.path());
+    published(temp.path());
+    write(temp.path(), ".gitignore", "src/skipped.rs\n");
+
+    let report = agrees_with_refresh(temp.path());
+
+    assert_eq!(report.snapshot, SnapshotLabel::Stale);
     assert_eq!(report.stale_paths, None);
 }
 

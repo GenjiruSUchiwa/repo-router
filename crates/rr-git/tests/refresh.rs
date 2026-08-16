@@ -254,19 +254,79 @@ fn a_file_edited_back_to_its_previous_content_agrees() {
     assert_eq!(report.mode, ReportedMode::Incremental);
 }
 
-// --- operations that must abandon the delta ---------------------------------
-
 #[test]
-fn a_new_commit_falls_back_to_a_full_rebuild_and_agrees() {
+fn a_new_commit_is_a_delta_and_agrees() {
     let temp = seeded();
     write(temp.path(), "src/fresh.rs", "pub fn fresh() -> u32 { 4 }\n");
     git_add_and_commit(temp.path(), "add a file");
 
     let report = agree(temp.path(), "a new commit");
+    assert_eq!(report.mode, ReportedMode::Incremental);
+    assert_eq!(report.changed, 1);
+    assert_eq!(report.reparsed, 1);
+}
+
+#[test]
+fn a_commit_of_unindexed_files_republishes_without_parsing_anything() {
+    let temp = seeded();
+    write(temp.path(), "NOTES.md", "not collected\n");
+    git_add_and_commit(temp.path(), "notes");
+
+    let report = agree(temp.path(), "a commit of unindexed files");
+    assert_eq!(report.mode, ReportedMode::Incremental);
+    assert_eq!(report.changed, 0);
+    assert_eq!(report.reparsed, 0);
+    assert!(report.snapshot_updated);
+}
+
+#[test]
+fn a_committed_deletion_is_a_delta_and_agrees() {
+    let temp = seeded();
+    git(temp.path(), &["rm", "-q", "src/third.rs"]);
+    git_add_and_commit(temp.path(), "remove a file");
+
+    let report = agree(temp.path(), "a committed deletion");
+    assert_eq!(report.mode, ReportedMode::Incremental);
+    assert_eq!(report.removed, 1);
+}
+
+#[test]
+fn a_committed_rename_is_a_removal_and_an_addition_and_agrees() {
+    let temp = seeded();
+    git(temp.path(), &["mv", "src/third.rs", "src/renamed.rs"]);
+    git_add_and_commit(temp.path(), "rename a file");
+
+    let report = agree(temp.path(), "a committed rename");
+    assert_eq!(report.mode, ReportedMode::Incremental);
+    assert_eq!(report.renamed, 0);
+    assert_eq!(report.removed, 1);
+}
+
+#[test]
+fn a_path_in_both_deltas_is_drafted_once_and_agrees() {
+    let temp = seeded();
+    write(temp.path(), "src/other.rs", "pub fn two() -> u32 { 20 }\n");
+    git_add_and_commit(temp.path(), "commit an edit");
+    write(temp.path(), "src/other.rs", "pub fn two() -> u32 { 21 }\n");
+
+    let report = agree(temp.path(), "a path in both deltas");
+    assert_eq!(report.mode, ReportedMode::Incremental);
+    assert_eq!(report.fallback_reason, None);
+}
+
+// --- operations that must abandon the delta ---------------------------------
+
+#[test]
+fn a_committed_ignore_rule_falls_back_to_a_full_rebuild_and_agrees() {
+    let temp = seeded();
+    write(temp.path(), ".gitignore", "src/skipped.rs\n");
+    git_add_and_commit(temp.path(), "ignore a path");
+
+    let report = agree(temp.path(), "a committed ignore rule");
+    assert_eq!(report.mode, ReportedMode::FallbackFull);
     assert_eq!(
-        report.mode,
-        ReportedMode::FallbackFull,
-        "HEAD moved, so the delta describes a different tree"
+        report.fallback_reason,
+        Some(rr_core::refresh::FullReason::DiscoveryRulesChanged)
     );
 }
 

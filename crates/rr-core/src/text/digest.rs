@@ -134,9 +134,13 @@ pub(crate) struct HashStream(blake3::Hasher);
 
 impl HashStream {
     pub(crate) fn new(domain: &'static str) -> Self {
+        Self::with_format(domain, TEXT_FORMAT_VERSION)
+    }
+
+    pub(crate) fn with_format(domain: &'static str, format: u32) -> Self {
         let mut stream = Self(blake3::Hasher::new());
         stream.0.update(b"rr-text\0");
-        stream.0.update(&TEXT_FORMAT_VERSION.to_le_bytes());
+        stream.0.update(&format.to_le_bytes());
         stream.text(domain);
         stream
     }

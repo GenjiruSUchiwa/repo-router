@@ -303,34 +303,33 @@ fn wide_module(root: &Path, count: usize) {
     write(root, "big/many.rs", &source);
 }
 
-/// A scope too wide for one page becomes a tree, and the tree shrinks again.
-///
-/// Growth is the easy direction. Shrinking is where a router can be left
-/// pointing at pages that no longer exist, so both the count and the links are
-/// asserted, and a third run has to find nothing left to do.
 #[test]
-fn an_overflow_tree_grows_and_shrinks_without_dangling_links() {
+fn a_wide_scope_is_one_file_and_states_the_remainder() {
     let temp = repo();
     wide_module(temp.path(), 120);
     run(temp.path(), &["map"]);
 
-    let grown = overflow_pages(temp.path());
-    assert!(grown > 30, "120 symbols did not page: {grown} pages");
-    assert_links_resolve(temp.path());
+    assert_eq!(overflow_pages(temp.path()), 0, "120 symbols still paged");
+    let grown = read(temp.path(), "big/MAP.md");
+    assert!(
+        grown.contains("omitted by the map budget"),
+        "120 symbols fit one file with nothing stated:\n{grown}"
+    );
 
     wide_module(temp.path(), 4);
     let output = run(temp.path(), &["map"]);
     assert_eq!(code(&output), 0, "{}", stderr(&output));
-
-    let shrunk = overflow_pages(temp.path());
-    assert!(shrunk < grown, "{grown} pages did not shrink");
-    assert_links_resolve(temp.path());
-    assert!(stdout(&output).contains(&format!("{} removed", grown - shrunk)));
+    assert_eq!(overflow_pages(temp.path()), 0);
+    let shrunk = read(temp.path(), "big/MAP.md");
+    assert!(
+        !shrunk.contains("omitted by the map budget"),
+        "four symbols still omit:\n{shrunk}"
+    );
 
     let settled = run(temp.path(), &["map"]);
     assert!(
         stdout(&settled).contains("0 written") && stdout(&settled).contains("0 removed"),
-        "the shrunk tree did not settle: {}",
+        "the shrunk map did not settle: {}",
         stdout(&settled)
     );
 }
@@ -341,21 +340,6 @@ fn overflow_pages(root: &Path) -> usize {
         .flatten()
         .filter(|entry| entry.file_name().to_string_lossy().starts_with("MAP.rr-"))
         .count()
-}
-
-/// Every page this scope's router names has to be a page that is there.
-fn assert_links_resolve(root: &Path) {
-    let router = read(root, "big/MAP.md");
-    for line in router.lines() {
-        let Some(rest) = line.strip_prefix("- [MAP.rr-") else {
-            continue;
-        };
-        let name = format!("MAP.rr-{}", rest.split(']').next().unwrap_or_default());
-        assert!(
-            root.join("big").join(&name).is_file(),
-            "the router points at {name}, which is not on disk"
-        );
-    }
 }
 
 /// Where the command was invoked from must not change what it does.
@@ -483,4 +467,44 @@ fn a_merge_conflict_is_reported_as_one() {
     let output = run(temp.path(), &["map"]);
     assert_eq!(code(&output), 1);
     assert!(stderr(&output).contains("Git conflict markers"));
+}
+
+#[test]
+fn a_differently_cased_file_is_reported_by_the_name_it_really_has() {
+    let temp = repo();
+    let notes = "hand written\n";
+    write(temp.path(), "src/map.md", notes);
+
+    let output = run(temp.path(), &["map"]);
+    let folding = case_insensitive(temp.path());
+    if folding {
+        assert_eq!(code(&output), 1, "{}", stdout(&output));
+        let message = stderr(&output);
+        assert!(
+            message.contains("src/MAP.md:")
+                && message.contains("(src/map.md)")
+                && message
+                    .contains("the filesystem already holds this path under a different spelling"),
+            "{message}"
+        );
+        assert_eq!(read(temp.path(), "src/map.md"), notes);
+        assert!(
+            !temp.path().join(".rr/SYMBOLS.md").is_file(),
+            "the local index was written despite a collision"
+        );
+    } else {
+        assert_eq!(code(&output), 0, "{}", stderr(&output));
+        assert!(temp.path().join("src/MAP.md").is_file());
+        assert_eq!(read(temp.path(), "src/map.md"), notes);
+    }
+}
+
+fn case_insensitive(root: &Path) -> bool {
+    let lower = root.join("rr-case-probe");
+    let upper = root.join("RR-CASE-PROBE");
+    std::fs::write(&lower, b"probe").expect("write case probe");
+    let folds = upper.is_file();
+    let _ = std::fs::remove_file(&lower);
+    let _ = std::fs::remove_file(&upper);
+    folds
 }

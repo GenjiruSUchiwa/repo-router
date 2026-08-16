@@ -130,9 +130,7 @@ fn a_mixed_language_repository_produces_one_coherent_snapshot() {
     }
 
     // One hierarchy. Four languages in one directory produce one `src/MAP.md`
-    // under one root `MAP.md`, not one tree per language — the API listing is
-    // sharded when it outgrows the budget, and the shards hang off that one
-    // parent.
+    // under one root `MAP.md`, not one tree per language.
     let projection = TextProjection::from_snapshot(&snapshot, DEFAULT_MAP_BUDGET).unwrap();
     let rendered = projection.render(&ExistingPurposes::none()).unwrap();
     let text = |path: &str| {
@@ -160,42 +158,26 @@ fn a_mixed_language_repository_produces_one_coherent_snapshot() {
         .collect();
     roots.sort_unstable();
     assert_eq!(roots, vec!["MAP.md", "src/MAP.md"], "not one hierarchy");
+    assert!(
+        rendered
+            .files()
+            .iter()
+            .all(|file| !file.path().contains("MAP.rr-")),
+        "a scope still produced overflow pages"
+    );
 
-    // Every shard the budget produced hangs off that one parent.
     let src = text("src/MAP.md");
-    let shards: Vec<_> = rendered
-        .files()
-        .iter()
-        .filter(|file| file.path().starts_with("src/MAP.rr-"))
-        .collect();
-    assert!(!shards.is_empty(), "the API listing was not sharded at all");
-    for shard in &shards {
-        let link = shard.path().trim_start_matches("src/");
-        assert!(
-            src.contains(link),
-            "{link} is not linked from its parent:\n{src}"
-        );
-    }
-
-    // Every language's surface reaches the text, wherever the budget put it.
-    let mut under_src = src.clone();
-    for shard in &shards {
-        under_src.push_str(std::str::from_utf8(shard.bytes()).unwrap());
-    }
     for name in ["Router", "Client", "Badge", "Service"] {
         assert!(
-            under_src.contains(name),
-            "{name} is missing from the src hierarchy:\n{under_src}"
+            src.contains(name),
+            "{name} is missing from the src map:\n{src}"
         );
     }
 
-    // And each language's own spelling of nesting survives into the text,
-    // rather than everything being flattened onto Rust's.
-    assert!(under_src.contains("Client.describe"), "{under_src}");
-    assert!(under_src.contains("Service.run"), "{under_src}");
-    assert!(under_src.contains("Router::route"), "{under_src}");
-    assert!(!under_src.contains("client.ts::"), "{under_src}");
-
+    assert!(src.contains("Client.describe"), "{src}");
+    assert!(src.contains("Service.run"), "{src}");
+    assert!(src.contains("Router::route"), "{src}");
+    assert!(!src.contains("client.ts::"), "{src}");
     // One symbol index over all four, and the fidelity each was read at is
     // recorded rather than levelled up to Rust's.
     let symbols = text(".rr/SYMBOLS.md");

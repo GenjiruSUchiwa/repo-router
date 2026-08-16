@@ -55,6 +55,8 @@ pub fn is_rule_path(path: &RelPath) -> bool {
 /// differ from `HEAD`. Only those are read: a rule file that matches `HEAD` is
 /// already covered by the commit the snapshot records, and reading every rule
 /// file in the repository would cost the walk this digest exists to avoid.
+/// What keeps the first half of that true is [`GitRepo::committed_delta`],
+/// which refuses to describe a commit that touched a rule file at all.
 #[must_use]
 pub fn discovery_digest(
     repo: Option<&GitRepo>,

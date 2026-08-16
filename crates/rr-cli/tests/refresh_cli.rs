@@ -11,7 +11,7 @@ mod common;
 use serde_json::Value;
 use tempfile::TempDir;
 
-use common::{code, commit_all, empty_repo, git, json, run, stdout, write};
+use common::{code, commit_all, empty_repo, json, run, stdout, write};
 
 /// A repository with one committed source file and no snapshot.
 fn repo() -> TempDir {
@@ -62,38 +62,28 @@ fn status_json_carries_the_versioned_contract() {
     assert!(value["unresolved"].is_u64());
 }
 
-/// Committing the maps costs the snapshot its fast path.
+/// Committing the maps keeps the next refresh incremental.
 ///
-/// The delta is `git status` — the working tree against `HEAD` — so a snapshot
-/// is only incrementally usable while `HEAD` stands still. Committing the maps
-/// moves it, which makes the next refresh a full fallback for every user of
-/// every repository. Pinned rather than hidden: the fallback still converges
-/// off the cache and writes nothing, and the day a `HEAD`-to-`HEAD` diff makes
-/// this incremental, this test is where that shows up.
+/// The two commits are compared directly, and generated maps are not indexed,
+/// so the delta is empty. Metadata is republished; nothing is reparsed.
 #[test]
-fn committing_the_generated_maps_moves_head_and_forces_a_full_fallback() {
+fn committing_the_generated_maps_keeps_the_next_refresh_incremental() {
     let temp = repo();
     run(temp.path(), &["map"]);
     commit_all(temp.path(), "maps");
 
     let status = json(&run(temp.path(), &["status", "--json"]));
     assert_eq!(status["git"], "clean");
-    assert_eq!(status["snapshot"], "stale");
+    assert_eq!(status["snapshot"], "fresh");
 
     let refreshed = json(&run(temp.path(), &["refresh", "--json"]));
-    assert_eq!(refreshed["mode"], "fallback-full");
-    assert_eq!(refreshed["fallback_reason"], "head-changed");
-    // A full fallback is a full walk, not a full reparse, and it finds the
-    // artifacts already correct.
+    assert_eq!(refreshed["mode"], "incremental");
+    assert_eq!(refreshed["fallback_reason"], Value::Null);
     assert_eq!(refreshed["reparsed"], 0);
-    assert_eq!(refreshed["cached"], 1);
+    assert_eq!(refreshed["cached"], 0);
 
     let after = json(&run(temp.path(), &["status", "--json"]));
     assert_eq!(after["snapshot"], "fresh");
-    assert_eq!(
-        after["git"], "clean",
-        "the fallback rewrote a committed map"
-    );
 }
 
 #[test]
@@ -112,12 +102,11 @@ fn refresh_json_reports_the_mode_it_actually_ran_in() {
     assert_eq!(incremental["outcome"], "updated");
     assert_eq!(incremental["changed"], 1);
 
-    // A caller that asked for a delta and got a rebuild must be able to see
-    // that from the report alone, which is what separates the two spellings.
-    git(temp.path(), &["commit", "-qam", "second"]);
+    write(temp.path(), ".gitignore", "target\n");
+    commit_all(temp.path(), "rules");
     let fallback = json(&run(temp.path(), &["refresh", "--json"]));
     assert_eq!(fallback["mode"], "fallback-full");
-    assert_eq!(fallback["fallback_reason"], "head-changed");
+    assert_eq!(fallback["fallback_reason"], "discovery-rules-changed");
 
     let requested = json(&run(temp.path(), &["refresh", "--json", "--full"]));
     assert_eq!(requested["mode"], "full");
