@@ -12,7 +12,10 @@ use std::path::{Path, PathBuf};
 use anyhow::Context;
 use clap::Args as ClapArgs;
 use rr_core::agent::{self, CONTRACT_BLOCK, CONTRACT_MARKERS};
-use rr_core::text::{apply_block, apply_managed_block, IGNORE_PATH};
+use rr_core::text::{
+    apply_block, apply_managed_block, DUPLICATE_MARKERS_REASON, IGNORE_PATH,
+    MALFORMED_MARKERS_REASON,
+};
 use rr_core::workspace;
 
 use crate::output::Output;
@@ -60,6 +63,8 @@ enum Refusal {
     NotOurs,
     /// Content this crate cannot read back: not UTF-8, or mixed newlines.
     Unreadable,
+    /// The read itself failed: a directory, a permission, a broken device.
+    ReadFailed,
     /// The write itself failed.
     WriteFailed,
 }
@@ -81,6 +86,7 @@ impl Refusal {
                 delete it if you want rr's version"
             }
             Self::Unreadable => "this file is not UTF-8 or has mixed line endings",
+            Self::ReadFailed => "the file could not be read",
             Self::WriteFailed => "the file could not be written",
         }
     }
@@ -123,32 +129,34 @@ pub fn run(args: &Args) -> anyhow::Result<u8> {
         None => std::env::current_dir().context("resolve current directory")?,
     };
 
+    // Sampled before `ensure_private` stamps the file, because that write is the
+    // only reason a `.rr/.gitignore` this run created reads back as pre-existing
+    // — and reporting `updated` for a file rr made moments ago is a report of
+    // somebody else's edit that never happened.
+    let ignore_existed = root.join(IGNORE_PATH).exists();
+
     // First, and before anything else is written: the state directory has to be
     // marked private before it holds anything, which is the same order
     // `RepositoryWriteGuard::acquire` uses (`rr-git/src/guard.rs:38-58`).
     workspace::ensure_private(&root).context("create .rr")?;
 
-    let mut report = Report {
-        targets: Vec::new(),
-        skills_dir_created: false,
-    };
-    report.targets.push((
-        IGNORE_PATH.to_owned(),
-        apply_region(&root, IGNORE_PATH, apply_managed_block),
-    ));
-    for name in agent::AGENT_FILES {
-        report.targets.push((
-            name.to_owned(),
-            apply_region(&root, name, |existing| {
-                apply_block(existing, CONTRACT_MARKERS, CONTRACT_BLOCK)
-            }),
-        ));
+    let mut targets = Vec::with_capacity(agent::AGENT_FILES.len() + 2);
+    let (ignore_path, mut ignore_outcome) = apply_region(&root, IGNORE_PATH, apply_managed_block);
+    if !ignore_existed && ignore_outcome == Outcome::Updated {
+        ignore_outcome = Outcome::Created;
     }
-    let (skill_outcome, skills_dir_created) = install_skill(&root);
-    report
-        .targets
-        .push((agent::SKILL_PATH.to_owned(), skill_outcome));
-    report.skills_dir_created = skills_dir_created;
+    targets.push((ignore_path, ignore_outcome));
+    for name in agent::AGENT_FILES {
+        targets.push(apply_region(&root, name, |existing| {
+            apply_block(existing, CONTRACT_MARKERS, CONTRACT_BLOCK)
+        }));
+    }
+    let (skill_path, skill_outcome, skills_dir_created) = install_skill(&root);
+    targets.push((skill_path, skill_outcome));
+    let report = Report {
+        targets,
+        skills_dir_created,
+    };
 
     if args.json {
         Output::print_text(&render_json(&report))?;
@@ -165,7 +173,10 @@ pub fn run(args: &Args) -> anyhow::Result<u8> {
 /// are one file and this changes nothing; on a case-sensitive one it is what
 /// stops `rr init` installing the contract into a second `CLAUDE.md` beside a
 /// repository's existing `claude.md`. See D8.
-fn apply_region<F>(root: &Path, name: &str, wanted: F) -> Outcome
+///
+/// Returns the path as it was actually written, not the one that was asked for,
+/// so the report names a file the reader can open.
+fn apply_region<F>(root: &Path, name: &str, wanted: F) -> (String, Outcome)
 where
     // Spelled out, not `TextResult`: that alias is private to `rr-core`
     // (`text/mod.rs:181` has no `pub`), while `TextError` at `text/mod.rs:152`
@@ -173,41 +184,67 @@ where
     F: FnOnce(Option<&str>) -> Result<String, rr_core::text::TextError>,
 {
     let path = resolve_existing_name(root, name);
+    let reported = reported_name(name, &path);
+    let refused = |reason| (reported.clone(), Outcome::Refused(reason));
+
     let existing = match std::fs::read(&path) {
         Ok(bytes) => match String::from_utf8(bytes) {
             Ok(text) => Some(text),
-            Err(_) => return Outcome::Refused(Refusal::Unreadable),
+            Err(_) => return refused(Refusal::Unreadable),
         },
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-        Err(_) => return Outcome::Refused(Refusal::Unreadable),
+        Err(_) => return refused(Refusal::ReadFailed),
     };
 
     let content = match wanted(existing.as_deref()) {
         Ok(content) => content,
-        Err(rr_core::text::TextError::ManagedIgnore { reason }) => {
-            return Outcome::Refused(if reason.contains("more than once") {
-                Refusal::MarkersDuplicated
-            } else {
-                Refusal::MarkersMalformed
-            })
+        // Compared by identity, not by substring: `TextError`'s own
+        // documentation avoids free-form strings "so that a message change can
+        // never become a behavior change", and a `contains` here would put that
+        // guarantee back at the mercy of the wording.
+        Err(rr_core::text::TextError::ManagedIgnore { reason })
+            if reason == DUPLICATE_MARKERS_REASON =>
+        {
+            return refused(Refusal::MarkersDuplicated)
         }
-        Err(_) => return Outcome::Refused(Refusal::Unreadable),
+        Err(rr_core::text::TextError::ManagedIgnore { reason })
+            if reason == MALFORMED_MARKERS_REASON =>
+        {
+            return refused(Refusal::MarkersMalformed)
+        }
+        Err(_) => return refused(Refusal::Unreadable),
     };
 
     // D9: bytes, not mtime. A second run must leave every file untouched, and
     // "untouched" has to mean the write did not happen, not that it happened to
     // produce the same content.
     if existing.as_deref() == Some(content.as_str()) {
-        return Outcome::Unchanged;
+        return (reported, Outcome::Unchanged);
     }
     let created = existing.is_none();
-    if write_file(&path, content.as_bytes()).is_err() {
-        return Outcome::Refused(Refusal::WriteFailed);
+    if std::fs::write(&path, content.as_bytes()).is_err() {
+        return refused(Refusal::WriteFailed);
     }
-    if created {
+    let outcome = if created {
         Outcome::Created
     } else {
         Outcome::Updated
+    };
+    (reported, outcome)
+}
+
+/// The target's own name, respelled to match the file that was found.
+///
+/// Only the last component can differ — that is all [`resolve_existing_name`]
+/// looks at — so only the last component is substituted, which keeps the
+/// separator in the reported path a `/` on every platform.
+fn reported_name(name: &str, path: &Path) -> String {
+    let Some(found) = path.file_name().and_then(std::ffi::OsStr::to_str) else {
+        return name.to_owned();
+    };
+    match name.rfind('/') {
+        Some(cut) => format!("{}{found}", &name[..=cut]),
+        None => found.to_owned(),
     }
 }
 
@@ -246,60 +283,60 @@ fn resolve_existing_name(root: &Path, name: &str) -> PathBuf {
 /// The boolean is whether this run created `.claude/skills/` *and* the skill
 /// write succeeded. Early refusals carry `false` so a restart note is never
 /// printed for a file that was not installed.
-fn install_skill(root: &Path) -> (Outcome, bool) {
+fn install_skill(root: &Path) -> (String, Outcome, bool) {
     let path = resolve_existing_name(root, agent::SKILL_PATH);
+    let reported = reported_name(agent::SKILL_PATH, &path);
+    let refused = |reason| (reported.clone(), Outcome::Refused(reason), false);
     let wanted = agent::skill_document();
 
     let existing = match std::fs::read(&path) {
         Ok(bytes) => {
             if bytes == wanted.as_bytes() {
-                return (Outcome::Unchanged, false);
+                return (reported, Outcome::Unchanged, false);
             }
             match String::from_utf8(bytes) {
                 Ok(text) => Some(text),
-                Err(_) => return (Outcome::Refused(Refusal::Unreadable), false),
+                Err(_) => return refused(Refusal::Unreadable),
             }
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-        Err(_) => return (Outcome::Refused(Refusal::Unreadable), false),
+        Err(_) => return refused(Refusal::ReadFailed),
     };
 
     if let Some(existing) = existing.as_deref() {
         if !agent::is_rr_written_skill(existing) {
-            return (Outcome::Refused(Refusal::NotOurs), false);
+            return refused(Refusal::NotOurs);
         }
     }
 
     // Amendment C: sampled *before* the directory is created, because that is
     // the only moment the answer is still knowable.
-    let skills_dir_was_absent = !root.join(".claude/skills").exists();
+    let skills_dir_was_absent = !root.join(agent::SKILLS_ROOT).exists();
     if std::fs::create_dir_all(root.join(agent::SKILL_DIR)).is_err() {
-        return (Outcome::Refused(Refusal::WriteFailed), false);
+        return refused(Refusal::WriteFailed);
     }
-    if write_file(&path, wanted.as_bytes()).is_err() {
-        return (Outcome::Refused(Refusal::WriteFailed), false);
+    if std::fs::write(&path, wanted.as_bytes()).is_err() {
+        return refused(Refusal::WriteFailed);
     }
     let outcome = if existing.is_none() {
         Outcome::Created
     } else {
         Outcome::Updated
     };
-    (outcome, skills_dir_was_absent)
-}
-
-fn write_file(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    std::fs::write(path, bytes)
+    (reported, outcome, skills_dir_was_absent)
 }
 
 fn render_json(report: &Report) -> String {
-    let targets: Vec<(&str, &str, Option<&str>)> = report
+    let targets: Vec<agent::InitTarget<'_>> = report
         .targets
         .iter()
-        .map(|(path, outcome)| match outcome {
-            Outcome::Created => (path.as_str(), "created", None),
-            Outcome::Updated => (path.as_str(), "updated", None),
-            Outcome::Unchanged => (path.as_str(), "unchanged", None),
-            Outcome::Refused(reason) => (path.as_str(), "refused", Some(reason.as_str())),
+        .map(|(path, outcome)| agent::InitTarget {
+            path: path.as_str(),
+            outcome: outcome.as_str(),
+            reason: match outcome {
+                Outcome::Refused(reason) => Some(reason.as_str()),
+                _ => None,
+            },
         })
         .collect();
     agent::render_init_json(&targets)
@@ -347,13 +384,45 @@ fn render_text(report: &Report) -> String {
         }
     }
     out.push_str("\n  next: rr map");
-    out.push_str(
-        "\n  note: AGENTS.md, CLAUDE.md and .claude/ carry the agent contract; commit them\n        if your team should share it.",
-    );
+    // Advice about committing the contract is advice about files that exist. A
+    // run that refused every target installed nothing, and telling that user to
+    // commit the contract points them at a file rr declined to write.
+    if refused < report.targets.len() {
+        out.push_str(
+            "\n  note: AGENTS.md, CLAUDE.md and .claude/ carry the agent contract; commit them\n        if your team should share it.",
+        );
+    }
     if report.skills_dir_created {
         out.push_str(
             "\n  note: .claude/skills/ is new; restart Claude Code so it picks up the skill.",
         );
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The report has to name the file that was written. Only the last
+    /// component can have been respelled, and the separator stays a `/` so the
+    /// path is the one `rr` documents rather than the one this platform spells.
+    #[test]
+    fn a_respelled_file_is_reported_under_the_name_on_disk() {
+        assert_eq!(
+            reported_name("CLAUDE.md", Path::new("/repo/claude.md")),
+            "claude.md"
+        );
+        assert_eq!(
+            reported_name(
+                ".claude/skills/rr/SKILL.md",
+                Path::new("/repo/.claude/skills/rr/Skill.md")
+            ),
+            ".claude/skills/rr/Skill.md"
+        );
+        assert_eq!(
+            reported_name(".rr/.gitignore", Path::new("/repo/.rr/.gitignore")),
+            ".rr/.gitignore"
+        );
+    }
 }

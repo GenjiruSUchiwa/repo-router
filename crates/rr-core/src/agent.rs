@@ -14,7 +14,15 @@ use crate::text::BlockMarkers;
 ///
 /// The one path in this crate that is not derivable from this repository. If
 /// Claude Code reads project skills from somewhere else, this is the whole fix.
+///
+/// The three are one path spelled at three depths, and the test
+/// `the_skill_paths_are_one_path` is what keeps them from drifting apart: a
+/// caller creating `SKILLS_ROOT` and writing `SKILL_PATH` has to be creating the
+/// directory that file lands in.
+pub const SKILLS_ROOT: &str = ".claude/skills";
+/// The directory holding rr's own skill.
 pub const SKILL_DIR: &str = ".claude/skills/rr";
+/// The skill file itself.
 pub const SKILL_PATH: &str = ".claude/skills/rr/SKILL.md";
 
 /// The agent-instruction files `rr init` manages.
@@ -105,6 +113,16 @@ survives a refresh.
     "<!-- rr:end agent contract -->\n",
 );
 
+/// The start of the one line that carries the skill's stamp.
+///
+/// One constant, because [`unstamped`] and [`stamp_value`] have to agree about
+/// which line they are looking at: a prefix that matched in one and not the
+/// other would make a file rr wrote fail to verify as its own.
+const STAMP_PREFIX: &str = "    generated_hash: \"";
+
+/// The stamp line as it looks before the digest is written into it.
+const BLANK_STAMP_LINE: &str = "    generated_hash: \"\"";
+
 /// `CONTRACT_BLOCK` without its delimiter lines, under the skill title.
 fn skill_body() -> String {
     let inner = CONTRACT_BLOCK
@@ -154,12 +172,12 @@ fn skill_unstamped() -> String {
 /// Returns `None` when there is no stamp line at all, which is the primary
 /// signal that somebody else wrote this file.
 fn unstamped(text: &str) -> Option<String> {
-    const PREFIX: &str = "    generated_hash: \"";
     let mut out = String::with_capacity(text.len());
     let mut found = false;
     for line in text.lines() {
-        if line.starts_with(PREFIX) && line.ends_with('"') {
-            out.push_str("    generated_hash: \"\"\n");
+        if line.starts_with(STAMP_PREFIX) && line.ends_with('"') {
+            out.push_str(BLANK_STAMP_LINE);
+            out.push('\n');
             found = true;
         } else {
             out.push_str(line);
@@ -171,9 +189,8 @@ fn unstamped(text: &str) -> Option<String> {
 
 /// The digest stored in `generated_hash`, if that line is present.
 fn stamp_value(text: &str) -> Option<String> {
-    const PREFIX: &str = "    generated_hash: \"";
     for line in text.lines() {
-        if let Some(rest) = line.strip_prefix(PREFIX) {
+        if let Some(rest) = line.strip_prefix(STAMP_PREFIX) {
             if let Some(value) = rest.strip_suffix('"') {
                 return Some(value.to_owned());
             }
@@ -188,8 +205,8 @@ pub fn skill_document() -> String {
     let blank = skill_unstamped();
     let digest = crate::text::Digest::of_bytes(blank.as_bytes());
     blank.replacen(
-        "    generated_hash: \"\"",
-        &format!("    generated_hash: \"{}\"", digest.to_text()),
+        BLANK_STAMP_LINE,
+        &format!("{STAMP_PREFIX}{}\"", digest.to_text()),
         1,
     )
 }
@@ -211,33 +228,34 @@ pub fn is_rr_written_skill(text: &str) -> bool {
         .is_ok_and(|stored| stored == crate::text::Digest::of_bytes(blank.as_bytes()))
 }
 
-/// Each item is `(path, outcome, optional reason)`.
+/// One row of the `rr init` report.
 ///
-/// `outcome` is one of `created`, `updated`, `unchanged`, `refused`.
-/// `reason` is serialized only when present. The result is one line.
-#[must_use]
-pub fn render_init_json(targets: &[(&str, &str, Option<&str>)]) -> String {
-    fn quoted(text: &str) -> String {
-        serde_json::Value::String(text.to_owned()).to_string()
-    }
+/// `outcome` is one of `created`, `updated`, `unchanged`, `refused`; `reason` is
+/// serialized only when present.
+#[derive(Debug, serde::Serialize)]
+pub struct InitTarget<'a> {
+    pub path: &'a str,
+    pub outcome: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<&'a str>,
+}
 
-    let mut out = String::from("{\"v\":1,\"targets\":[");
-    for (index, &(path, outcome, reason)) in targets.iter().enumerate() {
-        if index > 0 {
-            out.push(',');
-        }
-        out.push_str("{\"path\":");
-        out.push_str(&quoted(path));
-        out.push_str(",\"outcome\":");
-        out.push_str(&quoted(outcome));
-        if let Some(reason) = reason {
-            out.push_str(",\"reason\":");
-            out.push_str(&quoted(reason));
-        }
-        out.push('}');
-    }
-    out.push_str("]}");
-    out
+#[derive(Debug, serde::Serialize)]
+struct InitReport<'a> {
+    v: u32,
+    targets: &'a [InitTarget<'a>],
+}
+
+/// The `--json` report, as one line.
+///
+/// Serialized rather than concatenated so that escaping, and the field order the
+/// struct declares, are the serializer's problem rather than this function's.
+#[must_use]
+pub fn render_init_json(targets: &[InitTarget<'_>]) -> String {
+    let report = InitReport { v: 1, targets };
+    // A struct of `&str` has no map key, no non-finite float and no non-string
+    // key, which are the only three things `to_string` can fail on.
+    serde_json::to_string(&report).unwrap_or_else(|_| String::from("{\"v\":1,\"targets\":[]}"))
 }
 
 #[cfg(test)]
@@ -248,6 +266,20 @@ mod tests {
     use crate::text::{apply_block, MAP_FILE_NAME, SYMBOLS_PATH};
     use crate::verify::{SourceResult, SourceStatus};
     use smallvec::smallvec;
+
+    #[test]
+    fn the_skill_paths_are_one_path() {
+        assert_eq!(SKILL_DIR, format!("{SKILLS_ROOT}/rr"));
+        assert_eq!(SKILL_PATH, format!("{SKILL_DIR}/SKILL.md"));
+    }
+
+    /// The stamp `skill_document` writes has to be the stamp `unstamped` blanks;
+    /// otherwise a file rr just wrote would not verify as its own.
+    #[test]
+    fn the_blank_stamp_is_the_line_the_renderer_emits() {
+        assert!(skill_unstamped().contains(BLANK_STAMP_LINE));
+        assert!(BLANK_STAMP_LINE.starts_with(STAMP_PREFIX));
+    }
 
     #[test]
     fn the_contract_block_starts_and_ends_with_its_markers() {

@@ -43,6 +43,18 @@ fn outcome_of(report: &Value, path: &str) -> String {
         .to_owned()
 }
 
+fn reason_of(report: &Value, path: &str) -> String {
+    report["targets"]
+        .as_array()
+        .expect("targets is an array")
+        .iter()
+        .find(|target| target["path"] == path)
+        .unwrap_or_else(|| panic!("missing target {path}"))["reason"]
+        .as_str()
+        .unwrap_or_else(|| panic!("target {path} carries no reason"))
+        .to_owned()
+}
+
 fn entry_names(dir: &Path) -> Vec<String> {
     let mut names: Vec<String> = std::fs::read_dir(dir)
         .expect("failed to list directory")
@@ -121,6 +133,82 @@ fn init_on_an_empty_directory_creates_all_four_targets() {
     assert!(
         is_rr_written_skill(&skill),
         "installed skill must verify as rr-written"
+    );
+}
+
+/// `rr init` stamps `.rr/.gitignore` itself on the way in, so the managed block
+/// finds a file that already exists. Reporting that as `updated` would tell a
+/// user their file was changed when rr had just made it.
+#[test]
+fn a_fresh_ignore_file_is_reported_as_created() {
+    let temp = empty_dir();
+
+    let output = run(temp.path(), &["init", "--json"]);
+
+    assert_eq!(code(&output), 0);
+    let report = json(&output);
+    for path in FOUR_TARGETS {
+        assert_eq!(
+            outcome_of(&report, path),
+            "created",
+            "{path} was not created"
+        );
+    }
+}
+
+/// The two marker refusals are different repairs, so they must be different
+/// messages. Telling a user with two regions to "fix or delete the region"
+/// sends them looking for a problem that is not there.
+#[test]
+fn duplicated_and_unpaired_markers_report_different_reasons() {
+    let temp = empty_dir();
+    write(
+        temp.path(),
+        "AGENTS.md",
+        &format!(
+            "{CONTRACT_BEGIN_MARKER}\none\n{CONTRACT_END_MARKER}\n\
+             {CONTRACT_BEGIN_MARKER}\ntwo\n{CONTRACT_END_MARKER}\n"
+        ),
+    );
+    write(
+        temp.path(),
+        "CLAUDE.md",
+        &format!("{CONTRACT_BEGIN_MARKER}\n"),
+    );
+
+    let output = run(temp.path(), &["init", "--json"]);
+
+    assert_eq!(code(&output), 1);
+    let report = json(&output);
+    assert!(
+        reason_of(&report, "AGENTS.md").contains("more than once"),
+        "a duplicated region must say so: {}",
+        reason_of(&report, "AGENTS.md")
+    );
+    assert!(
+        reason_of(&report, "CLAUDE.md").contains("unpaired or inverted"),
+        "an unclosed region must say so: {}",
+        reason_of(&report, "CLAUDE.md")
+    );
+}
+
+/// A run that installed nothing has nothing to commit.
+#[test]
+fn a_run_that_refuses_everything_does_not_advise_committing() {
+    let temp = empty_dir();
+    let unpaired = format!("{CONTRACT_BEGIN_MARKER}\n");
+    write(temp.path(), IGNORE_PATH, IGNORE_BEGIN_MARKER);
+    write(temp.path(), "AGENTS.md", &unpaired);
+    write(temp.path(), "CLAUDE.md", &unpaired);
+    write(temp.path(), SKILL_PATH, "# mine\n");
+
+    let output = run(temp.path(), &["init"]);
+
+    assert_eq!(code(&output), 1);
+    assert!(
+        !stdout(&output).contains("commit them"),
+        "nothing was installed, so nothing is there to commit: {}",
+        stdout(&output)
     );
 }
 
