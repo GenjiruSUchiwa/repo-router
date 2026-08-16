@@ -22,6 +22,11 @@ use crate::Result;
 /// invalidate every cached Rust fact.
 pub const RUST_EXTRACTOR_VERSION: u32 = 3;
 pub const PYTHON_EXTRACTOR_VERSION: u32 = 4;
+/// TypeScript and TSX share a query and count separately, because they are two
+/// grammars: a `.tsx` fix that reparses every `.ts` file would be the global
+/// constant this module exists to avoid.
+pub const TYPESCRIPT_EXTRACTOR_VERSION: u32 = 1;
+pub const TSX_EXTRACTOR_VERSION: u32 = 1;
 
 /// The extractor version for `lang`, `0` when rr has no extractor for it.
 #[must_use]
@@ -29,6 +34,8 @@ pub const fn extractor_version(lang: Lang) -> u32 {
     match lang {
         Lang::Rust => RUST_EXTRACTOR_VERSION,
         Lang::Python => PYTHON_EXTRACTOR_VERSION,
+        Lang::TypeScript => TYPESCRIPT_EXTRACTOR_VERSION,
+        Lang::Tsx => TSX_EXTRACTOR_VERSION,
         _ => 0,
     }
 }
@@ -140,7 +147,12 @@ type Builder = fn() -> Built;
 
 /// Each language beside the only builder allowed to fill it, so the lookup and
 /// [`Registry::supported`] cannot disagree.
-const EXTRACTORS: &[(Lang, Builder)] = &[(Lang::Rust, build_rust), (Lang::Python, build_python)];
+const EXTRACTORS: &[(Lang, Builder)] = &[
+    (Lang::Rust, build_rust),
+    (Lang::Python, build_python),
+    (Lang::TypeScript, build_typescript),
+    (Lang::Tsx, build_tsx),
+];
 
 fn build_rust() -> Built {
     RustExtractor::new()
@@ -150,6 +162,14 @@ fn build_rust() -> Built {
 
 fn build_python() -> Built {
     TagsExtractor::new(&tags::PYTHON).map(|extractor| Box::new(extractor) as Box<dyn Extractor>)
+}
+
+fn build_typescript() -> Built {
+    TagsExtractor::new(&tags::TYPESCRIPT).map(|extractor| Box::new(extractor) as Box<dyn Extractor>)
+}
+
+fn build_tsx() -> Built {
+    TagsExtractor::new(&tags::TSX).map(|extractor| Box::new(extractor) as Box<dyn Extractor>)
 }
 
 /// One lazily built extractor per supported language, keyed by [`Lang`].
@@ -239,7 +259,10 @@ mod tests {
     }
     #[test]
     fn supported_lists_registered_extractors() {
-        assert_eq!(Registry::supported(), vec![Lang::Rust, Lang::Python]);
+        assert_eq!(
+            Registry::supported(),
+            vec![Lang::Rust, Lang::Python, Lang::TypeScript, Lang::Tsx]
+        );
     }
 
     #[test]

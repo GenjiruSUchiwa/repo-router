@@ -1,0 +1,157 @@
+---
+source: crates/rr-core/tests/tags_fixture.rs
+expression: "to_snapshot(\"surface.tsx\", &facts)"
+---
+path: surface.tsx
+status: tags(parse_errors=false)
+defs:
+  - name: BadgeProps
+    local_qualified: ~
+    kind: interface
+    visibility: public
+    start_line: 2
+    end_line: 5
+    signature: "export interface BadgeProps {"
+    signature_idents:
+      - export
+      - interface
+    body_idents: []
+    doc_idents:
+      - What
+      - a
+      - badge
+      - needs
+      - to
+      - render
+    attribute_idents: []
+  - name: label
+    local_qualified: BadgeProps.label
+    kind: field
+    visibility: public
+    start_line: 3
+    end_line: 3
+    signature: "label: string"
+    signature_idents:
+      - string
+    body_idents: []
+    doc_idents: []
+    attribute_idents: []
+  - name: tone
+    local_qualified: BadgeProps.tone
+    kind: field
+    visibility: public
+    start_line: 4
+    end_line: 4
+    signature: "tone?: \"muted\" | \"loud\""
+    signature_idents:
+      - muted
+      - loud
+    body_idents: []
+    doc_idents: []
+    attribute_idents: []
+  - name: Badge
+    local_qualified: ~
+    kind: function
+    visibility: public
+    start_line: 8
+    end_line: 10
+    signature: "Badge = (props: BadgeProps) => ("
+    signature_idents:
+      - props
+      - BadgeProps
+    body_idents:
+      - span
+      - className
+      - props
+      - tone
+      - muted
+      - props
+      - label
+      - span
+    doc_idents:
+      - One
+      - badge
+    attribute_idents: []
+  - name: BadgeList
+    local_qualified: ~
+    kind: class
+    visibility: public
+    start_line: 13
+    end_line: 23
+    signature: "export class BadgeList {"
+    signature_idents:
+      - export
+      - class
+    body_idents: []
+    doc_idents:
+      - A
+      - list
+      - of
+      - badges
+      - rendered
+      - in
+      - order
+    attribute_idents: []
+  - name: items
+    local_qualified: BadgeList.items
+    kind: field
+    visibility: private
+    start_line: 14
+    end_line: 14
+    signature: "private items: BadgeProps[] = []"
+    signature_idents:
+      - private
+      - BadgeProps
+    body_idents: []
+    doc_idents: []
+    attribute_idents: []
+  - name: add
+    local_qualified: BadgeList.add
+    kind: method
+    visibility: public
+    start_line: 16
+    end_line: 18
+    signature: "add(item: BadgeProps): void {"
+    signature_idents:
+      - item
+      - BadgeProps
+      - void
+    body_idents:
+      - this
+      - items
+      - push
+      - item
+    doc_idents: []
+    attribute_idents: []
+  - name: render
+    local_qualified: BadgeList.render
+    kind: method
+    visibility: public
+    start_line: 20
+    end_line: 22
+    signature: "render(): JSX.Element {"
+    signature_idents:
+      - JSX
+      - Element
+    body_idents:
+      - return
+      - div
+      - this
+      - items
+      - map
+      - item
+      - Badge
+      - item
+      - div
+    doc_idents: []
+    attribute_idents: []
+references:
+  - name: push
+    line: 17
+    owner: add
+  - name: map
+    line: 21
+    owner: render
+  - name: Badge
+    line: 21
+    owner: render

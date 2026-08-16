@@ -1,0 +1,76 @@
+---
+source: crates/rr-core/tests/tags_fixture.rs
+expression: "to_snapshot(\"indent.py\", &facts)"
+---
+path: indent.py
+status: tags(parse_errors=false)
+defs:
+  - name: before
+    local_qualified: ~
+    kind: function
+    visibility: public
+    start_line: 1
+    end_line: 2
+    signature: "def before(value):"
+    signature_idents:
+      - def
+      - value
+    body_idents:
+      - return
+      - value
+    doc_idents: []
+    attribute_idents: []
+  - name: Service
+    local_qualified: ~
+    kind: class
+    visibility: public
+    start_line: 5
+    end_line: 8
+    signature: "class Service:"
+    signature_idents:
+      - class
+    body_idents:
+      - return
+      - result
+    doc_idents: []
+    attribute_idents: []
+  - name: run
+    local_qualified: Service.run
+    kind: function
+    visibility: public
+    start_line: 6
+    end_line: 7
+    signature: "def run(self, value):"
+    signature_idents:
+      - def
+      - self
+      - value
+    body_idents:
+      - result
+      - helper
+      - value
+    doc_idents: []
+    attribute_idents: []
+  - name: after
+    local_qualified: ~
+    kind: function
+    visibility: public
+    start_line: 11
+    end_line: 12
+    signature: "def after(value):"
+    signature_idents:
+      - def
+      - value
+    body_idents:
+      - return
+      - helper
+      - value
+    doc_idents: []
+    attribute_idents: []
+references:
+  - name: helper
+    line: 7
+    owner: run
+  - name: helper
+    line: 12
+    owner: after

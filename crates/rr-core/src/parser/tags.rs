@@ -38,6 +38,30 @@ pub struct LanguageSpec {
     pub test_attribute: fn(&str) -> bool,
     /// Whether an enclosing definition of this name is a test scope.
     pub test_scope: fn(&str) -> bool,
+    /// Last word on one definition, once its name, kind, signature and
+    /// visibility are all in hand.
+    ///
+    /// `tree-sitter-tags` compiles text predicates and then never evaluates
+    /// them, so `#eq?` and `#match?` cannot route a capture. Anything a
+    /// language decides by reading the name or the declaration text — a
+    /// `constructor` that is not an ordinary method, an accessor that is not
+    /// either, an `= () =>` binding that is a function wearing a variable's
+    /// syntax, a `private` modifier no capture can reach — is decided here
+    /// instead.
+    ///
+    /// Runs before the definitions are sorted, because [`def_key`] holds the
+    /// kind and a kind changed afterwards would leave the order it was sorted
+    /// into.
+    pub refine: fn(&mut Def),
+    /// Whether this language's documentation is the string literal that opens
+    /// a body, as Python's docstring is.
+    ///
+    /// `false` for a language whose documentation is a comment *preceding* the
+    /// definition: the comment already falls outside the span, so nothing has
+    /// to be kept out of the body scan — and excluding a leading body string
+    /// anyway would silently drop a `"use strict"` prologue's identifiers from
+    /// a documented function.
+    pub doc_is_leading_body_string: bool,
     /// The compiled tags query, shared by every worker that speaks this
     /// language. Compiling it costs milliseconds that rayon would otherwise
     /// repeat once per work split; only [`TagsContext`] stays per worker.
@@ -118,7 +142,7 @@ impl TagsExtractor {
                     span,
                     tag.name_range.start,
                     name,
-                    tag.docs.is_some(),
+                    tag.docs.is_some() && spec.doc_is_leading_body_string,
                     source,
                     &lines,
                 )?;
@@ -131,23 +155,22 @@ impl TagsExtractor {
                     inside_cfg_test: false,
                     inside_test_scope: false,
                 };
-                defs.push((
-                    Def {
-                        name: name.to_owned(),
-                        local_qualified: None,
-                        kind,
-                        visibility: (spec.visibility)(name),
-                        span,
-                        signature_span: header.signature_span,
-                        signature: header.signature,
-                        signature_idents: header.signature_idents,
-                        body_idents: Vec::new(),
-                        doc_idents,
-                        attribute_idents: header.attribute_idents,
-                        test_signals,
-                    },
-                    header.exclusions,
-                ));
+                let mut def = Def {
+                    name: name.to_owned(),
+                    local_qualified: None,
+                    kind,
+                    visibility: (spec.visibility)(name),
+                    span,
+                    signature_span: header.signature_span,
+                    signature: header.signature,
+                    signature_idents: header.signature_idents,
+                    body_idents: Vec::new(),
+                    doc_idents,
+                    attribute_idents: header.attribute_idents,
+                    test_signals,
+                };
+                (spec.refine)(&mut def);
+                defs.push((def, header.exclusions));
             } else {
                 let Some(kind) = reference_kind(spec, config, tag.syntax_type_id) else {
                     continue;
@@ -361,9 +384,13 @@ fn header_for(
             displayed
         }
     };
+    // Compared against the name as the scanner sees it: a sigil is not part of
+    // an identifier, so a TypeScript `#private` name would otherwise never
+    // match itself and every such definition would carry its own name.
+    let scanned_name = name.trim_start_matches('#');
     let signature_idents = scan_idents(raw)
         .into_iter()
-        .filter(|ident| ident != name)
+        .filter(|ident| ident != scanned_name)
         .collect();
 
     if has_docs {
@@ -503,12 +530,18 @@ fn assign_nesting(
             stack.pop();
         }
         if let Some(&parent) = stack.last() {
-            let mut segments = stack
-                .iter()
-                .map(|parent| defs[*parent].name.as_str())
-                .collect::<Vec<_>>();
-            segments.push(defs[index].name.as_str());
-            defs[index].local_qualified = Some(segments.join(separator));
+            let owners = naming_owners(defs, &stack, index);
+            if !owners.is_empty() {
+                let mut segments = owners
+                    .iter()
+                    .map(|owner| defs[*owner].name.as_str())
+                    .collect::<Vec<_>>();
+                segments.push(defs[index].name.as_str());
+                defs[index].local_qualified = Some(segments.join(separator));
+            }
+            // The exclusion parent stays the lexical one: a parameter property
+            // is written inside the constructor's text, so it is the
+            // constructor that must not count it twice.
             direct_children[parent].push(defs[index].span);
         }
         let inside_test_scope = stack
@@ -527,6 +560,32 @@ fn assign_nesting(
         exclusions.extend(header_exclusions[index].iter().copied());
         exclusions.extend(direct_children[index].iter().copied());
         def.body_idents = scan_excluding(source, def.span, &exclusions);
+    }
+}
+
+/// The definitions this one is *named* under, which is not always the ones it
+/// sits inside.
+///
+/// Containment answers the question for everything rr indexes but one
+/// construct: a TypeScript parameter property is written in the constructor's
+/// parameter list and is a field of the class. `constructor(private repo: Repo)`
+/// declares what the rest of the class reads as `this.repo` and what a caller
+/// names `Service.repo`, so qualifying it `Service.constructor.repo` would file
+/// it under a path nothing refers to it by.
+///
+/// Recognised through the vocabulary rather than through node names, which is
+/// what makes it safe to run for every language: a field is state on a type,
+/// no callable declares one, and `DefKind::Constructor` is produced by exactly
+/// one `refine`. For Rust and Python this never fires.
+fn naming_owners<'a>(defs: &[Def], stack: &'a [usize], index: usize) -> &'a [usize] {
+    let hoisted = defs[index].kind == DefKind::Field
+        && stack
+            .last()
+            .is_some_and(|parent| defs[*parent].kind == DefKind::Constructor);
+    if hoisted {
+        &stack[..stack.len() - 1]
+    } else {
+        stack
     }
 }
 
@@ -591,6 +650,16 @@ fn python_test_scope(name: &str) -> bool {
     name.starts_with("Test")
 }
 
+/// The definition a language's query already described exactly.
+///
+/// Python needs no second pass: `class`, `def` and a module-level assignment
+/// are three node types, so the query alone tells them apart, and PEP 8
+/// visibility is readable from the name. `@property` stays a decorated
+/// function rather than becoming a [`DefKind::Property`] — the decorator is a
+/// call whose meaning depends on what it resolves to, and the tags tier does
+/// not resolve.
+fn keep_as_captured(_def: &mut Def) {}
+
 pub(crate) static PYTHON: LanguageSpec = LanguageSpec {
     lang: Lang::Python,
     language: tree_sitter_python::LANGUAGE,
@@ -605,8 +674,227 @@ pub(crate) static PYTHON: LanguageSpec = LanguageSpec {
     visibility: python_visibility,
     test_attribute: python_test_attribute,
     test_scope: python_test_scope,
+    refine: keep_as_captured,
+    doc_is_leading_body_string: true,
     config: OnceLock::new(),
 };
+
+/// Every word TypeScript allows between the start of a member declaration and
+/// its name.
+///
+/// Read as a prefix rather than searched for: a parameter called `privateKey`
+/// and a field called `private` are both things a repository contains, and
+/// neither declares a visibility.
+const TYPESCRIPT_MODIFIERS: &[&str] = &[
+    "public",
+    "private",
+    "protected",
+    "static",
+    "readonly",
+    "abstract",
+    "override",
+    "accessor",
+    "declare",
+    "async",
+    "get",
+    "set",
+];
+
+/// The modifiers this declaration opens with, in source order.
+///
+/// [`crate::facts::display_signature`] has already folded every whitespace run
+/// into one space, so splitting on it recovers the tokens exactly.
+fn typescript_modifiers(signature: &str) -> impl Iterator<Item = &str> {
+    signature
+        .split(' ')
+        .take_while(|word| TYPESCRIPT_MODIFIERS.contains(word))
+}
+
+/// The visibility a member states, or `None` when it states none.
+fn declared_visibility(signature: &str) -> Option<Visibility> {
+    typescript_modifiers(signature).find_map(|word| match word {
+        "private" => Some(Visibility::Private),
+        "protected" => Some(Visibility::Protected),
+        "public" => Some(Visibility::Public),
+        _ => None,
+    })
+}
+
+/// A `#name` is private to its class by the language, not by convention: the
+/// `#` is part of the name, and reading it outside the class is a syntax
+/// error. Everything else is public until a modifier says otherwise, which is
+/// [`declared_visibility`]'s answer rather than this one's.
+fn typescript_visibility(name: &str) -> Visibility {
+    if name.starts_with('#') {
+        Visibility::Private
+    } else {
+        Visibility::Public
+    }
+}
+
+/// The initializer this binding assigns, or `None` when it assigns nothing.
+///
+/// The `=` that opens it is the first one that is not part of an operator:
+/// `const f: (x: number) => void = …` annotates before it assigns, and
+/// splitting on the `=` of that `=>` would read the *type* as the initializer.
+fn initializer_of(signature: &str) -> Option<&str> {
+    let bytes = signature.as_bytes();
+    let assignment = (0..bytes.len()).find(|index| {
+        if bytes[*index] != b'=' {
+            return false;
+        }
+        let previous = index.checked_sub(1).map(|before| bytes[before]);
+        let next = bytes.get(index + 1).copied();
+        // `=>`, `==`, and the tail of `!=`, `<=`, `>=`, `===`.
+        !matches!(next, Some(b'=' | b'>')) && !matches!(previous, Some(b'=' | b'!' | b'<' | b'>'))
+    })?;
+    signature.get(assignment + 1..)
+}
+
+/// The text after a leading type-parameter list, or `None` when the `<` does
+/// not close before the string ends.
+///
+/// `<` is the one bracket that is not reliably a bracket: it opens a type
+/// parameter list, a JSX element and a comparison alike. Matching it by depth
+/// is what separates `<T extends Map<string, number>,>(a: T) => a`, whose list
+/// closes onto the parameters, from `<Badge onClick={() => go()} />`, which is
+/// a value that happens to contain an arrow.
+fn after_type_parameters(initializer: &str) -> Option<&str> {
+    let mut depth = 0usize;
+    for (offset, character) in initializer.char_indices() {
+        match character {
+            '<' => depth += 1,
+            '>' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    return initializer.get(offset + 1..);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Whether this binding's initializer is a function rather than a value.
+///
+/// Judged from the initializer's first token and not from `=>` appearing
+/// anywhere, because `{ onEvent: () => … }` is an object and `(a) >= (b)` is a
+/// comparison. A binding whose initializer starts on the next line is not
+/// judged at all: the signature ends at the first line break outside brackets,
+/// so there is nothing there to read, and it stays a [`DefKind::Variable`].
+fn initializer_is_a_function(signature: &str) -> bool {
+    let Some(initializer) = initializer_of(signature) else {
+        return false;
+    };
+    let initializer = initializer.trim_start();
+    let initializer = initializer
+        .strip_prefix("async ")
+        .map_or(initializer, str::trim_start);
+    if initializer.starts_with("function") {
+        return true;
+    }
+    let opens_parameters = if initializer.starts_with('<') {
+        after_type_parameters(initializer).is_some_and(|rest| rest.trim_start().starts_with('('))
+    } else {
+        initializer.starts_with('(')
+    };
+    opens_parameters && initializer.contains("=>")
+}
+
+/// What the TypeScript query captured, plus what it structurally could not.
+///
+/// A `constructor`, a `get`/`set` accessor and an arrow-function binding are
+/// all `method_definition`s or `variable_declarator`s to the grammar; only
+/// their text tells them apart, and a tags query cannot read text. Nor can it
+/// reach an `accessibility_modifier`, which is an unnamed sibling of the name.
+fn typescript_refine(def: &mut Def) {
+    if let Some(visibility) = declared_visibility(&def.signature) {
+        def.visibility = visibility;
+    }
+    match def.kind {
+        DefKind::Method => {
+            if def.name == "constructor" {
+                def.kind = DefKind::Constructor;
+            } else if typescript_modifiers(&def.signature)
+                .any(|word| word == "get" || word == "set")
+            {
+                def.kind = DefKind::Property;
+            }
+        }
+        DefKind::Variable if initializer_is_a_function(&def.signature) => {
+            def.kind = DefKind::Function;
+        }
+        _ => {}
+    }
+}
+
+/// TypeScript declares no test intent on the definition.
+///
+/// `describe`, `it` and `test` are calls: not attributes, and not the names of
+/// enclosing definitions. Reading them as a test scope here would mean
+/// inventing a claim the tags tier never saw. What TypeScript does state is in
+/// the file name, and [`Lang::path_indicates_test`] already reads
+/// `.test.ts`/`.spec.ts`.
+fn never_a_test_signal(_name: &str) -> bool {
+    false
+}
+
+const TYPESCRIPT_KINDS: &[(&str, DefKind)] = &[
+    ("function", DefKind::Function),
+    ("class", DefKind::Class),
+    ("interface", DefKind::Interface),
+    ("enum", DefKind::Enum),
+    ("type", DefKind::TypeAlias),
+    ("namespace", DefKind::Namespace),
+    ("method", DefKind::Method),
+    ("field", DefKind::Field),
+    ("variable", DefKind::Variable),
+];
+
+const TYPESCRIPT_REFERENCE_KINDS: &[(&str, ReferenceKind)] = &[
+    ("call", ReferenceKind::Call),
+    ("method", ReferenceKind::MethodCall),
+];
+
+/// One TypeScript specification, differing from the other only in the grammar
+/// it compiles against.
+///
+/// Spelled once so the two cannot drift: everything below the first two fields
+/// is the language, and the language is the same one.
+const fn typescript_spec(lang: Lang, language: LanguageFn) -> LanguageSpec {
+    LanguageSpec {
+        lang,
+        language,
+        tags_query: include_str!("queries/typescript.scm"),
+        locals_query: "",
+        kinds: TYPESCRIPT_KINDS,
+        reference_kinds: TYPESCRIPT_REFERENCE_KINDS,
+        visibility: typescript_visibility,
+        test_attribute: never_a_test_signal,
+        test_scope: never_a_test_signal,
+        refine: typescript_refine,
+        doc_is_leading_body_string: false,
+        config: OnceLock::new(),
+    }
+}
+
+pub(crate) static TYPESCRIPT: LanguageSpec = typescript_spec(
+    Lang::TypeScript,
+    tree_sitter_typescript::LANGUAGE_TYPESCRIPT,
+);
+
+/// TSX: the same query against a different grammar.
+///
+/// Tree-sitter ships two parsers because the languages disagree — `<T>(x)` is a
+/// type assertion in one and an unclosed element in the other — so a `.tsx`
+/// file parsed by the TypeScript grammar is a file full of syntax errors, not
+/// a file that happens to also parse. The separate [`OnceLock`] is what keeps
+/// them apart: a compiled `TagsConfiguration` holds its grammar, so one shared
+/// between these two specs would hand every `.tsx` file the `.ts` parser —
+/// which is why each of these is its own `static` rather than one built twice.
+pub(crate) static TSX: LanguageSpec =
+    typescript_spec(Lang::Tsx, tree_sitter_typescript::LANGUAGE_TSX);
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
@@ -656,6 +944,8 @@ mod tests {
             visibility: python_visibility,
             test_attribute: python_test_attribute,
             test_scope: python_test_scope,
+            refine: keep_as_captured,
+            doc_is_leading_body_string: true,
             config: OnceLock::new(),
         };
         static INCOMPLETE: LanguageSpec = LanguageSpec {
@@ -668,6 +958,8 @@ mod tests {
             visibility: python_visibility,
             test_attribute: python_test_attribute,
             test_scope: python_test_scope,
+            refine: keep_as_captured,
+            doc_is_leading_body_string: true,
             config: OnceLock::new(),
         };
         assert!(TagsExtractor::new(&ILLEGAL).is_err());
@@ -821,6 +1113,270 @@ mod tests {
                 reason: DegradedReason::InvalidUtf8,
                 ..
             }
+        ));
+    }
+
+    fn typescript(source: &str) -> Facts {
+        TagsExtractor::new(&TYPESCRIPT)
+            .unwrap()
+            .extract(source.as_bytes())
+            .unwrap()
+    }
+
+    fn kind_of(facts: &Facts, name: &str) -> String {
+        facts
+            .defs()
+            .iter()
+            .find(|def| def.name == name)
+            .unwrap_or_else(|| panic!("no definition named {name}"))
+            .kind
+            .to_string()
+    }
+
+    /// The three member modifiers no capture can reach, because they are
+    /// anonymous tokens the grammar does not give a field to. `refine` reads
+    /// them back off the signature text, and only off its leading words — a
+    /// `private` in a parameter list or a type is not this class's business.
+    #[test]
+    fn typescript_member_visibility_comes_off_the_leading_modifiers() {
+        let facts = typescript(
+            "class C {\n    private a: string;\n    protected b: string;\n    public c: string;\n    d: string;\n    e = (private_thing: string) => 1;\n}\n",
+        );
+        let visibility_of = |name: &str| {
+            &facts
+                .defs()
+                .iter()
+                .find(|def| def.name == name)
+                .unwrap()
+                .visibility
+        };
+        assert_eq!(visibility_of("a"), &Visibility::Private);
+        assert_eq!(visibility_of("b"), &Visibility::Protected);
+        assert_eq!(visibility_of("c"), &Visibility::Public);
+        assert_eq!(visibility_of("d"), &Visibility::Public);
+        assert_eq!(visibility_of("e"), &Visibility::Public);
+    }
+
+    /// A `#` name is private to the runtime rather than to the type checker,
+    /// and it is the one visibility TypeScript spells in the name itself.
+    #[test]
+    fn a_typescript_hash_name_is_private_without_a_modifier() {
+        let facts = typescript("class C {\n    #hidden = 0;\n    shown = 0;\n}\n");
+        let hidden = facts
+            .defs()
+            .iter()
+            .find(|def| def.name == "#hidden")
+            .unwrap();
+        assert_eq!(hidden.visibility, Visibility::Private);
+        // The sigil is not part of an identifier, so the definition's own name
+        // has to be recognised without it or it lands in its own signature.
+        assert!(!hidden
+            .signature_idents
+            .iter()
+            .any(|ident| ident == "hidden"));
+        assert_eq!(
+            facts
+                .defs()
+                .iter()
+                .find(|def| def.name == "shown")
+                .unwrap()
+                .visibility,
+            Visibility::Public
+        );
+    }
+
+    /// `constructor` and the accessors are `method_definition` nodes like any
+    /// other, so the grammar cannot tell them apart and `refine` must.
+    #[test]
+    fn typescript_constructors_and_accessors_are_not_ordinary_methods() {
+        let facts = typescript(
+            "class C {\n    constructor() {}\n    get size(): number { return 0; }\n    set size(value: number) {}\n    resize(): void {}\n}\n",
+        );
+        assert_eq!(kind_of(&facts, "constructor"), "constructor");
+        assert_eq!(kind_of(&facts, "resize"), "method");
+        let sizes: Vec<_> = facts
+            .defs()
+            .iter()
+            .filter(|def| def.name == "size")
+            .map(|def| def.kind.to_string())
+            .collect();
+        assert_eq!(sizes, vec!["property", "property"]);
+    }
+
+    /// An arrow or `function` initializer makes a binding a function; anything
+    /// else leaves it the variable it was written as. The signature ends at the
+    /// first line break, so an initializer that starts on the next line is not
+    /// evidence of anything and is not treated as if it were.
+    #[test]
+    fn a_typescript_binding_is_refined_only_on_what_its_first_line_shows() {
+        let facts = typescript(
+            "const arrow = (a: string) => a;\nconst generic = <T,>(a: T): T => a;\nconst plain = function (a: string) { return a; };\nconst value = 3;\nconst wrapped = compute(() => 1);\nconst split =\n    (a: string) => a;\n",
+        );
+        assert_eq!(kind_of(&facts, "arrow"), "function");
+        assert_eq!(kind_of(&facts, "generic"), "function");
+        assert_eq!(kind_of(&facts, "plain"), "function");
+        assert_eq!(kind_of(&facts, "value"), "variable");
+        assert_eq!(kind_of(&facts, "wrapped"), "variable");
+        assert_eq!(kind_of(&facts, "split"), "variable");
+    }
+
+    /// The two shapes the first `=` and the first token get wrong on their own:
+    /// an annotation that spells a function type *before* the assignment, and a
+    /// `<` that opens an element rather than a type parameter list.
+    #[test]
+    fn a_typescript_initializer_is_read_past_its_annotation_and_its_element() {
+        let facts = typescript(
+            "const annotated: (x: number) => void = (x) => {};\nconst asserted = <Foo>bar.map((y) => y);\nconst nested = <T extends Map<string, number>,>(a: T): T => a;\nconst compared = left >= right;\n",
+        );
+        assert_eq!(kind_of(&facts, "annotated"), "function");
+        assert_eq!(kind_of(&facts, "asserted"), "variable");
+        assert_eq!(kind_of(&facts, "nested"), "function");
+        assert_eq!(kind_of(&facts, "compared"), "variable");
+
+        // The same `<`, under the grammar where it really does open an element.
+        let mut tsx = TagsExtractor::new(&TSX).unwrap();
+        let facts = tsx
+            .extract(b"const element = <Badge onClick={() => go()} />;\n")
+            .unwrap();
+        assert_eq!(kind_of(&facts, "element"), "variable");
+    }
+
+    /// Nesting is spelled with the separator the language uses, which is the
+    /// whole reason [`Lang::qualified_separator`] exists.
+    #[test]
+    fn typescript_nesting_is_qualified_with_a_dot() {
+        let facts = typescript(
+            "namespace Outer {\n    export class Inner {\n        run(): void {}\n    }\n}\n",
+        );
+        let qualified = |name: &str| {
+            facts
+                .defs()
+                .iter()
+                .find(|def| def.name == name)
+                .unwrap()
+                .local_qualified
+                .clone()
+        };
+        assert_eq!(qualified("Inner").as_deref(), Some("Outer.Inner"));
+        assert_eq!(qualified("run").as_deref(), Some("Outer.Inner.run"));
+    }
+
+    /// A local `const` is not API, and the surface rr publishes would be noise
+    /// if every temporary inside every function body landed in it.
+    #[test]
+    fn a_typescript_binding_inside_a_function_body_is_not_a_definition() {
+        let facts = typescript(
+            "const exported = 1;\nfunction run(): number {\n    const local = 2;\n    return local + exported;\n}\n",
+        );
+        assert!(facts.defs().iter().any(|def| def.name == "exported"));
+        assert!(!facts.defs().iter().any(|def| def.name == "local"));
+    }
+
+    /// A parameter property declares a field from inside the parameter list,
+    /// which is the one construct rr indexes whose lexical parent is not its
+    /// owner. Both halves are asserted here: that the field is found at all,
+    /// and that it is named `Service.repo` rather than the
+    /// `Service.constructor.repo` containment alone would give it.
+    #[test]
+    fn a_typescript_parameter_property_is_a_field_of_the_class_not_the_constructor() {
+        let facts = typescript(
+            "class Service {\n    constructor(private readonly repo: Repo, public label: string, protected retries = 0, readonly opened?: Date, plain: string, fallbackish: X = defaulted) {}\n}\n",
+        );
+        let field = |name: &str| {
+            facts
+                .defs()
+                .iter()
+                .find(|def| def.name == name)
+                .unwrap_or_else(|| panic!("{name} was not extracted"))
+        };
+
+        for name in ["repo", "label", "retries", "opened"] {
+            assert_eq!(kind_of(&facts, name), "field");
+            assert_eq!(
+                field(name).local_qualified.as_deref(),
+                Some(format!("Service.{name}").as_str()),
+                "{name} was not named as a member of its class"
+            );
+        }
+
+        // The modifier is what makes it a declaration. A parameter without one
+        // declares nothing, and neither does a default value that happens to be
+        // an identifier sitting beside the name.
+        assert!(!facts.defs().iter().any(|def| def.name == "plain"));
+        assert!(!facts.defs().iter().any(|def| def.name == "fallbackish"));
+        assert!(!facts.defs().iter().any(|def| def.name == "defaulted"));
+
+        // And each modifier still means what it means everywhere else, with
+        // bare `readonly` saying nothing about visibility.
+        assert_eq!(field("repo").visibility, Visibility::Private);
+        assert_eq!(field("label").visibility, Visibility::Public);
+        assert_eq!(field("retries").visibility, Visibility::Protected);
+        assert_eq!(field("opened").visibility, Visibility::Public);
+    }
+
+    /// The hoist is keyed on the constructor, so an ordinary nested definition
+    /// must be unaffected by it — a class declared inside a method is still
+    /// named through that method.
+    #[test]
+    fn only_a_parameter_property_is_lifted_out_of_the_member_it_sits_in() {
+        let facts = typescript(
+            "class Outer {\n    build() {\n        class Inner {\n            held = 1;\n        }\n        return Inner;\n    }\n}\n",
+        );
+        let qualified = |name: &str| {
+            facts
+                .defs()
+                .iter()
+                .find(|def| def.name == name)
+                .unwrap()
+                .local_qualified
+                .clone()
+        };
+        assert_eq!(qualified("build").as_deref(), Some("Outer.build"));
+        assert_eq!(qualified("Inner").as_deref(), Some("Outer.build.Inner"));
+        assert_eq!(
+            qualified("held").as_deref(),
+            Some("Outer.build.Inner.held"),
+            "a class-body field was hoisted out of its class"
+        );
+    }
+
+    /// A receiver-typed call is one rr cannot resolve without knowing the
+    /// receiver's type, so it is recorded as what it is and left for the index
+    /// to decline rather than guessed at here.
+    #[test]
+    fn a_typescript_call_through_a_receiver_is_a_method_reference() {
+        let facts = typescript("function run(): void {\n    plain();\n    obj.member();\n}\n");
+        let kind_of_reference = |name: &str| {
+            &facts
+                .references()
+                .iter()
+                .find(|reference| reference.name == name)
+                .unwrap()
+                .kind
+        };
+        assert_eq!(kind_of_reference("plain"), &ReferenceKind::Call);
+        assert_eq!(kind_of_reference("member"), &ReferenceKind::MethodCall);
+    }
+
+    /// TSX is a second grammar rather than a second file extension, and the
+    /// shared query has to compile against both. A `TagsConfiguration` owns the
+    /// grammar it was built with, so this is also the test that would fail if
+    /// the two specs ever came to share one.
+    #[test]
+    fn the_shared_query_compiles_against_both_typescript_grammars() {
+        let source = "export const Badge = (props: P) => <b>{props.label}</b>;\n";
+        let mut tsx = TagsExtractor::new(&TSX).unwrap();
+        let facts = tsx.extract(source.as_bytes()).unwrap();
+        assert!(matches!(
+            facts.status(),
+            ParseStatus::Tags {
+                parse_errors: false
+            }
+        ));
+        assert_eq!(kind_of(&facts, "Badge"), "function");
+        assert!(matches!(
+            typescript(source).status(),
+            ParseStatus::Tags { parse_errors: true }
         ));
     }
 }

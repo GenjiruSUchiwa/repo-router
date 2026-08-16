@@ -490,9 +490,17 @@ fn a_rust_repository_indexes_identically_across_the_schema_bump() {
     assert!(seen_defs > 0, "the fixtures produced no definitions");
 }
 
+/// Each of these numbers keys a cache and a freshness check, so moving one
+/// reparses every file in that language in every repository. They are asserted
+/// here so that moving one is a decision rather than a side effect.
+///
+/// TypeScript and TSX are two of them and not one, because they are two
+/// grammars: a fix to the TSX grammar must not reparse `.ts` files.
 #[test]
 fn versions_are_pinned() {
     assert_eq!(extractor_version(Lang::Rust), 3);
     assert_eq!(extractor_version(Lang::Python), 4);
+    assert_eq!(extractor_version(Lang::TypeScript), 1);
+    assert_eq!(extractor_version(Lang::Tsx), 1);
     assert_eq!(FACT_SCHEMA_VERSION, 4);
 }
