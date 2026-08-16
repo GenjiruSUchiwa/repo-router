@@ -29,7 +29,13 @@ use crate::{Error, Result};
 /// Version 4 adds [`ParseStatus::Tags`], a validated tier-2 result produced
 /// from a grammar's `tags.scm`. The status is serialized positionally, so the
 /// new variant is appended rather than inserted between existing variants.
-pub const FACT_SCHEMA_VERSION: u32 = 4;
+/// Version 5 adds [`Import::name`], the leaf a specifier-based language spells
+/// in a slot separate from its source. Postcard writes structs field by field,
+/// so every field after `path` shifts and a version-4 payload would decode its
+/// successor's `alias` out of `name`'s bytes. The version in the cache file
+/// name keeps the two apart: a stale entry is never found, never misread, and
+/// simply reparsed.
+pub const FACT_SCHEMA_VERSION: u32 = 5;
 
 /// A source range over one exact UTF-8 byte buffer.
 ///
@@ -429,18 +435,20 @@ impl ImportKind {
     ///
     /// Answered about the resolver, not about the language. `index::build`
     /// splits a path on `::` and rejoins it onto the importing file's module
-    /// path, so `use` is the only kind it can follow today. A TypeScript
-    /// `./Button` or a Python `os.path` is one segment to that splitter, and one
-    /// segment gets pasted onto the importing module — `./Button` imported from
-    /// `ui` would be looked up as `ui::./Button`, or worse, `react` from `app`
-    /// would be looked up as `app::react` and *find* an unrelated local symbol
-    /// of that name. Unresolved is a true statement about what rr knows;
-    /// a resolution to the wrong definition is not.
+    /// path, so Rust's `use` is the only kind that survives it. The other four
+    /// are false for a reason no extractor work changes: their `path` is a
+    /// specifier, not a path. `./Button`, `..` and `react` name a module the
+    /// way a filesystem or a package resolver understands it, and turning one
+    /// into a definition rr holds means building a module graph — tsconfig
+    /// paths, extension resolution, `node_modules`, package layout. That graph
+    /// is out of scope by decision, not by omission, so this is a settled
+    /// answer rather than a placeholder: a row flips to `true` only alongside a
+    /// resolver that can follow that language's specifiers, and the issue that
+    /// builds one owns this predicate.
     ///
-    /// So the new kinds are false here until #33 brings both an extractor that
-    /// emits them and a resolver that knows their separators. Flipping a row on
-    /// is then a one-line change with that resolver's tests behind it, which is
-    /// the point of the seam.
+    /// Unresolved is a true statement about what rr knows; a resolution to the
+    /// wrong definition is not — `react` imported from `app` and looked up as
+    /// `app::react` would *find* an unrelated local symbol of that name.
     ///
     /// One predicate rather than a condition repeated at every resolution site:
     /// the two sites in `index::build` disagreeing about which kinds resolve is
@@ -627,13 +635,36 @@ pub struct Reference {
 pub struct Import {
     /// Import kind.
     pub kind: ImportKind,
-    /// Canonical leaf path, e.g. `crate::a::b`.
+    /// What the declaration names as its source, in the language's own terms.
+    ///
+    /// Rust: a canonical module path whose last segment is the imported leaf,
+    /// e.g. `crate::a::b`. A specifier-based language: the module specifier
+    /// **exactly as written** — `./sibling`, `..`, `react` — unresolved,
+    /// unnormalized, and with its escape sequences left undecoded. Resolving a
+    /// specifier to a file needs a module graph rr does not build, and a `path`
+    /// that looked canonical without being canonical is the failure this field
+    /// is documented against. [`ImportKind::resolves_by_path`] is the predicate
+    /// that says which of the two this is; no consumer may render `path` as a
+    /// location rr resolved.
     pub path: String,
+    /// The leaf selected out of `path`, when the language names it separately
+    /// from the source it comes from.
+    ///
+    /// `Some` exactly when leaf and source occupy two syntactic slots:
+    /// `from x import y` and `import { y } from "x"` both give `path = "x"`,
+    /// `name = Some("y")`. `None` when the language spells one path that
+    /// already ends in its leaf (Rust `use a::b::c`), and `None` when the
+    /// declaration selects no leaf at all (`import os`, `import "./effect"`,
+    /// `from x import *`).
+    pub name: Option<String>,
     /// Alias when present.
     pub alias: Option<String>,
     /// Whether the declaration is public.
     pub is_public: bool,
-    /// Whether the leaf is a glob (`*`).
+    /// Whether the leaf brings in names it does not write down.
+    ///
+    /// `from x import *` and `export * from "m"` do. `import * as ns from "m"`
+    /// does not: it binds one name, and is an aliased whole-module import.
     pub is_glob: bool,
     /// Span of the leaf clause (or `*`), not necessarily the complete declaration.
     pub span: Span,
@@ -1030,12 +1061,15 @@ fn imports_sorted(imports: &[Import]) -> bool {
 
 /// Canonical import sort key; the extractor sorts with the same key the
 /// validator checks.
-pub(crate) fn import_key(import: &Import) -> (u32, u32, ImportKind, &str, Option<&str>) {
+pub(crate) fn import_key(
+    import: &Import,
+) -> (u32, u32, ImportKind, &str, Option<&str>, Option<&str>) {
     (
         import.span.start_byte(),
         import.span.end_byte(),
         import.kind,
         import.path.as_str(),
+        import.name.as_deref(),
         import.alias.as_deref(),
     )
 }
@@ -1379,6 +1413,7 @@ mod tests {
             Import {
                 kind,
                 path: format!("pkg{index}"),
+                name: None,
                 alias: None,
                 is_public: false,
                 is_glob: false,
@@ -1436,6 +1471,7 @@ mod tests {
             Import {
                 kind: ImportKind::Use,
                 path: "b".into(),
+                name: None,
                 alias: None,
                 is_public: false,
                 is_glob: false,
@@ -1445,6 +1481,7 @@ mod tests {
             Import {
                 kind: ImportKind::Use,
                 path: "a".into(),
+                name: None,
                 alias: None,
                 is_public: false,
                 is_glob: false,
@@ -1556,6 +1593,7 @@ mod tests {
         let imports = vec![Import {
             kind: ImportKind::Use,
             path: "crate::a".into(),
+            name: None,
             alias: Some("b".into()),
             is_public: true,
             is_glob: false,

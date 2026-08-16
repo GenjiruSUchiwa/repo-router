@@ -27,7 +27,13 @@ use crate::index::Snapshot;
 /// Version 7 adds the serialized `ParseStatus::Tags` tier from the tags-based
 /// extractor, so old snapshots must be rebuilt rather than decoded as newer
 /// facts.
-pub const SNAPSHOT_SCHEMA_VERSION: u32 = 7;
+/// Version 8 adds `ImportRecord::name`, the leaf a specifier-based language
+/// spells separately from its source. The record sits inside an arena: postcard
+/// writes it positionally, so a version-7 payload read as a version-8 one
+/// misreads every field after `path` — the alias, the kind, the flags, the
+/// span, the resolution. The envelope refuses it before postcard is asked to
+/// try.
+pub const SNAPSHOT_SCHEMA_VERSION: u32 = 8;
 pub const SNAPSHOT_MAGIC: [u8; 8] = *b"RRIDX\0\0\0";
 const HEADER_LEN: usize = 8 + 4 + 8 + 32;
 

@@ -448,6 +448,7 @@ fn finalize_imports(
         .map(|item| Import {
             kind: item.kind,
             path: item.path,
+            name: None,
             alias: item.alias,
             is_public: item.is_public,
             is_glob: item.is_glob,

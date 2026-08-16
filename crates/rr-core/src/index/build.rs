@@ -161,6 +161,13 @@ pub struct SnapshotBuilder {
     exact_qualified: Vec<ExactRoute>,
 }
 
+/// One import projected onto a file's symbols: owner, path, leaf name, alias.
+///
+/// The leaf sits beside the path because D2 keeps a specifier uncooked:
+/// `from x import y` gives `("x", Some("y"))` and a whole-module import gives
+/// `("os", None)`.
+type FileImport = (Option<SymbolId>, String, Option<String>, Option<String>);
+
 impl SnapshotBuilder {
     #[must_use]
     pub fn new(meta: SnapshotMeta) -> Self {
@@ -333,6 +340,11 @@ impl SnapshotBuilder {
                 .owner
                 .and_then(|id| local_to_global.get(id.index()).copied().flatten());
             let path = self.strings.intern(&import.path)?;
+            let name = import
+                .name
+                .as_deref()
+                .map(|value| self.strings.intern(value))
+                .transpose()?;
             let alias = import
                 .alias
                 .as_deref()
@@ -342,6 +354,7 @@ impl SnapshotBuilder {
                 file: file_id,
                 owner,
                 path,
+                name,
                 alias,
                 kind: import.kind,
                 is_public: import.is_public,
@@ -557,6 +570,61 @@ impl SnapshotBuilder {
             .collect()
     }
 
+    /// One import projected for emission: owner symbol, path, leaf name, alias.
+    ///
+    /// The leaf sits beside the path because D2 keeps a specifier uncooked:
+    /// `from x import y` gives `("x", Some("y"))` and a whole-module import
+    /// gives `("os", None)`.
+    fn emit_symbol_imports(
+        &mut self,
+        file_imports: &[FileImport],
+        symbols: std::ops::Range<usize>,
+    ) -> Result<()> {
+        for symbol in symbols {
+            let symbol_id = self.symbols[symbol].id;
+            let mut paths = Vec::new();
+            let mut names = Vec::new();
+            let mut aliases = Vec::new();
+            for (owner, path, name, alias) in file_imports {
+                if owner.is_none() || *owner == Some(symbol_id) {
+                    if !paths.iter().any(|seen| seen == path) {
+                        paths.push(path.clone());
+                    }
+                    if let Some(name) = name {
+                        if !names.iter().any(|seen| seen == name) {
+                            names.push(name.clone());
+                        }
+                    }
+                    if let Some(alias) = alias {
+                        if !aliases.iter().any(|seen| seen == alias) {
+                            aliases.push(alias.clone());
+                        }
+                    }
+                }
+            }
+            for path in paths {
+                self.emit(symbol_id, LexicalField::Import, InputKind::Qualified, &path)?;
+            }
+            for name in names {
+                self.emit(
+                    symbol_id,
+                    LexicalField::Import,
+                    InputKind::Identifier,
+                    &name,
+                )?;
+            }
+            for alias in aliases {
+                self.emit(
+                    symbol_id,
+                    LexicalField::Import,
+                    InputKind::Identifier,
+                    &alias,
+                )?;
+            }
+        }
+        Ok(())
+    }
+
     fn resolve_path(
         path: &str,
         module: &[String],
@@ -623,7 +691,7 @@ impl SnapshotBuilder {
             })
             .collect();
         for (first_symbol, symbol_count, first_import, import_count) in file_ranges {
-            let file_imports: Vec<(Option<SymbolId>, String, Option<String>)> = self.imports
+            let file_imports: Vec<FileImport> = self.imports
                 [first_import..first_import + import_count]
                 .iter()
                 .map(|import| {
@@ -631,39 +699,15 @@ impl SnapshotBuilder {
                         import.owner,
                         self.strings.values[import.path.index()].clone(),
                         import
+                            .name
+                            .map(|id| self.strings.values[id.index()].clone()),
+                        import
                             .alias
                             .map(|id| self.strings.values[id.index()].clone()),
                     )
                 })
                 .collect();
-            for symbol in first_symbol..first_symbol + symbol_count {
-                let symbol_id = self.symbols[symbol].id;
-                let mut paths = Vec::new();
-                let mut aliases = Vec::new();
-                for (owner, path, alias) in &file_imports {
-                    if owner.is_none() || *owner == Some(symbol_id) {
-                        if !paths.iter().any(|seen| seen == path) {
-                            paths.push(path.clone());
-                        }
-                        if let Some(alias) = alias {
-                            if !aliases.iter().any(|seen| seen == alias) {
-                                aliases.push(alias.clone());
-                            }
-                        }
-                    }
-                }
-                for path in paths {
-                    self.emit(symbol_id, LexicalField::Import, InputKind::Qualified, &path)?;
-                }
-                for alias in aliases {
-                    self.emit(
-                        symbol_id,
-                        LexicalField::Import,
-                        InputKind::Identifier,
-                        &alias,
-                    )?;
-                }
-            }
+            self.emit_symbol_imports(&file_imports, first_symbol..first_symbol + symbol_count)?;
         }
 
         let caller_edges: Vec<(SymbolId, SymbolId)> = self

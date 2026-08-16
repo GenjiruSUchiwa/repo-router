@@ -159,6 +159,7 @@ src/auth/token.rs:
   imports:
     - kind: Use
       path: "crate::db::users::find_user"
+      name: ~
       alias: ~
       is_public: false
       is_glob: false
@@ -286,6 +287,7 @@ src/main.rs:
   imports:
     - kind: Use
       path: "auth::token::verify_token"
+      name: ~
       alias: ~
       is_public: false
       is_glob: false

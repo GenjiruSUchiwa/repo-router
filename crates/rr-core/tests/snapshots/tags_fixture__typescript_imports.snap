@@ -1,0 +1,153 @@
+---
+source: crates/rr-core/tests/tags_fixture.rs
+expression: "to_snapshot(\"imports.ts\", &facts)"
+---
+path: imports.ts
+status: tags(parse_errors=false)
+defs:
+  - name: cj
+    local_qualified: ~
+    kind: variable
+    visibility: public
+    start_line: 10
+    end_line: 10
+    signature: "cj = require(\"m-require\")"
+    signature_idents:
+      - require
+      - m
+      - require
+    body_idents: []
+    doc_idents: []
+    attribute_idents: []
+  - name: dynamic
+    local_qualified: ~
+    kind: variable
+    visibility: public
+    start_line: 21
+    end_line: 21
+    signature: "dynamic = import(\"./dynamic\")"
+    signature_idents:
+      - import
+    body_idents: []
+    doc_idents: []
+    attribute_idents: []
+references:
+  - name: require
+    line: 10
+    owner: cj
+  - name: require
+    line: 11
+    owner: ~
+imports:
+  - kind: Import
+    path: m-default
+    name: ~
+    alias: x
+    is_public: false
+    is_glob: false
+    line: 3
+    owner: ~
+  - kind: Import
+    path: m-namespace
+    name: ~
+    alias: ns
+    is_public: false
+    is_glob: false
+    line: 4
+    owner: ~
+  - kind: From
+    path: m-named
+    name: A
+    alias: ~
+    is_public: false
+    is_glob: false
+    line: 5
+    owner: ~
+  - kind: From
+    path: m-aliased
+    name: A
+    alias: B
+    is_public: false
+    is_glob: false
+    line: 6
+    owner: ~
+  - kind: Import
+    path: m-mixed
+    name: ~
+    alias: mixed
+    is_public: false
+    is_glob: false
+    line: 7
+    owner: ~
+  - kind: From
+    path: m-mixed
+    name: C
+    alias: ~
+    is_public: false
+    is_glob: false
+    line: 7
+    owner: ~
+  - kind: Import
+    path: m-side-effect
+    name: ~
+    alias: ~
+    is_public: false
+    is_glob: false
+    line: 8
+    owner: ~
+  - kind: Require
+    path: m-import-equals
+    name: ~
+    alias: ir
+    is_public: false
+    is_glob: false
+    line: 9
+    owner: ~
+  - kind: Require
+    path: m-require
+    name: ~
+    alias: ~
+    is_public: false
+    is_glob: false
+    line: 10
+    owner: cj
+  - kind: Require
+    path: m-destructured
+    name: ~
+    alias: ~
+    is_public: false
+    is_glob: false
+    line: 11
+    owner: ~
+  - kind: From
+    path: m-export-named
+    name: E
+    alias: ~
+    is_public: true
+    is_glob: false
+    line: 13
+    owner: ~
+  - kind: From
+    path: m-export-aliased
+    name: E
+    alias: F
+    is_public: true
+    is_glob: false
+    line: 14
+    owner: ~
+  - kind: From
+    path: m-export-star
+    name: ~
+    alias: ~
+    is_public: true
+    is_glob: true
+    line: 15
+    owner: ~
+  - kind: Import
+    path: m-export-namespace
+    name: ~
+    alias: g
+    is_public: true
+    is_glob: false
+    line: 16
+    owner: ~

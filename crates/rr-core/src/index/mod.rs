@@ -353,6 +353,8 @@ pub struct ImportRecord {
     pub owner: Option<SymbolId>,
     /// Canonical import path string.
     pub path: StringId,
+    /// The leaf selected out of `path` when the language spells it separately.
+    pub name: Option<StringId>,
     /// Import alias string, if any.
     pub alias: Option<StringId>,
     /// Import kind.

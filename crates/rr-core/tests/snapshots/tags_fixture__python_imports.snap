@@ -1,0 +1,89 @@
+---
+source: crates/rr-core/tests/tags_fixture.rs
+expression: "to_snapshot(\"imports.py\", &facts)"
+---
+path: imports.py
+status: tags(parse_errors=false)
+defs: []
+references: []
+imports:
+  - kind: Import
+    path: os
+    name: ~
+    alias: ~
+    is_public: false
+    is_glob: false
+    line: 3
+    owner: ~
+  - kind: Import
+    path: os.path
+    name: ~
+    alias: ~
+    is_public: false
+    is_glob: false
+    line: 4
+    owner: ~
+  - kind: Import
+    path: os.path
+    name: ~
+    alias: p
+    is_public: false
+    is_glob: false
+    line: 5
+    owner: ~
+  - kind: Import
+    path: a
+    name: ~
+    alias: ~
+    is_public: false
+    is_glob: false
+    line: 6
+    owner: ~
+  - kind: Import
+    path: b
+    name: ~
+    alias: ~
+    is_public: false
+    is_glob: false
+    line: 6
+    owner: ~
+  - kind: From
+    path: x
+    name: y
+    alias: ~
+    is_public: false
+    is_glob: false
+    line: 8
+    owner: ~
+  - kind: From
+    path: x
+    name: y
+    alias: z
+    is_public: false
+    is_glob: false
+    line: 9
+    owner: ~
+  - kind: From
+    path: "."
+    name: x
+    alias: ~
+    is_public: false
+    is_glob: false
+    line: 10
+    owner: ~
+  - kind: From
+    path: "..pkg"
+    name: y
+    alias: ~
+    is_public: false
+    is_glob: false
+    line: 11
+    owner: ~
+  - kind: From
+    path: x
+    name: ~
+    alias: ~
+    is_public: false
+    is_glob: true
+    line: 12
+    owner: ~
