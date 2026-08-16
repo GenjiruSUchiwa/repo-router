@@ -344,14 +344,19 @@ pub struct ReferenceRecord {
     pub resolution: Resolution,
 }
 
-/// One normalized import leaf.
+/// One import leaf, interned. [`crate::Import`] with its strings in the
+/// index's string table.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ImportRecord {
     /// Owning file.
     pub file: FileId,
     /// Enclosing definition, if any.
     pub owner: Option<SymbolId>,
-    /// Canonical import path string.
+    /// What the declaration names as its source, in the language's own terms:
+    /// a canonical module path for Rust's `use`, and the module specifier
+    /// exactly as written (`./auth`, `..`, `react`) for every other kind.
+    /// [`ImportKind::resolves_by_path`] is the predicate that says which of the
+    /// two this is; see [`crate::Import::path`].
     pub path: StringId,
     /// The leaf selected out of `path` when the language spells it separately.
     pub name: Option<StringId>,

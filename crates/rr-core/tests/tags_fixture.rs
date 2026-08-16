@@ -479,8 +479,10 @@ fn a_typescript_imports_fixture_has_a_readable_golden_projection() {
 
 /// The audit that should have run in #31: every `ImportKind` variant is either
 /// produced by something or a promise the schema does not keep. The union over
-/// the Rust, Python and TypeScript import fixtures must equal all five
-/// variants, and it fails loudly the day a variant is added without a producer.
+/// the Rust, Python and TypeScript import fixtures is compared against
+/// `ImportKind::ALL` rather than a list written out here, so a variant added
+/// without a producer fails this test instead of shipping as a field no
+/// extractor ever fills.
 #[test]
 fn every_import_kind_variant_has_a_producer() {
     use rr_core::ImportKind;
@@ -496,14 +498,10 @@ fn every_import_kind_variant_has_a_producer() {
             produced.insert(import.kind);
         }
     }
+    // `BTreeSet` iterates in `Ord` order, which is declaration order, which is
+    // the order of `ALL`.
     assert_eq!(
         produced.into_iter().collect::<Vec<_>>(),
-        vec![
-            ImportKind::Use,
-            ImportKind::ExternCrate,
-            ImportKind::Import,
-            ImportKind::From,
-            ImportKind::Require,
-        ]
+        ImportKind::ALL.to_vec()
     );
 }

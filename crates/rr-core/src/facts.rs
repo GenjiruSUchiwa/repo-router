@@ -30,11 +30,13 @@ use crate::{Error, Result};
 /// from a grammar's `tags.scm`. The status is serialized positionally, so the
 /// new variant is appended rather than inserted between existing variants.
 /// Version 5 adds [`Import::name`], the leaf a specifier-based language spells
-/// in a slot separate from its source. Postcard writes structs field by field,
-/// so every field after `path` shifts and a version-4 payload would decode its
-/// successor's `alias` out of `name`'s bytes. The version in the cache file
-/// name keeps the two apart: a stale entry is never found, never misread, and
-/// simply reparsed.
+/// in a slot separate from its source. Postcard writes struct fields in order
+/// and reads them back positionally, so inserting `name` after `path` shifts
+/// every field behind it: this struct decoding a version-4 payload reads that
+/// payload's `alias` into `name` — both `Option<String>`, so the misread need
+/// not even fail — and every later field lands one slot early. The version in
+/// the cache file name keeps the two apart: a stale entry is never found,
+/// never misread, and simply reparsed.
 pub const FACT_SCHEMA_VERSION: u32 = 5;
 
 /// A source range over one exact UTF-8 byte buffer.
@@ -312,6 +314,47 @@ impl DefKind {
         Self::Variable,
     ];
 
+    /// Whether an import written inside this kind's span belongs to it alone.
+    ///
+    /// True for a kind whose span encloses a *body*: a `use` inside a function
+    /// is that function's, and an `import` inside a TypeScript `namespace` is
+    /// that namespace's. No other symbol in the file may claim either.
+    ///
+    /// False for a module, whose body is the file's own scope — the answer
+    /// `nearest_import_owner` has given since it was written. False too for a
+    /// kind whose span encloses a name and an initializer rather than a body:
+    /// `const express = require("express")` is where JavaScript writes a
+    /// module-scope import, and filing it under `express` would hide the
+    /// dependency from every other symbol in the file while the identical
+    /// `import express from "express"` reached all of them. Two spellings of
+    /// one dependency have to index alike.
+    ///
+    /// Matched exhaustively on purpose: a new kind has to answer this.
+    pub(crate) const fn owns_nested_imports(self) -> bool {
+        match self {
+            Self::Module
+            | Self::Const
+            | Self::Static
+            | Self::Variable
+            | Self::Field
+            | Self::TypeAlias
+            | Self::AssociatedType => false,
+            Self::Function
+            | Self::Method
+            | Self::TraitMethod
+            | Self::Constructor
+            | Self::Property
+            | Self::Namespace
+            | Self::Struct
+            | Self::Enum
+            | Self::Union
+            | Self::Trait
+            | Self::Interface
+            | Self::Class
+            | Self::Macro => true,
+        }
+    }
+
     /// Stable kebab-case identifier matching the serde name.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
@@ -430,6 +473,18 @@ pub enum ImportKind {
 }
 
 impl ImportKind {
+    /// Every kind, in declaration order.
+    ///
+    /// Exists for the reason [`DefKind::ALL`] does: a test can prove it covers
+    /// all of them rather than the handful its fixtures happen to contain.
+    pub const ALL: [Self; 5] = [
+        Self::Use,
+        Self::ExternCrate,
+        Self::Import,
+        Self::From,
+        Self::Require,
+    ];
+
     /// Whether [`Import::path`] is a path *this index's resolver* can follow to
     /// a definition it holds.
     ///
@@ -653,9 +708,9 @@ pub struct Import {
     /// `Some` exactly when leaf and source occupy two syntactic slots:
     /// `from x import y` and `import { y } from "x"` both give `path = "x"`,
     /// `name = Some("y")`. `None` when the language spells one path that
-    /// already ends in its leaf (Rust `use a::b::c`), and `None` when the
-    /// declaration selects no leaf at all (`import os`, `import "./effect"`,
-    /// `from x import *`).
+    /// already ends in its leaf (Rust `use a::b::c`, Python `import os.path`),
+    /// and `None` when the declaration selects no leaf at all
+    /// (`import "./effect"`, `from x import *`).
     pub name: Option<String>,
     /// Alias when present.
     pub alias: Option<String>,
@@ -988,14 +1043,16 @@ impl OwnerIndex {
         self.lookup(span, false)
     }
 
-    /// Smallest containing non-module definition. Imports directly under a
-    /// `mod` body sit at module scope and carry no owner; only block-local
-    /// imports inside a definition do.
+    /// Smallest containing definition an import can belong to, per
+    /// [`DefKind::owns_nested_imports`]. Imports directly under a `mod` body
+    /// sit at module scope and carry no owner, and so does one written in a
+    /// binding's initializer; only an import inside a definition's *body* is
+    /// local to it.
     pub(crate) fn nearest_import_owner(&self, span: Span) -> Option<LocalDefId> {
         self.lookup(span, true)
     }
 
-    fn lookup(&self, span: Span, skip_modules: bool) -> Option<LocalDefId> {
+    fn lookup(&self, span: Span, for_import: bool) -> Option<LocalDefId> {
         let first_after = self
             .spans
             .partition_point(|candidate| candidate.start_byte() <= span.start_byte());
@@ -1008,7 +1065,7 @@ impl OwnerIndex {
             if !candidate.contains(span) {
                 continue;
             }
-            if skip_modules && self.kinds[index] == DefKind::Module {
+            if for_import && !self.kinds[index].owns_nested_imports() {
                 continue;
             }
             let len = candidate.byte_len();

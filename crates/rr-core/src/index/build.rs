@@ -570,11 +570,13 @@ impl SnapshotBuilder {
             .collect()
     }
 
-    /// One import projected for emission: owner symbol, path, leaf name, alias.
+    /// Writes each symbol's visible imports into its `Import` field: the
+    /// file's module-scope imports plus the ones this symbol's own body
+    /// declares.
     ///
-    /// The leaf sits beside the path because D2 keeps a specifier uncooked:
-    /// `from x import y` gives `("x", Some("y"))` and a whole-module import
-    /// gives `("os", None)`.
+    /// Leaf names and aliases share one dedup list rather than two, because
+    /// they share a field and an [`InputKind`]. `import { A as A } from "m"`
+    /// otherwise emits `A` twice and ranks as if the file mentioned it twice.
     fn emit_symbol_imports(
         &mut self,
         file_imports: &[FileImport],
@@ -583,21 +585,15 @@ impl SnapshotBuilder {
         for symbol in symbols {
             let symbol_id = self.symbols[symbol].id;
             let mut paths = Vec::new();
-            let mut names = Vec::new();
-            let mut aliases = Vec::new();
+            let mut identifiers = Vec::new();
             for (owner, path, name, alias) in file_imports {
                 if owner.is_none() || *owner == Some(symbol_id) {
                     if !paths.iter().any(|seen| seen == path) {
                         paths.push(path.clone());
                     }
-                    if let Some(name) = name {
-                        if !names.iter().any(|seen| seen == name) {
-                            names.push(name.clone());
-                        }
-                    }
-                    if let Some(alias) = alias {
-                        if !aliases.iter().any(|seen| seen == alias) {
-                            aliases.push(alias.clone());
+                    for identifier in [name, alias].into_iter().flatten() {
+                        if !identifiers.iter().any(|seen| seen == identifier) {
+                            identifiers.push(identifier.clone());
                         }
                     }
                 }
@@ -605,20 +601,12 @@ impl SnapshotBuilder {
             for path in paths {
                 self.emit(symbol_id, LexicalField::Import, InputKind::Qualified, &path)?;
             }
-            for name in names {
+            for identifier in identifiers {
                 self.emit(
                     symbol_id,
                     LexicalField::Import,
                     InputKind::Identifier,
-                    &name,
-                )?;
-            }
-            for alias in aliases {
-                self.emit(
-                    symbol_id,
-                    LexicalField::Import,
-                    InputKind::Identifier,
-                    &alias,
+                    &identifier,
                 )?;
             }
         }

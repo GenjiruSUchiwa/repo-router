@@ -242,17 +242,15 @@ count the parameter twice.
 
 Recorded here rather than discovered later:
 
-- **No imports, in either language.** `ImportKind::Import`/`From`/`Require`
-  are still inert, and neither query has an import pattern. `import { X } from
-  "y"` is invisible to rr today. This is the largest remaining gap and the
-  obvious next piece of work. *(Landed in #40 as a second extraction pass:
-  `tree-sitter-tags` accepts only its own capture vocabulary and there is no
-  channel to widen, so each tier-2 language gained a plain `tree_sitter::Query`
-  (`python-imports.scm`, `typescript-imports.scm`) run over its own second
-  parse, and `Import::path` holds the specifier verbatim with the leaf in a
-  separate `Import::name` field. Resolving either is a module graph and stays
-  out of scope; `resolves_by_path` keeps answering false because a specifier
-  is not a path the index's resolver follows.)*
+- **Imports are read, not resolved.** #40 closed the extraction half with a
+  second pass: `tree-sitter-tags` accepts only its own capture vocabulary and
+  offers no channel to widen, so each tier-2 language gained a plain
+  `tree_sitter::Query` (`python-imports.scm`, `typescript-imports.scm`) run
+  over its own second parse of the same bytes. What it records is what the
+  declaration says — `Import::path` holds the specifier verbatim, `Import::name`
+  the leaf selected out of it. Turning either into a definition rr holds is a
+  module graph and stays out of scope, so `resolves_by_path` answers false for
+  every tier-2 kind and these imports reach the index as lexical evidence only.
 - **`export` is not visibility.** A non-exported TypeScript declaration reads
   as `Public`, because visibility here is the `#` prefix and the modifier, not
   the export list.

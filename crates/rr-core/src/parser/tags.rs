@@ -365,6 +365,14 @@ fn compile_imports(
     if anchors.is_empty() {
         return Err("imports query has no @import.<kind> anchor".to_string());
     }
+    if spec.markers.is_empty() {
+        // `collect_imports` reads an empty marker list as "no file can contain
+        // an import" and returns none for every file in the language. Caught
+        // here because nothing downstream can: the language extracts zero
+        // imports, quietly, and no test can tell that apart from a language
+        // that genuinely has none.
+        return Err("imports spec has no markers prefilter".to_string());
+    }
     Ok(CompiledImports {
         query,
         anchors,
@@ -466,11 +474,17 @@ fn build_import(
         });
     };
 
-    // `require` is a function name, not a keyword: only a call to the
-    // identifier `require` imports anything, and a file that declares its own
-    // `require` declares a function. Read here rather than through `#eq?` for
-    // the reason `LanguageSpec::refine` gives — this crate does not depend on
-    // predicate evaluation.
+    // `require` is a function name, not a keyword, so the query has to match
+    // every call taking one string and let this reject the rest by name:
+    // `describe("a case")` imports nothing. Read here rather than through an
+    // `#eq?` predicate for the reason `LanguageSpec::refine` gives — this crate
+    // does not depend on predicate evaluation.
+    //
+    // Name equality is the whole test. There is no scope analysis behind it, so
+    // a file that shadows `require` with its own function or parameter still
+    // records the call; the unit test pins that. What it costs is one specifier
+    // no module graph would have resolved anyway, and resolving bindings inside
+    // a pass whose only job is reading declarations costs more than that.
     if let Some(callee) = callee_node {
         if node_text(callee, source)? != "require" {
             return Ok(None);
@@ -1862,11 +1876,10 @@ mod tests {
     }
 
     /// D3: `require` is an ordinary identifier, and only a call to the *global*
-    /// `require` with a string argument imports anything. Member calls and a
-    /// locally declared `require` are read here in Rust, not through a query
-    /// predicate.
+    /// The query matches every call taking one string; the callee name is read
+    /// in Rust, not through a query predicate, and is what drops the rest.
     #[test]
-    fn a_typescript_require_is_only_the_global_require() {
+    fn a_typescript_require_is_matched_by_its_callee_name() {
         let facts = typescript("const cj = require(\"m\");\n");
         let imports = facts.imports();
         assert_eq!(imports.len(), 1);
@@ -1875,12 +1888,26 @@ mod tests {
         // The binding is already a variable definition in `typescript.scm`;
         // recording it as an alias would file one declaration under two names.
         assert!(imports[0].alias.is_none());
+        // Nor does the binding own it: this is where JavaScript writes a
+        // module-scope import, so it has to reach every symbol in the file,
+        // exactly as `import cj from "m"` does.
+        assert!(imports[0].owner.is_none());
 
+        // Matches the pattern, and only the callee guard rejects it. Deleting
+        // the guard makes this case fail, which the shadowing case below cannot
+        // do — every `describe("…")` in the repository would become an import.
+        assert!(typescript("describe(\"a case\");\n").imports().is_empty());
+        // Rejected a step earlier, by `function: (identifier)`: a member call
+        // is a `member_expression` and never reaches the guard.
         assert!(typescript("thing.require(\"m\");\n").imports().is_empty());
-        assert!(
-            typescript("function require(x: unknown) {}\nrequire(not_a_string);\n")
+        // Pinned as a limitation on record, not as correct behaviour: the guard
+        // compares text and does no scope analysis, so a shadowed `require`
+        // still records.
+        assert_eq!(
+            typescript("function require(p: string) { return p; }\nrequire(\"./shim\");\n")
                 .imports()
-                .is_empty()
+                .len(),
+            1
         );
     }
 
