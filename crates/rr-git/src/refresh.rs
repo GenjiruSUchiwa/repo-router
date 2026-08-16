@@ -12,6 +12,7 @@
 //! wanting, so the overwhelmingly common case of "nothing happened" costs one
 //! snapshot read and one status scan.
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
@@ -217,7 +218,9 @@ pub fn prepare(
     report.content_reads = planned.content_reads;
 
     if let Some(snapshot) = published.snapshot() {
-        if is_no_op(&store, &planned.plan)? {
+        let head_settled =
+            snapshot.meta.repo_head_oid == observed.as_ref().and_then(|state| state.head.commit());
+        if is_no_op(&store, &planned.plan, head_settled)? {
             record_plan(&mut report, &planned.plan);
             report.elapsed_ms = elapsed_ms(started);
             return Ok(Refresh::UpToDate {
@@ -249,6 +252,34 @@ pub fn prepare(
     // reported only the second would understate a cost the caller paid.
     report.content_reads += planned.content_reads;
     record_plan(&mut report, &plan);
+
+    if let Some(published_snapshot) = published.snapshot() {
+        if plan.mode() == RefreshMode::Incremental && plan.is_empty_delta() {
+            let mut next = (**published_snapshot).clone();
+            let owned: Vec<RelPath> = next
+                .files
+                .iter()
+                .filter_map(|file| next.file_path(file))
+                .filter_map(|path| RelPath::new(path).ok())
+                .collect();
+            let indexed: BTreeSet<&RelPath> = owned.iter().collect();
+            next.meta = context.meta_for(&indexed, &[], observed.as_ref())?;
+            let envelope = store.encode(&next)?;
+
+            confirm_unchanged(&context, observed.as_ref(), digest, cancel)?;
+            check_cancelled(cancel)?;
+
+            return Ok(Refresh::Prepared(Box::new(PreparedRefresh {
+                _guard: guard,
+                work_root: context.work_root,
+                store,
+                snapshot: next,
+                envelope,
+                report,
+                started,
+            })));
+        }
+    }
 
     let built = build(&context, &plan, &published, cancel)?;
     report.reparsed = built.stats().parses;
@@ -286,10 +317,18 @@ pub fn prepare(
 /// Reports "nothing to do" without locking, building, or writing anything.
 ///
 /// Returns `false` when there is work, so the caller continues. The fast path
-/// is deliberately narrow: an incremental plan, an empty delta, and a snapshot
-/// whose own bytes are already on disk.
-fn is_no_op(store: &SnapshotStore, plan: &RefreshPlan) -> Result<bool> {
-    if plan.mode() != RefreshMode::Incremental || !plan.is_empty_delta() {
+/// is deliberately narrow: an incremental plan, an empty delta, a `HEAD` the
+/// snapshot already names, and a snapshot whose own bytes are on disk.
+///
+/// `head_settled` is separate from the delta because an empty delta after a
+/// commit means no *file* changed, not that nothing did. A snapshot records the
+/// commit it was built against; skipping the write would leave that name
+/// pointing at a commit further into the past after every generation, and every
+/// later run would re-compare against it. It would also make the published
+/// bytes disagree with a full rebuild of the same tree, which is the one thing
+/// an incremental refresh must never do.
+fn is_no_op(store: &SnapshotStore, plan: &RefreshPlan, head_settled: bool) -> Result<bool> {
+    if !head_settled || plan.mode() != RefreshMode::Incremental || !plan.is_empty_delta() {
         return Ok(false);
     }
 

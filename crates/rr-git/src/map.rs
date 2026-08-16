@@ -256,41 +256,8 @@ impl BuildContext {
         built: BuiltInputs,
         observed: Option<&RepoState>,
     ) -> Result<BuildReport> {
-        let repo = self.repo()?;
-        let head = repo.as_ref().map(GitRepo::head_oid).transpose()?.flatten();
-
-        // The inputs are the only authority on what discovery collected, and
-        // they exist only here — which is why the split is taken at assembly
-        // rather than anywhere the observation is merely available.
         let indexed: BTreeSet<&RelPath> = built.inputs.iter().map(|input| &input.path).collect();
-        let split = observed.map(|state| dirty_paths(state, &indexed));
-        let (dirty, skipped) = split.map_or_else(Default::default, |split| {
-            // A path no walk could ever produce needs no evidence that this one
-            // did not: the planner rules it out from the name alone, and
-            // listing it here would grow the snapshot for nothing.
-            let skipped = split
-                .skipped
-                .into_iter()
-                .filter(|path| collected_lang(path.as_str(), &self.walk).is_some())
-                // A path this walk *did* offer and that merely stopped existing
-                // before it could be read is no evidence at all about what
-                // discovery collects. Recording it as declined would settle the
-                // question the wrong way for good: the planner would drop it
-                // from every future delta, status would answer `fresh`, and the
-                // no-op path would keep any refresh from ever looking again.
-                .filter(|path| !built.vanished.contains(path))
-                .filter(|path| is_regular_file(&self.work_root, path))
-                .collect();
-            (split.indexed, skipped)
-        });
-
-        let meta = SnapshotMeta::new(
-            head,
-            self.no_git,
-            discovery_digest(repo.as_ref(), &self.walk, observed),
-        )
-        .with_dirty_paths(dirty)
-        .with_skipped_paths(skipped);
+        let meta = self.meta_for(&indexed, &built.vanished, observed)?;
 
         let (snapshot, counts) = SnapshotBuilder::new(meta).build(built.inputs)?;
         let worker = built.stats;
@@ -321,5 +288,42 @@ impl BuildContext {
             content_reads: worker.clean_blob_reads + worker.filtered_raw_reads,
         };
         Ok(BuildReport { snapshot, stats })
+    }
+
+    /// Computes the metadata one snapshot would carry, given what was indexed.
+    ///
+    /// Shared so a republish that never ran a build can still name the commit
+    /// it is now true against, using the same split a build would.
+    ///
+    /// # Errors
+    /// Returns `HEAD` lookup failures.
+    pub fn meta_for(
+        &self,
+        indexed: &BTreeSet<&RelPath>,
+        vanished: &[RelPath],
+        observed: Option<&RepoState>,
+    ) -> Result<SnapshotMeta> {
+        let repo = self.repo()?;
+        let head = repo.as_ref().map(GitRepo::head_oid).transpose()?.flatten();
+
+        let split = observed.map(|state| dirty_paths(state, indexed));
+        let (dirty, skipped) = split.map_or_else(Default::default, |split| {
+            let skipped = split
+                .skipped
+                .into_iter()
+                .filter(|path| collected_lang(path.as_str(), &self.walk).is_some())
+                .filter(|path| !vanished.contains(path))
+                .filter(|path| is_regular_file(&self.work_root, path))
+                .collect();
+            (split.indexed, skipped)
+        });
+
+        Ok(SnapshotMeta::new(
+            head,
+            self.no_git,
+            discovery_digest(repo.as_ref(), &self.walk, observed),
+        )
+        .with_dirty_paths(dirty)
+        .with_skipped_paths(skipped))
     }
 }

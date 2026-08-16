@@ -51,7 +51,8 @@ pub enum FullReason {
     IncompatibleSnapshot,
     /// A snapshot exists but does not survive strict validation.
     CorruptSnapshot,
-    /// `HEAD` moved away from the commit the snapshot was built against.
+    /// `HEAD` moved and the two commits could not be compared — one of them is
+    /// unborn, or this object database no longer has it.
     HeadChanged,
     /// Membership or byte-representation rules changed, so the delta is not
     /// about the same corpus.

@@ -89,10 +89,13 @@ now followed by a `HEAD` move that forces a full fallback. Before #11 this path
 was incidental; now it is guaranteed for every user of every repository.
 
 The fallback still converges off the cache and writes nothing, so the cost is a
-full walk, not a full reparse. I did not fix it: a `HEAD`-to-`HEAD` tree diff is
-a separate feature, not a detail of #11. Pinned as
-`committing_the_generated_maps_moves_head_and_forces_a_full_fallback` so it is
-visible rather than folklore.
+full walk, not a full reparse. Fixed in #44 by comparing the two commits
+directly. A commit that touches no indexed file now publishes new metadata over
+the records it already had: zero fact-cache reads where there were five
+thousand, and `rr status` answers `fresh` straight after committing the maps
+instead of `stale`. The wall clock improves by about a quarter rather than by
+an order of magnitude — a refresh that publishes is dominated by encoding and
+writing the snapshot, not by discovery.
 
 **b. `rr map` now leaves the working tree dirty.** Unavoidable and correct, but
 it changes what `rr status` says immediately after a successful run, and it
@@ -104,12 +107,18 @@ clean tree after `rr map` needs to know.
 against a 1000-byte body budget — about **three records per page**. 120
 functions in one directory produced 44 files. The default budget of 250 tokens
 is small relative to the record format; a real repository with a wide module
-will generate a lot of files. Worth a decision before this ships widely.
+will generate a lot of files. Decided in #44: a scope is one `MAP.md`; what
+does not fit is stated on that file, per section. `TEXT_FORMAT_VERSION` is 2
+because the omission line is new grammar. Existing `MAP.rr-*` pages stay
+readable so the first `rr map` unlinks them. The default budget is 2000 tokens.
 
 **d. Case-insensitive filesystems.** On macOS a hand-written `map.md` occupies
-`MAP.md`. rr refuses (`path is not owned by rr`) rather than clobbering — safe,
-but the message names `MAP.md` while the file on disk is `map.md`, and rr can
-never generate a map in that directory until it is renamed.
+`MAP.md`. rr refuses rather than clobbering — safe, but a conflict costs the
+whole run, so until the file is renamed rr writes no map *anywhere in the
+repository*, not only in that directory. Fixed in #44 to the extent it can be:
+the message now names both spellings — `src/MAP.md: the filesystem already holds
+this path under a different spelling (src/map.md)`. Renaming the file is still
+the user's to do; rr never takes a path it did not write.
 
 ---
 

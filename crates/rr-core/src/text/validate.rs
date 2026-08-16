@@ -19,7 +19,7 @@ use crate::path::RelPath;
 use super::digest::{ApiHash, Digest};
 use super::model::TextProjection;
 use super::purpose::read_existing_purposes;
-use super::{parse_map, parse_symbols, ArtifactKind, RenderedArtifactSet};
+use super::{parse_map, parse_symbols, ArtifactKind, RenderedArtifactSet, RenderedFile};
 
 /// Why one path cannot be written.
 ///
@@ -49,6 +49,8 @@ pub enum ConflictReason {
     ManagedIgnore,
     /// The file could not be read.
     Unreadable,
+    /// The filesystem resolves this path to a file spelled differently.
+    CaseCollision,
 }
 
 impl ConflictReason {
@@ -67,6 +69,9 @@ impl ConflictReason {
             Self::Anchor => "a link destination could not be decoded",
             Self::ManagedIgnore => "managed ignore markers are duplicated or malformed",
             Self::Unreadable => "file could not be read",
+            Self::CaseCollision => {
+                "the filesystem already holds this path under a different spelling"
+            }
         }
     }
 }
@@ -82,11 +87,29 @@ impl fmt::Display for ConflictReason {
 pub struct Conflict {
     path: String,
     reason: ConflictReason,
+    found: Option<String>,
 }
 
 impl Conflict {
     pub(crate) const fn new(path: String, reason: ConflictReason) -> Self {
-        Self { path, reason }
+        Self {
+            path,
+            reason,
+            found: None,
+        }
+    }
+
+    /// A path the filesystem resolves to a differently-spelled file.
+    ///
+    /// Both names are kept because neither alone is actionable: the planned one
+    /// is what rr will not write, and `found` is the only one the user's shell
+    /// will match.
+    pub(crate) const fn colliding(path: String, found: String) -> Self {
+        Self {
+            path,
+            reason: ConflictReason::CaseCollision,
+            found: Some(found),
+        }
     }
 
     /// The repository-relative path.
@@ -99,11 +122,20 @@ impl Conflict {
     pub const fn reason(&self) -> ConflictReason {
         self.reason
     }
+
+    /// The differently-spelled file this path resolves to, when there is one.
+    #[must_use]
+    pub fn found(&self) -> Option<&str> {
+        self.found.as_deref()
+    }
 }
 
 impl fmt::Display for Conflict {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}: {}", self.path, self.reason)
+        match &self.found {
+            Some(found) => write!(f, "{}: {} ({found})", self.path, self.reason),
+            None => write!(f, "{}: {}", self.path, self.reason),
+        }
     }
 }
 
@@ -152,7 +184,7 @@ impl TextValidation {
         &self.conflicts
     }
 
-    /// Scopes holding one indivisible record wider than the budget.
+    /// Scopes no page of which fits the budget.
     #[must_use]
     pub fn over_budget(&self) -> &[String] {
         &self.over_budget
@@ -267,12 +299,21 @@ fn compare(
     };
 
     let planned: BTreeSet<&str> = rendered.committed_paths().collect();
+    let collisions = case_collisions(
+        root,
+        rendered
+            .files()
+            .iter()
+            .map(RenderedFile::path)
+            .chain(std::iter::once(super::IGNORE_PATH)),
+    );
     for file in rendered.files() {
         classify(
             root,
             file.path(),
             file.bytes(),
             file.kind(),
+            &collisions,
             &mut validation,
         );
     }
@@ -292,7 +333,7 @@ fn compare(
         }
     }
 
-    classify_managed_ignore(root, &mut validation);
+    classify_managed_ignore(root, &collisions, &mut validation);
 
     validation.conflicts.sort_by(|left, right| {
         left.path
@@ -312,8 +353,18 @@ fn compare(
 /// is merely absent or out of date is deliberately not reported: this module
 /// never writes that file, so making it part of "up to date" would let the
 /// answer depend on a caller that may not exist.
-fn classify_managed_ignore(root: &Path, validation: &mut TextValidation) {
+fn classify_managed_ignore(
+    root: &Path,
+    collisions: &BTreeMap<String, String>,
+    validation: &mut TextValidation,
+) {
     let path = super::IGNORE_PATH;
+    if let Some(found) = collisions.get(path) {
+        validation
+            .conflicts
+            .push(Conflict::colliding(path.to_owned(), found.clone()));
+        return;
+    }
     let existing = match std::fs::read_to_string(root.join(path)) {
         Ok(text) => text,
         // Absent is not a problem to report: the block is appended on the next
@@ -340,8 +391,16 @@ fn classify(
     path: &str,
     expected: &[u8],
     kind: ArtifactKind,
+    collisions: &BTreeMap<String, String>,
     validation: &mut TextValidation,
 ) {
+    if let Some(found) = collisions.get(path) {
+        validation
+            .conflicts
+            .push(Conflict::colliding(path.to_owned(), found.clone()));
+        return;
+    }
+
     let absolute = root.join(path);
     // Before reading, because every read here follows the link: a symlink would
     // be judged on its target's bytes and then written through, putting rr's
@@ -389,6 +448,76 @@ fn classify(
     validation
         .conflicts
         .push(Conflict::new(path.to_owned(), reason));
+}
+
+/// The planned artifacts whose path resolves to a differently-spelled file.
+///
+/// One `read_dir` per planned directory rather than one metadata call per
+/// planned file, because on a case-insensitive filesystem the metadata call
+/// succeeds under the wrong name — which is the whole failure. Only the
+/// directory listing knows how a file is really spelled.
+///
+/// Asks nothing about the filesystem's type, and does not have to: the listing
+/// finds the candidate, and one call under the planned name settles whether the
+/// volume folds. On a case-sensitive one the two spellings are two files, the
+/// planned one is simply absent, and there is no collision to report. ASCII
+/// folding is exact because every name this module plans is ASCII.
+fn case_collisions<'a>(
+    root: &Path,
+    planned: impl Iterator<Item = &'a str>,
+) -> BTreeMap<String, String> {
+    let mut by_directory: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+    for path in planned {
+        let (directory, name) = path.rsplit_once('/').unwrap_or(("", path));
+        by_directory.entry(directory).or_default().push(name);
+    }
+
+    let mut collisions = BTreeMap::new();
+    for (directory, names) in by_directory {
+        let absolute = if directory.is_empty() {
+            root.to_path_buf()
+        } else {
+            root.join(directory)
+        };
+        // A directory that is not there yet holds nothing to collide with, and
+        // rr is about to create it.
+        let Ok(entries) = std::fs::read_dir(&absolute) else {
+            continue;
+        };
+        let present: Vec<String> = entries
+            .flatten()
+            .filter_map(|entry| entry.file_name().into_string().ok())
+            .collect();
+        for name in names {
+            if present.iter().any(|entry| entry == name) {
+                continue;
+            }
+            if let Some(found) = present
+                .iter()
+                .find(|entry| entry.eq_ignore_ascii_case(name))
+            {
+                // Folding is what makes this a collision rather than two files.
+                // The planned name is not in the listing, so on a
+                // case-sensitive volume nothing resolves under it and rr is
+                // free to create it beside `found`. Only a filesystem that
+                // folds case answers this call, and that answer is `found`.
+                if absolute.join(name).symlink_metadata().is_err() {
+                    continue;
+                }
+                collisions.insert(join(directory, name), join(directory, found));
+            }
+        }
+    }
+    collisions
+}
+
+/// Rejoins a directory and a name into a repository-relative path.
+fn join(directory: &str, name: &str) -> String {
+    if directory.is_empty() {
+        name.to_owned()
+    } else {
+        format!("{directory}/{name}")
+    }
 }
 
 /// Whether a damaged artifact of this kind is rewritten rather than reported.

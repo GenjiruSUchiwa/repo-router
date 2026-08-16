@@ -1,5 +1,6 @@
 //! Git repository interaction and index-based OID lookup.
 
+mod committed;
 mod state;
 
 use std::path::{Path, PathBuf};
@@ -10,6 +11,7 @@ use rr_core::path::RelPath;
 use crate::oid::{hash_blob, HashAlgo, Oid};
 use crate::{Error, Result};
 
+pub use committed::{CommittedChange, CommittedDelta, CommittedKind};
 pub use state::{ChangeKind, HeadState, RepoState, WorktreeChange};
 
 /// A discovered Git repository wrapper optimized for fast index queries.

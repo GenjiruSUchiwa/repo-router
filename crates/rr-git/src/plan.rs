@@ -20,7 +20,7 @@ use rr_core::walk::{collected_lang, WalkCfg};
 
 use crate::content::ContentProbe;
 use crate::map::{is_regular_file, BuildContext};
-use crate::repo::{ChangeKind, RepoState};
+use crate::repo::{ChangeKind, CommittedChange, CommittedDelta, CommittedKind, RepoState};
 use crate::{GitRepo, Result};
 
 /// The snapshot currently on disk, or the reason it cannot be built upon.
@@ -136,14 +136,25 @@ pub fn plan_for(
         return Planned::free(RefreshPlan::full(FullReason::GitStatusUnavailable));
     };
 
-    if snapshot.meta.repo_head_oid != observed.head.commit() {
-        return Planned::free(RefreshPlan::full(FullReason::HeadChanged));
-    }
+    let committed = match (snapshot.meta.repo_head_oid, observed.head.commit()) {
+        (Some(before), Some(after)) if before != after => {
+            let delta = repo.map_or(CommittedDelta::Rebuild(FullReason::HeadChanged), |repo| {
+                repo.committed_delta(before, after)
+            });
+            match delta {
+                CommittedDelta::Paths(paths) => paths,
+                CommittedDelta::Rebuild(reason) => return Planned::free(RefreshPlan::full(reason)),
+            }
+        }
+        (before, after) if before == after => Vec::new(),
+        _ => return Planned::free(RefreshPlan::full(FullReason::HeadChanged)),
+    };
+
     if snapshot.meta.discovery_digest != digest {
         return Planned::free(RefreshPlan::full(FullReason::DiscoveryRulesChanged));
     }
 
-    draft_from(observed, snapshot, repo, walk)
+    draft_from(observed, snapshot, repo, walk, &committed)
 }
 
 /// Turns observed changes into a delta, or into the reason there cannot be one.
@@ -162,6 +173,7 @@ fn draft_from(
     snapshot: &Snapshot,
     repo: Option<&GitRepo>,
     walk: &WalkCfg,
+    committed: &[CommittedChange],
 ) -> Planned {
     let mut draft = PlanDraft::new();
     let mut evidence = Evidence {
@@ -176,9 +188,20 @@ fn draft_from(
         .iter()
         .flat_map(|change| std::iter::once(&change.path).chain(change.source.as_ref()))
         .collect();
+    let mut spoken_for: BTreeSet<&RelPath> = now_dirty.clone();
     for path in &snapshot.meta.dirty_paths {
-        if !now_dirty.contains(path) {
+        if spoken_for.insert(path) {
             evidence.recheck(&mut draft, path);
+        }
+    }
+
+    for change in committed {
+        if !spoken_for.insert(&change.path) {
+            continue;
+        }
+        match change.kind {
+            CommittedKind::Removed => evidence.remove(&mut draft, &change.path),
+            CommittedKind::Touched => evidence.recheck(&mut draft, &change.path),
         }
     }
 

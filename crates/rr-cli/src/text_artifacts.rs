@@ -73,7 +73,7 @@ impl TextReport {
         for scope in &self.over_budget {
             let _ = writeln!(
                 out,
-                "  text warning {scope}: a single record exceeds the page budget"
+                "  text warning {scope}: no page of this scope fits the map budget"
             );
         }
         out.pop();

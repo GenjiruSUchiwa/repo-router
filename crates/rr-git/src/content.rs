@@ -333,7 +333,7 @@ fn byte_len(bytes: &[u8]) -> u64 {
     u64::try_from(bytes.len()).unwrap_or(u64::MAX)
 }
 
-fn object_id(oid: Oid) -> Result<gix::ObjectId> {
+pub(crate) fn object_id(oid: Oid) -> Result<gix::ObjectId> {
     gix::ObjectId::try_from(oid.as_bytes())
         .map_err(|e| Error::Content(format!("invalid object id: {e}")))
 }

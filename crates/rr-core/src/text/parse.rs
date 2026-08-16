@@ -13,7 +13,7 @@ use crate::path::RelPath;
 use super::digest::Digest;
 use super::model::Fidelity;
 use super::render;
-use super::{encode, TextError, TextResult, TEXT_FORMAT_VERSION};
+use super::{encode, TextError, TextResult, LEGACY_READABLE_FORMATS, TEXT_FORMAT_VERSION};
 
 /// A Git conflict marker, checked before anything else.
 ///
@@ -245,7 +245,9 @@ fn parse_map_strict(bytes: &[u8]) -> TextResult<ParsedMap> {
             reason: "type is not rr-map",
         });
     }
-    check_format(number_field(&fields, "format")?)?;
+    let format = number_field(&fields, "format")?;
+    check_format(format)?;
+    let format = u32::try_from(format).unwrap_or(u32::MAX);
 
     let scope = text_field(&fields, "scope")?.to_owned();
     let page = parse_page(text_field(&fields, "page")?)?;
@@ -257,7 +259,7 @@ fn parse_map_strict(bytes: &[u8]) -> TextResult<ParsedMap> {
     let budget = number_field(&fields, "budget")?;
 
     let mut reader = Body::new(body);
-    reader.expect(render::MAP_BANNER)?;
+    reader.expect(&render::map_banner(format))?;
     let title = match page {
         PageKind::Router => render::ROUTER_TITLE,
         PageKind::Overflow { .. } => render::PAGE_TITLE,
@@ -274,9 +276,18 @@ fn parse_map_strict(bytes: &[u8]) -> TextResult<ParsedMap> {
         });
     }
 
-    let children = reader.read_section(render::CHILDREN_HEADING, parse_link_label)?;
-    let api = reader.read_api_section()?;
-    let tests = reader.read_section(render::TESTS_HEADING, parse_link_label)?;
+    let allow_omission = matches!(page, PageKind::Router);
+    let children = reader.read_section(
+        render::CHILDREN_HEADING,
+        parse_link_label,
+        allow_omission.then_some(render::OmittedKind::Children),
+    )?;
+    let api = reader.read_api_section(allow_omission)?;
+    let tests = reader.read_section(
+        render::TESTS_HEADING,
+        parse_link_label,
+        allow_omission.then_some(render::OmittedKind::Tests),
+    )?;
     reader.expect_blank()?;
     reader.expect(render::MERGE_FOOTER)?;
     reader.expect_end()?;
@@ -319,14 +330,16 @@ fn parse_symbols_strict(bytes: &[u8]) -> TextResult<ParsedSymbols> {
             reason: "type is not rr-symbols",
         });
     }
-    check_format(number_field(&fields, "format")?)?;
+    let format = number_field(&fields, "format")?;
+    check_format(format)?;
+    let format = u32::try_from(format).unwrap_or(u32::MAX);
     let fidelity = Fidelity::parse(text_field(&fields, "fidelity")?)?;
     let index_hash = Digest::parse(text_field(&fields, "index_hash")?)?;
     let generated_hash = Digest::parse(text_field(&fields, "generated_hash")?)?;
     let declared = number_field(&fields, "symbols")?;
 
     let mut reader = Body::new(body);
-    reader.expect(render::SYMBOLS_BANNER)?;
+    reader.expect(&render::symbols_banner(format))?;
     reader.expect(render::SYMBOLS_TITLE)?;
     reader.expect(render::SYMBOLS_COLUMNS)?;
 
@@ -573,9 +586,14 @@ fn number_field(fields: &Fields, key: &str) -> TextResult<u64> {
     }
 }
 
+/// Whether this build can read a file that declares `found`.
+///
+/// The older formats are named by [`LEGACY_READABLE_FORMATS`] rather than
+/// spelled out here, so that the answer lives next to the version it is an
+/// answer about and cannot outlive it.
 fn check_format(found: u64) -> TextResult<()> {
     let found = u32::try_from(found).unwrap_or(u32::MAX);
-    if found == TEXT_FORMAT_VERSION {
+    if found == TEXT_FORMAT_VERSION || LEGACY_READABLE_FORMATS.contains(&found) {
         Ok(())
     } else {
         Err(TextError::UnsupportedFormat { found })
@@ -752,6 +770,7 @@ impl<'a> Body<'a> {
         &mut self,
         heading: &str,
         parse_line: fn(&str) -> TextResult<T>,
+        omission: Option<render::OmittedKind>,
     ) -> TextResult<Vec<T>> {
         self.expect_blank()?;
         self.expect(heading)?;
@@ -760,14 +779,26 @@ impl<'a> Body<'a> {
             self.cursor += 1;
             return Ok(records);
         }
+        let mut saw_omission = false;
         while let Some(line) = self.peek() {
             if line.is_empty() {
                 break;
             }
             self.cursor += 1;
+            if let Some(kind) = omission {
+                if parse_omission_line(line, kind).is_some() {
+                    if self.peek().is_some_and(|next| !next.is_empty()) {
+                        return Err(TextError::Record {
+                            reason: "an omission line is not the last line of its section",
+                        });
+                    }
+                    saw_omission = true;
+                    break;
+                }
+            }
             records.push(parse_line(line)?);
         }
-        if records.is_empty() {
+        if records.is_empty() && !saw_omission {
             return Err(TextError::Record {
                 reason: "a section is neither empty-marked nor populated",
             });
@@ -776,7 +807,7 @@ impl<'a> Body<'a> {
     }
 
     /// Reads `## API`, which alone carries `###` file headings.
-    fn read_api_section(&mut self) -> TextResult<Vec<ParsedApiRecord>> {
+    fn read_api_section(&mut self, allow_omission: bool) -> TextResult<Vec<ParsedApiRecord>> {
         self.expect_blank()?;
         self.expect(render::API_HEADING)?;
         let mut records = Vec::new();
@@ -785,11 +816,21 @@ impl<'a> Body<'a> {
             return Ok(records);
         }
         let mut file: Option<String> = None;
+        let mut saw_omission = false;
         while let Some(line) = self.peek() {
             if line.is_empty() {
                 break;
             }
             self.cursor += 1;
+            if allow_omission && parse_omission_line(line, render::OmittedKind::Api).is_some() {
+                if self.peek().is_some_and(|next| !next.is_empty()) {
+                    return Err(TextError::Record {
+                        reason: "an omission line is not the last line of its section",
+                    });
+                }
+                saw_omission = true;
+                break;
+            }
             if let Some(heading) = line.strip_prefix("### ") {
                 file = Some(unescape_label(heading));
                 continue;
@@ -799,13 +840,29 @@ impl<'a> Body<'a> {
             })?;
             records.push(parse_api_line(&owner, line)?);
         }
-        if records.is_empty() {
+        if records.is_empty() && !saw_omission {
             return Err(TextError::Record {
                 reason: "a section is neither empty-marked nor populated",
             });
         }
         Ok(records)
     }
+}
+
+/// Reads `+ N more <noun> omitted by the map budget`.
+fn parse_omission_line(line: &str, kind: render::OmittedKind) -> Option<usize> {
+    let rest = line.strip_prefix("+ ")?;
+    let (digits, rest) = rest.split_once(" more ")?;
+    if rest != format!("{} omitted by the map budget", kind.noun()) {
+        return None;
+    }
+    if digits.is_empty()
+        || !digits.bytes().all(|byte| byte.is_ascii_digit())
+        || (digits.len() > 1 && digits.starts_with('0'))
+    {
+        return None;
+    }
+    digits.parse().ok().filter(|&count| count > 0)
 }
 
 /// Reads `- [label](<destination>)` and returns the label.

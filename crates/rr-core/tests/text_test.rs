@@ -376,21 +376,28 @@ fn changing_a_signature_changes_that_scope_and_the_generation() {
 }
 
 #[test]
-fn a_small_budget_produces_pages_that_hold_every_record() {
+fn a_small_budget_produces_one_page_that_states_the_rest() {
     let snapshot = snapshot();
     let generous = render(&snapshot, DEFAULT_MAP_BUDGET);
     let tight = render(&snapshot, 12);
 
     let tight_paths: Vec<&str> = tight.committed_paths().collect();
     assert!(
-        tight_paths.iter().any(|path| path.contains("MAP.rr-")),
-        "a 12-token budget produced no overflow page: {tight_paths:?}"
+        tight_paths.iter().all(|path| !path.contains("MAP.rr-")),
+        "a 12-token budget still wrote overflow pages: {tight_paths:?}"
     );
-
     assert_eq!(
-        collected_records(&generous),
-        collected_records(&tight),
-        "paging changed which records exist"
+        tight.committed_paths().count(),
+        generous.committed_paths().count(),
+        "truncation changed how many committed files exist"
+    );
+    assert!(
+        tight.files().iter().any(|file| {
+            std::str::from_utf8(file.bytes())
+                .unwrap()
+                .contains("omitted by the map budget")
+        }),
+        "a 12-token budget omitted nothing"
     );
 }
 
@@ -639,20 +646,14 @@ fn a_stale_overflow_page_is_removable_and_a_modified_one_is_not() {
     let root = tempfile::tempdir().unwrap();
     publish(root.path(), &render(&snapshot, DEFAULT_MAP_BUDGET));
 
-    // A page from a tighter budget, left behind by an earlier generation.
-    let tight = render(&snapshot, 12);
-    let stale = tight
-        .files()
-        .iter()
-        .find(|file| file.path().contains("MAP.rr-"))
-        .expect("a tight budget produces a page");
-    let stale_path = root.path().join(stale.path());
+    let stale_rel = "src/auth/MAP.rr-00000000-00000000.md";
+    let stale_path = root.path().join(stale_rel);
     fs::create_dir_all(stale_path.parent().unwrap()).unwrap();
-    fs::write(&stale_path, stale.bytes()).unwrap();
+    fs::write(&stale_path, V1_OVERFLOW_PAGE.as_bytes()).unwrap();
 
     let validation =
         rr_core::text::validate_text_artifacts(&snapshot, root.path(), DEFAULT_MAP_BUDGET).unwrap();
-    assert_eq!(validation.removable(), &[stale.path().to_owned()]);
+    assert_eq!(validation.removable(), &[stale_rel.to_owned()]);
     assert!(validation.conflicts().is_empty());
 
     fs::write(&stale_path, "hand written\n").unwrap();
@@ -664,6 +665,96 @@ fn a_stale_overflow_page_is_removable_and_a_modified_one_is_not() {
         Some(ConflictReason::NotOwned)
     );
 }
+
+#[test]
+fn a_case_collision_is_reported_before_the_file_is_read() {
+    let snapshot = snapshot();
+    let root = tempfile::tempdir().unwrap();
+    let rendered = render(&snapshot, DEFAULT_MAP_BUDGET);
+    for file in rendered.files() {
+        if file.path() == "src/auth/MAP.md" {
+            continue;
+        }
+        let path = root.path().join(file.path());
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(&path, file.bytes()).unwrap();
+    }
+    let auth = rendered
+        .files()
+        .iter()
+        .find(|file| file.path() == "src/auth/MAP.md")
+        .expect("the fixture has an auth map");
+    fs::create_dir_all(root.path().join("src/auth")).unwrap();
+    fs::write(root.path().join("src/auth/map.md"), auth.bytes()).unwrap();
+    if !case_insensitive(root.path()) {
+        return;
+    }
+
+    let validation =
+        rr_core::text::validate_text_artifacts(&snapshot, root.path(), DEFAULT_MAP_BUDGET).unwrap();
+    let conflict = validation
+        .conflicts()
+        .iter()
+        .find(|conflict| conflict.path() == "src/auth/MAP.md")
+        .expect("a folded name is a conflict");
+    assert_eq!(conflict.reason(), ConflictReason::CaseCollision);
+    assert_eq!(conflict.found(), Some("src/auth/map.md"));
+    assert!(
+        !validation
+            .fresh()
+            .iter()
+            .any(|path| path == "src/auth/MAP.md"),
+        "a folded valid page was treated as fresh"
+    );
+    assert!(
+        !validation
+            .stale()
+            .iter()
+            .any(|path| path == "src/auth/MAP.md"),
+        "a folded valid page was treated as stale"
+    );
+}
+
+fn case_insensitive(root: &Path) -> bool {
+    let lower = root.join("rr-case-probe");
+    let upper = root.join("RR-CASE-PROBE");
+    fs::write(&lower, b"probe").unwrap();
+    let folds = upper.is_file();
+    let _ = fs::remove_file(&lower);
+    let _ = fs::remove_file(&upper);
+    folds
+}
+
+const V1_OVERFLOW_PAGE: &str = "\
+---
+type: \"rr-map\"
+format: 1
+scope: \"src/auth\"
+page: \"part-00000000-00000000\"
+fidelity: \"syntax\"
+index_hash: \"blake3:5c9145d4af52610c1d19f495e9db4a82c4b2f57e0760168493bbbca072642c91\"
+api_hash: \"blake3:2833cedef8c5ef0b17b18f4846ff4dd36ffbd23de83e663e74ce6256a375fae5\"
+generated_hash: \"blake3:7e51ee413f2c767fef64d81d6dbe434901b30f98c491a5a7fe71df9a58685fe5\"
+tokens: 87
+budget: 12
+---
+<!-- generated by rr format 1; edit only the purpose slot -->
+# Repository map part: src/auth
+
+## Children
+_None._
+
+## API
+### src/auth/token.rs
+- `auth::token::Claims` — `pub struct Claims` — [source](<token.rs#Claims>)
+
+## Tests
+_None._
+
+<!-- rr:merge-conflict: resolve one side, then run `rr map`; never hand-merge generated sections -->
+";
 
 #[test]
 fn the_catalog_names_the_map_that_lists_each_symbol() {
@@ -708,40 +799,6 @@ fn an_empty_repository_still_produces_a_readable_root() {
     assert!(root.contains("_None._"));
     let parsed = parse_map(root.as_bytes()).unwrap();
     assert!(parsed.api().is_empty() && parsed.children().is_empty() && parsed.tests().is_empty());
-}
-
-/// Every record any artifact of a generation states, for comparing two plans.
-fn collected_records(set: &RenderedArtifactSet) -> BTreeMap<String, Vec<String>> {
-    let mut found: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    for file in set.files() {
-        if file.kind() == ArtifactKind::Symbols {
-            continue;
-        }
-        let parsed = parse_map(file.bytes()).unwrap();
-        let scope = parsed.scope().to_owned();
-        let entry = found.entry(scope).or_default();
-        // Page links live in `## Children` — the only navigation section the
-        // format has — but they are navigation, not content, and a plan that
-        // splits a scope into pages must still state the same records.
-        entry.extend(
-            parsed
-                .children()
-                .iter()
-                .filter(|child| !child.starts_with("MAP.rr-"))
-                .map(|child| format!("child {child}")),
-        );
-        entry.extend(
-            parsed
-                .api()
-                .iter()
-                .map(|record| format!("api {} {}", record.name, record.signature)),
-        );
-        entry.extend(parsed.tests().iter().map(|test| format!("test {test}")));
-    }
-    for records in found.values_mut() {
-        records.sort();
-    }
-    found
 }
 
 /// Replaces the logical purpose content, leaving every other byte alone.

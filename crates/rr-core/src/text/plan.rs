@@ -1,9 +1,13 @@
 //! The deterministic, budgeted page planner.
 //!
-//! A directory whose records do not fit one page is split into overflow pages,
-//! and if the links to those do not fit either, into a level of pages that link
-//! to pages. Nothing is truncated or summarized to fit: the budget decides how
-//! many files there are, never what they say.
+//! A directory whose records do not fit one page keeps a prefix of each
+//! section and states the remainder on that section's last line. The budget
+//! decides what a reader has to hold, never how many files exist: every
+//! indexed scope is one `MAP.md`.
+//!
+//! Truncation is per section, never over the flattened `Children` / `API` /
+//! `Tests` prefix. Spending the whole budget on children first is how a
+//! `tests/` tree becomes a map of subdirectory links with `## API _None._`.
 //!
 //! Sizes come from [`super::render`], the code that writes the bytes, not from
 //! a second estimate that could drift.
@@ -12,9 +16,9 @@ use std::ops::Range;
 
 use super::digest::HashStream;
 use super::model::{ApiRecord, ChildRecord, ScopePath, TestRecord};
-use super::render;
+use super::render::{self, OmittedKind};
 
-/// The three record lists of one scope, in the order they are packed.
+/// The three record lists of one scope, in the order they appear on a page.
 ///
 /// Bundled into one type because the planner, the sizer, and the renderer all
 /// need the same three slices, and three parameters repeated across a dozen
@@ -34,6 +38,25 @@ pub(crate) enum Slot {
     Test(usize),
 }
 
+/// One of the three rendered sections, in page order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Section {
+    Children,
+    Api,
+    Tests,
+}
+
+/// The sections in page order, which is the order every `[_; 3]` here is in.
+const SECTIONS: [Section; 3] = [Section::Children, Section::Api, Section::Tests];
+
+/// Who gets capacity nobody else needed: public symbols, then tests, then
+/// navigation.
+const LEFTOVER_ORDER: [usize; 3] = [1, 2, 0];
+
+/// Who gives a record back when the page still does not fit: the same order
+/// read backwards, so what was handed out last is taken away first.
+const SHED_ORDER: [usize; 3] = [0, 2, 1];
+
 impl Records<'_> {
     pub(crate) fn len(&self) -> usize {
         self.children.len() + self.api.len() + self.tests.len()
@@ -42,8 +65,7 @@ impl Records<'_> {
     /// Resolves a flattened index into the list that holds it.
     ///
     /// The flattened order is `Children`, `API`, `Tests` — the same order the
-    /// sections appear in a rendered page, so a page is always a contiguous
-    /// run and never has to remember which records it skipped.
+    /// sections appear in a rendered page.
     pub(crate) fn at(&self, index: usize) -> Slot {
         if index < self.children.len() {
             return Slot::Child(index);
@@ -55,100 +77,74 @@ impl Records<'_> {
         Slot::Test(index - self.api.len())
     }
 
-    /// Splits a flattened range into one range per section.
-    pub(crate) fn split(&self, range: &Range<usize>) -> (Range<usize>, Range<usize>, Range<usize>) {
-        let children_end = self.children.len();
-        let api_end = children_end + self.api.len();
-        let clamp = |value: usize, low: usize, high: usize| value.clamp(low, high);
-        let children = clamp(range.start, 0, children_end)..clamp(range.end, 0, children_end);
-        let api = clamp(range.start, children_end, api_end) - children_end
-            ..clamp(range.end, children_end, api_end) - children_end;
-        let tests = clamp(range.start, api_end, self.len()) - api_end
-            ..clamp(range.end, api_end, self.len()) - api_end;
-        (children, api, tests)
+    fn section_len(self, section: Section) -> usize {
+        match section {
+            Section::Children => self.children.len(),
+            Section::Api => self.api.len(),
+            Section::Tests => self.tests.len(),
+        }
+    }
+
+    fn section_start(self, section: Section) -> usize {
+        match section {
+            Section::Children => 0,
+            Section::Api => self.children.len(),
+            Section::Tests => self.children.len() + self.api.len(),
+        }
     }
 }
 
-/// The fixed-width name of one generated overflow page.
+/// What one router holds.
 ///
-/// Fixed width is what lets the planner size a link before it knows how many
-/// pages there will be. Level and ordinal are stored rather than the formatted
-/// string so that the name has exactly one spelling.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct PageName {
-    pub(crate) level: u32,
-    pub(crate) ordinal: u32,
-}
-
-impl PageName {
-    /// The file name inside the scope directory.
-    pub(crate) fn file_name(self) -> String {
-        format!(
-            "{}{:08}-{:08}{}",
-            super::OVERFLOW_PREFIX,
-            self.level,
-            self.ordinal,
-            super::MARKDOWN_EXTENSION
-        )
-    }
-}
-
-/// What one page holds.
-///
-/// A page holds a contiguous run of leaf records, or links to pages one level
-/// beneath it, or — only in the router — a prefix of records followed by the
-/// links to the pages that hold the rest.
+/// Each section is a prefix of that section's records plus a count of what
+/// the budget dropped. There is no flattened range: a contiguous run over
+/// `Children` then `API` then `Tests` is exactly the packing this planner
+/// refuses, because it spends the budget on navigation first.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct PageContent {
-    pub(crate) records: Range<usize>,
-    pub(crate) links: Vec<PageName>,
-}
-
-/// One planned overflow page.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct PlannedPage {
-    pub(crate) name: PageName,
-    pub(crate) content: PageContent,
+    pub(crate) children: Range<usize>,
+    pub(crate) api: Range<usize>,
+    pub(crate) tests: Range<usize>,
+    pub(crate) omitted_children: usize,
+    pub(crate) omitted_api: usize,
+    pub(crate) omitted_tests: usize,
 }
 
 /// The frozen page plan of one directory scope.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ScopePlan {
     router: PageContent,
-    /// Overflow pages in publication order: lowest level first, so a page is
-    /// always written before whatever links to it.
-    pages: Vec<PlannedPage>,
     over_budget: bool,
 }
 
 impl ScopePlan {
     /// Plans one scope against a body-byte budget.
     ///
-    /// Never fails. A record too large to fit anywhere gets its own page and
-    /// sets [`Self::is_over_budget`]; refusing instead would make one oversize
+    /// Never fails. A record too large to fit the page is omitted and sets
+    /// [`Self::is_over_budget`]; refusing instead would make one oversize
     /// signature block the whole repository's map from ever being written.
+    ///
+    /// The body it plans stays within `byte_budget` whenever any body can:
+    /// the only overrun left is the one no plan avoids, and it is flagged
+    /// rather than written in silence.
     pub(crate) fn build(scope: &ScopePath, records: Records<'_>, byte_budget: usize) -> Self {
-        let router_capacity = byte_budget.saturating_sub(render::router_overhead(scope));
-        let page_capacity = byte_budget.saturating_sub(render::page_overhead(scope));
-
-        if let Some(all) = fits_whole(records, router_capacity) {
-            return Self {
-                router: PageContent {
-                    records: all,
-                    links: Vec::new(),
-                },
-                pages: Vec::new(),
-                over_budget: false,
-            };
+        let capacity = byte_budget.saturating_sub(render::router_overhead(scope));
+        if fits_whole(records, capacity) {
+            return Self::complete(records);
         }
-
-        match Self::router_keeping_a_prefix(records, router_capacity, page_capacity) {
-            Some(plan) => plan,
-            None => Self::router_of_pure_navigation(records, router_capacity, page_capacity),
-        }
+        Self::truncate(records, capacity)
     }
 
-    /// True when some page holds one record that alone exceeds the budget.
+    /// True when no plan of this scope fits the budget.
+    ///
+    /// Distinct from ordinary truncation: a record that fits the page but not
+    /// its section's share is omitted and stated, and the scope is fine. Two
+    /// things land here instead. A record too large for the whole page still
+    /// has to be named, so the remainder line covers it. And a budget too
+    /// small for the remainder lines themselves has no plan at all — stating
+    /// what was dropped is not free, and a page that says nothing about its
+    /// own gaps is the one outcome this module will not produce. Both mean the
+    /// same thing to a reader, and the report says so.
     pub(crate) const fn is_over_budget(&self) -> bool {
         self.over_budget
     }
@@ -157,219 +153,214 @@ impl ScopePlan {
         &self.router
     }
 
-    pub(crate) fn pages(&self) -> &[PlannedPage] {
-        &self.pages
-    }
-
     /// The plan's contribution to `index_hash`.
     ///
-    /// The plan is hashed because it decides which files exist and what is in
-    /// them: two projections that pack the same records differently are not
-    /// interchangeable, and a reader that fetched page three of the old plan
-    /// must be able to tell.
+    /// The plan is hashed because it decides what is in the one file: two
+    /// projections that keep different prefixes of the same records are not
+    /// interchangeable.
     pub(crate) fn write_index_hash(&self, stream: &mut HashStream) {
         write_content_hash(&self.router, stream);
-        stream.count(self.pages.len());
-        for page in &self.pages {
-            stream.u32(page.name.level);
-            stream.u32(page.name.ordinal);
-            write_content_hash(&page.content, stream);
+    }
+
+    fn complete(records: Records<'_>) -> Self {
+        Self {
+            router: PageContent {
+                children: 0..records.children.len(),
+                api: 0..records.api.len(),
+                tests: 0..records.tests.len(),
+                omitted_children: 0,
+                omitted_api: 0,
+                omitted_tests: 0,
+            },
+            over_budget: false,
         }
     }
 
-    /// The router keeps the longest prefix of records it can, then links to the
-    /// level-0 pages holding the rest.
+    /// Each section gets an equal third of the capacity; unused thirds go to
+    /// `API`, then `Tests`, then `Children`.
     ///
-    /// How much it can keep depends on how many links it must carry, which
-    /// depends on how much it kept. The loop assumes the page count it found
-    /// last time; each unsettled attempt discovers strictly more pages than it
-    /// assumed, so it terminates in at most one pass per record.
+    /// Equal first so a child-heavy `tests/` still shows some API, and leftover
+    /// second so an API-heavy module is not capped at a third while its
+    /// `## Children` and `## Tests` sit empty. The leftover order is the
+    /// content order Radar names — public symbols, then tests, then
+    /// navigation.
     ///
-    /// `None` when a router holding no records still cannot carry its own
-    /// navigation — where the pure-navigation levels take over.
-    fn router_keeping_a_prefix(
-        records: Records<'_>,
-        router_capacity: usize,
-        page_capacity: usize,
-    ) -> Option<Self> {
-        let mut assumed_pages = 0;
-        loop {
-            let kept = greedy_prefix(records, 0, router_capacity, assumed_pages);
-            let (pages, over_budget) = pack(records, kept..records.len(), page_capacity, 0);
-            if pages.len() <= assumed_pages {
-                // The assumption held, so the prefix the router kept was sized
-                // against a link list at least as large as the real one.
-                let mut sizer = render::BodySizer::new(records);
-                for index in 0..kept {
-                    sizer.push(index);
-                }
-                if sizer.bytes_with_links(pages.len()) > router_capacity {
-                    return None;
-                }
-                return Some(Self {
-                    router: PageContent {
-                        records: 0..kept,
-                        links: pages.iter().map(|page| page.name).collect(),
-                    },
-                    pages,
-                    over_budget,
-                });
-            }
-            assumed_pages = pages.len();
-            if render::link_list_bytes(assumed_pages) > router_capacity {
-                return None;
-            }
+    /// The split is only a proposal. What has to fit is the page, so the three
+    /// sections are measured together afterwards and shrunk until they do.
+    fn truncate(records: Records<'_>, capacity: usize) -> Self {
+        let needed: [usize; 3] = SECTIONS
+            .map(|section| section_bytes(records, section, records.section_len(section), 0));
+        let equal = capacity / 3;
+        let mut alloc = needed.map(|need| need.min(equal));
+        let mut leftover = capacity.saturating_sub(alloc.iter().sum());
+        for index in LEFTOVER_ORDER {
+            let extra = needed[index].saturating_sub(alloc[index]);
+            let give = extra.min(leftover);
+            alloc[index] += give;
+            leftover -= give;
         }
-    }
 
-    /// The router holds nothing but links, adding levels until they fit.
-    ///
-    /// Each level packs the previous level's links into pages and links to
-    /// those instead. A level that does not reduce the count cannot help, and
-    /// stopping there leaves one over-budget router — visible in
-    /// [`super::TextValidation`] — rather than an unbounded tower of pages.
-    fn router_of_pure_navigation(
-        records: Records<'_>,
-        router_capacity: usize,
-        page_capacity: usize,
-    ) -> Self {
-        let (mut pages, mut over_budget) = pack(records, 0..records.len(), page_capacity, 0);
-        let mut all = pages.clone();
-        let mut level = 0_u32;
-        loop {
-            let names: Vec<PageName> = pages.iter().map(|page| page.name).collect();
-            if render::link_list_bytes(names.len()) <= router_capacity {
-                return Self {
-                    router: PageContent {
-                        records: 0..0,
-                        links: names,
-                    },
-                    pages: all,
-                    over_budget,
-                };
-            }
-            level += 1;
-            let grouped = pack_links(&names, page_capacity, level);
-            if grouped.len() >= pages.len() {
-                // Another level would not shrink anything. Publish what exists
-                // and let the report say the router is over budget.
+        let mut plans =
+            [0, 1, 2].map(|index| keep_prefix(records, SECTIONS[index], alloc[index], capacity));
+        let mut over_budget = plans.iter().any(|plan| plan.over_budget);
+
+        // A section that could not afford one record still spends a remainder
+        // line, and that line was never charged against the share that bought
+        // nothing — three sections in that position can outrun a capacity that
+        // fit none of them. The shares are what went wrong, so the page is
+        // what fixes it: give records back, least valuable section first,
+        // until the measured total fits.
+        while plans.iter().map(|plan| plan.bytes).sum::<usize>() > capacity {
+            let Some(index) = SHED_ORDER.into_iter().find(|&index| plans[index].kept > 0) else {
+                // Nothing left to give back. The remainder lines alone are the
+                // page and they do not fit, so no plan of this scope does.
                 over_budget = true;
-                return Self {
-                    router: PageContent {
-                        records: 0..0,
-                        links: names,
-                    },
-                    pages: all,
-                    over_budget,
-                };
-            }
-            all.extend(grouped.iter().cloned());
-            pages = grouped;
+                break;
+            };
+            plans[index].shrink(records, SECTIONS[index]);
+        }
+
+        Self {
+            router: PageContent {
+                children: 0..plans[0].kept,
+                api: 0..plans[1].kept,
+                tests: 0..plans[2].kept,
+                omitted_children: plans[0].omitted,
+                omitted_api: plans[1].omitted,
+                omitted_tests: plans[2].omitted,
+            },
+            over_budget,
         }
     }
 }
 
 fn write_content_hash(content: &PageContent, stream: &mut HashStream) {
-    stream.count(content.records.start);
-    stream.count(content.records.end);
-    stream.count(content.links.len());
-    for link in &content.links {
-        stream.u32(link.level);
-        stream.u32(link.ordinal);
-    }
+    stream.count(content.children.start);
+    stream.count(content.children.end);
+    stream.count(content.api.start);
+    stream.count(content.api.end);
+    stream.count(content.tests.start);
+    stream.count(content.tests.end);
+    stream.count(content.omitted_children);
+    stream.count(content.omitted_api);
+    stream.count(content.omitted_tests);
 }
 
-/// The whole record range when it fits in one page, otherwise `None`.
-fn fits_whole(records: Records<'_>, capacity: usize) -> Option<Range<usize>> {
-    let total = records.len();
-    (greedy_prefix(records, 0, capacity, 0) == total).then_some(0..total)
-}
-
-/// The longest run starting at `start` that fits, leaving room for `links`.
+/// Whether every record fits in one page with nothing omitted.
 ///
-/// The sizer starts empty even when `start` is not zero, because each page is
-/// measured on its own: a page that begins mid-file pays for that file's
-/// heading again, and that is exactly what the sizer reports.
-fn greedy_prefix(records: Records<'_>, start: usize, capacity: usize, links: usize) -> usize {
+/// A record never costs negative bytes, so the running total is highest once
+/// every record is on the page: one comparison at the end answers the same
+/// question as one per record.
+fn fits_whole(records: Records<'_>, capacity: usize) -> bool {
     let mut sizer = render::BodySizer::new(records);
-    let mut index = start;
-    while index < records.len() && sizer.would_fit(index, capacity, links) {
+    for index in 0..records.len() {
         sizer.push(index);
-        index += 1;
     }
-    index
+    sizer.bytes() <= capacity
 }
 
-/// Packs a record range into as few pages as greedy order allows.
+/// What one section's share of the capacity bought.
 ///
-/// Returns the pages and whether any of them holds a single record that does
-/// not fit on its own. Such a record is placed alone rather than dropped: an
-/// omitted signature is a wrong map, while an over-budget page is a true one
-/// that costs more to read.
-fn pack(
+/// Carries its own measured size, because the share is only a proposal: the
+/// page is checked, and shrunk, against the sum of the three.
+struct SectionPlan {
+    kept: usize,
+    omitted: usize,
+    /// Body bytes this section costs, remainder line included.
+    bytes: usize,
+    /// Whether this section's first record alone exceeds the whole page.
+    over_budget: bool,
+}
+
+impl SectionPlan {
+    /// Gives the last kept record back.
+    ///
+    /// Always cheaper than keeping it: counting one more omission grows the
+    /// remainder line by at most a digit, and no rendered record line is one
+    /// byte long. Dropping the last one drops the line entirely, since a
+    /// section that keeps nothing states its remainder in place of `_None._`.
+    fn shrink(&mut self, records: Records<'_>, section: Section) {
+        self.kept -= 1;
+        self.omitted += 1;
+        self.bytes = section_bytes(records, section, self.kept, self.omitted);
+    }
+}
+
+/// The longest prefix of `section` that fits in `budget`, and what it costs.
+///
+/// The sizer carries the prefix it has already measured from one candidate to
+/// the next, so this costs one rendered line per record rather than one per
+/// record *per candidate*. Only the remainder line has to be re-priced each
+/// time, because its digit count shrinks as the prefix grows.
+fn keep_prefix(
     records: Records<'_>,
-    range: Range<usize>,
-    capacity: usize,
-    level: u32,
-) -> (Vec<PlannedPage>, bool) {
-    let mut pages = Vec::new();
-    let mut over_budget = false;
-    let mut cursor = range.start;
-    while cursor < range.end {
-        let mut end = greedy_prefix(records, cursor, capacity, 0).min(range.end);
-        if end == cursor {
-            // Indivisible: one record wider than a whole page.
-            end = cursor + 1;
-            over_budget = true;
-        }
-        pages.push(PlannedPage {
-            name: PageName {
-                level,
-                ordinal: ordinal_of(pages.len()),
-            },
-            content: PageContent {
-                records: cursor..end,
-                links: Vec::new(),
-            },
-        });
-        cursor = end;
+    section: Section,
+    budget: usize,
+    page_capacity: usize,
+) -> SectionPlan {
+    let total = records.section_len(section);
+    if total == 0 {
+        return SectionPlan {
+            kept: 0,
+            omitted: 0,
+            bytes: 0,
+            over_budget: false,
+        };
     }
-    (pages, over_budget)
+    let start = records.section_start(section);
+    let mut sizer = render::BodySizer::new(records);
+
+    let mut first = sizer.clone();
+    first.push(start);
+    let over_budget = first.bytes() > page_capacity;
+
+    let mut kept = 0;
+    while kept < total {
+        let mut next = sizer.clone();
+        next.push(start + kept);
+        if next.bytes() + omission_cost(section, kept + 1, total - kept - 1) > budget {
+            break;
+        }
+        sizer = next;
+        kept += 1;
+    }
+    SectionPlan {
+        kept,
+        omitted: total - kept,
+        bytes: sizer.bytes() + omission_cost(section, kept, total - kept),
+        over_budget,
+    }
 }
 
-/// Packs page links into pages of links one level up.
-fn pack_links(names: &[PageName], capacity: usize, level: u32) -> Vec<PlannedPage> {
-    let mut pages = Vec::new();
-    let mut cursor = 0;
-    while cursor < names.len() {
-        let mut taken = 0;
-        while cursor + taken < names.len() && render::link_list_bytes(taken + 1) <= capacity {
-            taken += 1;
-        }
-        // One link that does not fit still has to go somewhere; the caller's
-        // no-reduction check turns that into an over-budget report.
-        let taken = taken.max(1);
-        pages.push(PlannedPage {
-            name: PageName {
-                level,
-                ordinal: ordinal_of(pages.len()),
-            },
-            content: PageContent {
-                records: 0..0,
-                links: names[cursor..cursor + taken].to_vec(),
-            },
-        });
-        cursor += taken;
+/// Body bytes `kept` records of this section add, including an omission line
+/// when `omitted` is not zero.
+fn section_bytes(records: Records<'_>, section: Section, kept: usize, omitted: usize) -> usize {
+    let mut sizer = render::BodySizer::new(records);
+    let start = records.section_start(section);
+    for index in start..start + kept {
+        sizer.push(index);
     }
-    pages
+    sizer.bytes() + omission_cost(section, kept, omitted)
 }
 
-/// Ordinals are eight decimal digits, so this is where a repository with more
-/// than a hundred million pages in one directory would stop being nameable.
-/// Saturating keeps the name unique-by-position rather than wrapping to a name
-/// another page already has.
-fn ordinal_of(index: usize) -> u32 {
-    u32::try_from(index).unwrap_or(u32::MAX).min(99_999_999)
+fn omission_cost(section: Section, kept: usize, omitted: usize) -> usize {
+    if omitted == 0 {
+        return 0;
+    }
+    let line = render::omission_line(omitted_kind(section), omitted).len() + 1;
+    if kept == 0 {
+        line.saturating_sub(render::EMPTY_SECTION.len() + 1)
+    } else {
+        line
+    }
+}
+
+const fn omitted_kind(section: Section) -> OmittedKind {
+    match section {
+        Section::Children => OmittedKind::Children,
+        Section::Api => OmittedKind::Api,
+        Section::Tests => OmittedKind::Tests,
+    }
 }
 
 #[cfg(test)]
@@ -391,50 +382,112 @@ mod tests {
         }
     }
 
-    #[test]
-    fn a_page_name_is_fixed_width() {
-        assert_eq!(
-            PageName {
-                level: 0,
-                ordinal: 7
-            }
-            .file_name(),
-            "MAP.rr-00000000-00000007.md"
-        );
-        assert_eq!(
-            PageName {
-                level: 0,
-                ordinal: 0
-            }
-            .file_name()
-            .len(),
-            PageName {
-                level: 12,
-                ordinal: 99_999_999
-            }
-            .file_name()
-            .len()
-        );
+    fn test(name: &str) -> TestRecord {
+        TestRecord {
+            path: format!("tests/{name}.rs"),
+            file_name: format!("{name}.rs"),
+            name: None,
+            anchor_name: None,
+            kind: None,
+            signature: None,
+            start_line: 1,
+        }
+    }
+
+    /// What the plan's own sizer says the rendered body costs.
+    fn planned_bytes(records: Records<'_>, content: &PageContent) -> usize {
+        section_bytes(
+            records,
+            Section::Children,
+            content.children.len(),
+            content.omitted_children,
+        ) + section_bytes(records, Section::Api, content.api.len(), content.omitted_api)
+            + section_bytes(
+                records,
+                Section::Tests,
+                content.tests.len(),
+                content.omitted_tests,
+            )
     }
 
     #[test]
-    fn a_flattened_range_splits_into_its_three_sections() {
+    fn a_flattened_range_resolves_into_its_section() {
         let children = [child("a"), child("b")];
         let all = records(&children);
         assert_eq!(all.at(0), Slot::Child(0));
         assert_eq!(all.at(1), Slot::Child(1));
-        let (children_range, api, tests) = all.split(&(1..2));
-        assert_eq!(children_range, 1..2);
-        assert!(api.is_empty());
-        assert!(tests.is_empty());
+        assert_eq!(all.section_len(Section::Children), 2);
+        assert_eq!(all.section_start(Section::Api), 2);
     }
 
     #[test]
     fn everything_fits_in_the_router_when_it_can() {
         let children = [child("a")];
         let plan = ScopePlan::build(&ScopePath::Root, records(&children), 250 * 4);
-        assert!(plan.pages().is_empty());
-        assert_eq!(plan.router().records, 0..1);
+        assert_eq!(plan.router().children, 0..1);
+        assert_eq!(plan.router().omitted_children, 0);
         assert!(!plan.is_over_budget());
+    }
+
+    #[test]
+    fn a_tight_budget_keeps_a_prefix_and_counts_the_rest() {
+        let children: Vec<ChildRecord> = (0..20)
+            .map(|index| child(&format!("dir{index:02}")))
+            .collect();
+        let plan = ScopePlan::build(&ScopePath::Root, records(&children), 80);
+        assert!(
+            plan.router().omitted_children > 0,
+            "twenty children fit a tiny budget"
+        );
+        assert_eq!(
+            plan.router().children.end + plan.router().omitted_children,
+            20
+        );
+        assert!(plan.router().api.is_empty());
+        assert!(plan.router().tests.is_empty());
+    }
+
+    /// A page either fits the budget it was planned against or says it could
+    /// not. Nothing in between: a body that quietly overran would make the
+    /// `budget` in its own frontmatter a claim the file disproves.
+    ///
+    /// Swept rather than sampled, because the failure lives at the budgets
+    /// where a section affords its remainder line but not one record — a
+    /// narrow band no hand-picked number reliably lands in.
+    #[test]
+    fn a_page_that_cannot_fit_its_budget_says_so() {
+        let children: Vec<ChildRecord> = (0..8)
+            .map(|index| child(&format!("child{index:02}")))
+            .collect();
+        let tests: Vec<TestRecord> = (0..8)
+            .map(|index| test(&format!("suite{index:02}")))
+            .collect();
+        let all = Records {
+            children: &children,
+            api: &[],
+            tests: &tests,
+        };
+
+        let overhead = render::router_overhead(&ScopePath::Root);
+        for budget in overhead..overhead + 512 {
+            let plan = ScopePlan::build(&ScopePath::Root, all, budget);
+            let capacity = budget - overhead;
+            let bytes = planned_bytes(all, plan.router());
+            assert!(
+                bytes <= capacity || plan.is_over_budget(),
+                "budget {budget}: a body of {bytes} bytes overran a capacity of \
+                 {capacity} without reporting it"
+            );
+            assert_eq!(
+                plan.router().children.end + plan.router().omitted_children,
+                children.len(),
+                "budget {budget}: children went unaccounted for"
+            );
+            assert_eq!(
+                plan.router().tests.end + plan.router().omitted_tests,
+                tests.len(),
+                "budget {budget}: tests went unaccounted for"
+            );
+        }
     }
 }

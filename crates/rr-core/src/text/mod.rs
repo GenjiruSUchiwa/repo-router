@@ -54,28 +54,54 @@ pub use validate::{
 /// or ordering changes incompatibly — that is, whenever a file written by the
 /// previous version would be misread rather than merely regenerated.
 ///
-/// Deliberately *not* bumped by #31, which widened the fact vocabulary and both
-/// binary schemas. #31 taught the symbol-record parser two more visibility
-/// labels, `protected` and `internal`, and that is a widening in one direction
-/// only: this version reads everything the previous one wrote. The reverse —
-/// an older binary meeting a file with a label it does not know — reaches
-/// `.rr/SYMBOLS.md` alone, because `MAP.md` carries no visibility label, and
-/// `validate::repairs_in_place` rewrites an unparseable `SYMBOLS.md` rather than
-/// reporting it. The tier-2 extractors emit both labels now — `protected` off a
-/// TypeScript member modifier, `internal` off a Python `_name` — so the
-/// widening is load bearing rather than anticipated, and this version still
-/// reads everything the previous one wrote.
-///
-/// Bumping instead would have cost what widening a *binary* schema does not.
-/// This number is stamped into every committed `MAP.md` and folded into
-/// `digest`, so a bump rewrites a file in every indexed directory of every
-/// repository and moves every `index_hash` and `api_hash` — for a grammar
-/// change no `MAP.md` can express. The day the rendered content of a map
-/// changes, that bump is right and cheap by comparison.
-pub const TEXT_FORMAT_VERSION: u32 = 1;
+/// #44 moved a scope from paginated `MAP.rr-*` overflow pages to one `MAP.md`
+/// that states what the budget dropped. A v1 binary meeting `+ N more … omitted`
+/// in `## API` reads it as a malformed record, so this is 2. v1 overflow pages
+/// stay readable: [`PageKind::Overflow`] keeps the v1 grammar, and
+/// `generated_hash` is verified under the format the file declares so the
+/// existing scan can unlink them.
+pub const TEXT_FORMAT_VERSION: u32 = 2;
 
-/// The default `tokens` ceiling for one rendered page body.
-pub const DEFAULT_MAP_BUDGET: u32 = 250;
+/// Older formats this build still reads, listed by [`LEGACY_FORMATS_FOR`].
+///
+/// Membership is a claim about the *current* grammar, not a courtesy owed to
+/// old files. v1 belongs here at v2 because v2 only added the omission line,
+/// which no v1 file contains: read under the v2 grammar, a v1 page still says
+/// exactly what v1 meant, which is what lets the scan unlink stale overflow
+/// pages instead of failing the run on them.
+///
+/// Nothing about that survives the next bump on its own. A v3 that re-spelled
+/// a record would parse every v1 file into the wrong records while still
+/// calling the format supported — a silent misreading, the failure the version
+/// exists to prevent. So the list is pinned to the version it was decided for
+/// and the assertion below stops the build until someone answers the question
+/// again for the new grammar. Emptying it is a legitimate answer.
+const LEGACY_READABLE_FORMATS: &[u32] = &[1];
+
+/// The [`TEXT_FORMAT_VERSION`] that [`LEGACY_READABLE_FORMATS`] was decided
+/// for.
+const LEGACY_FORMATS_FOR: u32 = 2;
+
+const _: () = assert!(
+    LEGACY_FORMATS_FOR == TEXT_FORMAT_VERSION,
+    "TEXT_FORMAT_VERSION moved. State which older formats the new grammar still \
+     reads correctly in LEGACY_READABLE_FORMATS, then set LEGACY_FORMATS_FOR to \
+     match — accepting the old list by default is how a v1 file gets misread \
+     under a grammar that was never checked against it."
+);
+
+/// The default `tokens` ceiling for one rendered `MAP.md` body.
+///
+/// A scope is one file at any budget. What does not fit is stated on that
+/// file, per section, rather than spilled onto overflow pages. 2000 is where
+/// this repository's own maps stop having a record that cannot fit; 250, the
+/// value this shipped with, held about three API records.
+///
+/// The unit stays `tokens` and the estimator stays four bytes. The budget is
+/// folded into `index_hash` and written into frontmatter, so every map is
+/// rewritten once, but it is absent from `api_hash`, the snapshot, and
+/// `discovery_digest`.
+pub const DEFAULT_MAP_BUDGET: u32 = 2000;
 
 /// The maximum size of a purpose slot's logical content.
 ///
@@ -216,9 +242,9 @@ mod tests {
             .unwrap();
         // Maps only, and every map in the generation: `.rr/SYMBOLS.md` lists
         // the same names, so counting it would let a kind pass this test while
-        // being absent from the artifact the test is named after. Overflow
-        // pages do count — twenty records do not fit a default budget, and a
-        // record pushed onto a second page is still rendered.
+        // being absent from the artifact the test is named after. Whether
+        // these twenty fit one file is a property of the default budget
+        // rather than of this test.
         //
         // Parsed back into records rather than searched as text. These names
         // nest — `kind_const` is a substring of `kind_constructor`, `kind_trait`
