@@ -18,7 +18,7 @@ use crate::walk::{WalkCfg, DEFAULT_EXCLUDES};
 pub use report::{
     render_refresh_json, render_refresh_text, render_status_json, render_status_text, GitLabel,
     RefreshCommand, RefreshReport, ReportedMode, SnapshotLabel, StatusReport,
-    REPORT_SCHEMA_VERSION,
+    REPORT_SCHEMA_VERSION, TAGS_COUNTER_LABEL, TAGS_RECOVERED_COUNTER_LABEL,
 };
 
 /// How much of the repository a refresh is allowed to skip.
@@ -178,10 +178,21 @@ impl DiscoveryIdentity {
         identity.number("max-files", walk.max_files.map_or(u64::MAX, as_u64));
 
         identity.number("build-version", u64::from(crate::index::BUILD_VERSION));
-        identity.number(
-            "extractor-version",
-            u64::from(crate::parser::EXTRACTOR_VERSION),
-        );
+        // One field per supported language rather than one global number, so a
+        // bump scoped to one language re-keys freshness exactly like it re-keys
+        // the fact cache.
+        let extractor_versions = crate::parser::Registry::supported()
+            .into_iter()
+            .map(|lang| {
+                format!(
+                    "{}={}",
+                    lang.as_str(),
+                    crate::parser::extractor_version(lang)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\u{1f}");
+        identity.field("extractor-versions", extractor_versions.as_bytes());
         identity.number("fact-schema", u64::from(crate::facts::FACT_SCHEMA_VERSION));
         identity.number("lexical-version", u64::from(crate::lex::LEXICAL_VERSION));
         identity.number(

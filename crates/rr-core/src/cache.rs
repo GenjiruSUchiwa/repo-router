@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use crate::facts::FACT_SCHEMA_VERSION;
 use crate::lang::Lang;
 use crate::oid::Oid;
-use crate::parser::EXTRACTOR_VERSION;
+use crate::parser::extractor_version;
 use crate::{Error, Result};
 
 /// Composite cache key identifying facts extracted from a specific file content.
@@ -30,7 +30,8 @@ pub struct CacheKey {
 }
 
 impl CacheKey {
-    /// Creates a new [`CacheKey`] stamped with current extractor and schema versions.
+    /// Creates a new [`CacheKey`] stamped with the language's extractor version
+    /// and the current schema version.
     ///
     /// This is the only public constructor for [`CacheKey`].
     #[must_use]
@@ -38,7 +39,7 @@ impl CacheKey {
         Self {
             oid,
             lang,
-            extractor: EXTRACTOR_VERSION,
+            extractor: extractor_version(lang),
             schema: FACT_SCHEMA_VERSION,
         }
     }
@@ -254,7 +255,10 @@ mod tests {
         let key = CacheKey::new(oid, Lang::Rust);
         assert_eq!(
             key.file_name(),
-            format!("{SHA1_HEX}-rust-{EXTRACTOR_VERSION}-{FACT_SCHEMA_VERSION}.bin")
+            format!(
+                "{SHA1_HEX}-rust-{}-{FACT_SCHEMA_VERSION}.bin",
+                extractor_version(Lang::Rust)
+            )
         );
     }
 
@@ -272,7 +276,8 @@ mod tests {
         let key = CacheKey::new(oid, Lang::Rust);
 
         let stale = cache.root.join(oid.shard_prefix()).join(format!(
-            "{SHA1_HEX}-rust-{EXTRACTOR_VERSION}-{}.bin",
+            "{SHA1_HEX}-rust-{}-{}.bin",
+            extractor_version(Lang::Rust),
             FACT_SCHEMA_VERSION - 1
         ));
         assert_ne!(

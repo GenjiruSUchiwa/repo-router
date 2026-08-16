@@ -52,7 +52,7 @@ fn status_json_carries_the_versioned_contract() {
 
     let value = json(&run(temp.path(), &["status", "--json"]));
 
-    assert_eq!(value["schema_version"], 1);
+    assert_eq!(value["schema_version"], 3);
     assert_eq!(value["command"], "status");
     // A generation writes committed maps, so it leaves the tree dirty until the
     // user commits them. `dirty` here is the artifacts, not stale work.

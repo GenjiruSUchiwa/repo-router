@@ -118,6 +118,19 @@ impl Lang {
         }
     }
 
+    /// The separator this language writes between qualified-name segments.
+    ///
+    /// This is the spelling `rr query` has to accept back, so the extractor
+    /// that builds `local_qualified` and the index that prefixes the module
+    /// path both read it from here rather than each hardcoding one.
+    #[must_use]
+    pub const fn qualified_separator(self) -> &'static str {
+        match self {
+            Self::Rust => "::",
+            _ => ".",
+        }
+    }
+
     /// Whether this repository-relative path is a test file by convention.
     ///
     /// This is a naming convention, not a compilation fact: nothing here opens

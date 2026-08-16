@@ -78,6 +78,14 @@ produce does not land. They are one additive bump away whenever a language that
 has them arrives — the same bump this section just showed costs a rebuild and
 nothing else.
 
+### What #32 landed
+
+The generic tags tier now ships with `tree-sitter-tags = 0.25.10` and the
+`tree-sitter-python = 0.25.0` harness grammar. `FACT_SCHEMA_VERSION` is 4,
+`SNAPSHOT_SCHEMA_VERSION` is 7, and `EXTRACTOR_VERSION` is 3. The refresh
+report exposes a `tags` counter, while maps publish the `syntax-tags` fidelity
+for files whose definitions came from `tags.scm`.
+
 ---
 
 ## 3. Graduated degradation is what makes it affordable

@@ -32,6 +32,32 @@ fn repo() -> TempDir {
 }
 
 #[test]
+fn a_map_for_a_tags_indexed_directory_has_a_populated_api_section() {
+    let temp = empty_repo();
+    write(
+        temp.path(),
+        "src/service.py",
+        "class Service:\n    def run(value):\n        return helper(value)\n",
+    );
+    commit_all(temp.path(), "python source");
+
+    let output = run(temp.path(), &["map"]);
+    assert_eq!(code(&output), 0, "{}", stderr(&output));
+    let map = read(temp.path(), "src/MAP.md");
+    assert!(map.contains("fidelity: \"syntax-tags\""), "{map}");
+    let api = map
+        .split("## API")
+        .nth(1)
+        .unwrap()
+        .split("## Tests")
+        .next()
+        .unwrap();
+    assert!(api.contains("Service"), "{map}");
+    assert!(api.contains("def run(value):"), "{map}");
+    assert!(!api.contains("_None._"), "{map}");
+}
+
+#[test]
 fn a_first_map_writes_the_whole_generation() {
     let temp = repo();
     let output = run(temp.path(), &["map"]);
@@ -100,8 +126,8 @@ fn running_again_touches_nothing() {
 ///
 /// Committing them first is what makes this worth asserting: the Git delta an
 /// incremental refresh consults now names every one of them. What keeps them
-/// out of the *index* is `walk::collected_lang`, tested there — today's
-/// language allowlist is Rust-only, so this alone would pass either way.
+/// out of the *index* is `walk::collected_lang`, tested there — the allowlist
+/// comes from the registry, so this alone would pass either way.
 #[test]
 fn generated_maps_never_re_enter_the_index() {
     let temp = repo();

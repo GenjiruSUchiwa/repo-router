@@ -1041,7 +1041,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1a791e6620676a875f362f3156ed213e73ca099a09bf992c18812abe65cc37b1"
 dependencies = [
  "bstr",
- "hashbrown 0.16.1",
+ "hashbrown 0.17.1",
 ]
 
 [[package]]
@@ -2077,7 +2077,10 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tree-sitter",
+ "tree-sitter-language",
+ "tree-sitter-python",
  "tree-sitter-rust",
+ "tree-sitter-tags",
  "unicode-ident",
  "unicode-normalization",
 ]
@@ -2410,6 +2413,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "009994f150cc0cd50ff54917d5bc8bffe8cad10ca10d81c34da2ec421ae61782"
 
 [[package]]
+name = "tree-sitter-python"
+version = "0.25.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6bf85fd39652e740bf60f46f4cda9492c3a9ad75880575bf14960f775cb74a1c"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
 name = "tree-sitter-rust"
 version = "0.24.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2417,6 +2430,19 @@ checksum = "439e577dbe07423ec2582ac62c7531120dbfccfa6e5f92406f93dd271a120e45"
 dependencies = [
  "cc",
  "tree-sitter-language",
+]
+
+[[package]]
+name = "tree-sitter-tags"
+version = "0.25.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0d0f6406e002baae5cc53e41a12c8ae582a8dc8237a1fd3a5f3edf9fa06be7d0"
+dependencies = [
+ "memchr",
+ "regex",
+ "streaming-iterator",
+ "thiserror",
+ "tree-sitter",
 ]
 
 [[package]]

@@ -1,0 +1,59 @@
+---
+source: crates/rr-core/tests/tags_fixture.rs
+expression: "to_snapshot(\"recovered.py\", &facts)"
+---
+path: recovered.py
+status: tags(parse_errors=true)
+defs:
+  - name: before
+    local_qualified: ~
+    kind: function
+    visibility: public
+    start_line: 1
+    end_line: 2
+    signature: "def before(value):"
+    signature_idents:
+      - def
+      - value
+    body_idents:
+      - return
+      - value
+    doc_idents: []
+    attribute_idents: []
+  - name: broken
+    local_qualified: ~
+    kind: function
+    visibility: public
+    start_line: 5
+    end_line: 6
+    signature: "def broken(:"
+    signature_idents:
+      - def
+    body_idents:
+      - return
+      - missing
+    doc_idents: []
+    attribute_idents: []
+  - name: after
+    local_qualified: ~
+    kind: function
+    visibility: public
+    start_line: 9
+    end_line: 10
+    signature: "def after(value):"
+    signature_idents:
+      - def
+      - value
+    body_idents:
+      - return
+      - helper
+      - value
+    doc_idents: []
+    attribute_idents: []
+references:
+  - name: missing
+    line: 6
+    owner: broken
+  - name: helper
+    line: 10
+    owner: after

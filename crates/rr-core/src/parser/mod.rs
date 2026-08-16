@@ -1,8 +1,10 @@
 //! Language extractors and extractor versioning.
 
 mod rust;
+mod tags;
 
 pub use rust::RustExtractor;
+pub use tags::{LanguageSpec, TagsExtractor};
 
 use std::collections::BTreeMap;
 
@@ -10,10 +12,26 @@ use crate::facts::{DegradedReason, Facts};
 use crate::lang::Lang;
 use crate::Result;
 
-/// Bump on ANY change to the pinned Tree-sitter runtime/grammar version,
-/// queries/rust.scm, capture interpretation, use-tree expansion,
-/// qualification, test detection, fallback scanning, or ordering.
-pub const EXTRACTOR_VERSION: u32 = 2;
+/// Per-language extractor versions.
+///
+/// Bump a language's version on ANY change to its pinned Tree-sitter runtime,
+/// tags/grammar version, language specification, capture interpretation,
+/// signature slicing, fallback scanning, qualification, test detection, or
+/// ordering. One version per language rather than one global constant, because
+/// `Lang` is already a cache-key field: a Python grammar bump must not
+/// invalidate every cached Rust fact.
+pub const RUST_EXTRACTOR_VERSION: u32 = 3;
+pub const PYTHON_EXTRACTOR_VERSION: u32 = 4;
+
+/// The extractor version for `lang`, `0` when rr has no extractor for it.
+#[must_use]
+pub const fn extractor_version(lang: Lang) -> u32 {
+    match lang {
+        Lang::Rust => RUST_EXTRACTOR_VERSION,
+        Lang::Python => PYTHON_EXTRACTOR_VERSION,
+        _ => 0,
+    }
+}
 
 const MAX_FALLBACK_BYTES: usize = 256 * 1024;
 const MAX_FALLBACK_IDENTIFIERS: usize = 16 * 1024;
@@ -122,12 +140,16 @@ type Builder = fn() -> Built;
 
 /// Each language beside the only builder allowed to fill it, so the lookup and
 /// [`Registry::supported`] cannot disagree.
-const EXTRACTORS: &[(Lang, Builder)] = &[(Lang::Rust, build_rust)];
+const EXTRACTORS: &[(Lang, Builder)] = &[(Lang::Rust, build_rust), (Lang::Python, build_python)];
 
 fn build_rust() -> Built {
     RustExtractor::new()
         .map(|extractor| Box::new(extractor) as Box<dyn Extractor>)
         .map_err(|error| error.to_string())
+}
+
+fn build_python() -> Built {
+    TagsExtractor::new(&tags::PYTHON).map(|extractor| Box::new(extractor) as Box<dyn Extractor>)
 }
 
 /// One lazily built extractor per supported language, keyed by [`Lang`].
@@ -216,8 +238,8 @@ mod tests {
         assert!(!truncated);
     }
     #[test]
-    fn supported_lists_only_rust() {
-        assert_eq!(Registry::supported(), vec![Lang::Rust]);
+    fn supported_lists_registered_extractors() {
+        assert_eq!(Registry::supported(), vec![Lang::Rust, Lang::Python]);
     }
 
     #[test]
@@ -244,7 +266,18 @@ mod tests {
     #[test]
     fn for_lang_returns_none_for_an_unsupported_language() {
         let mut registry = Registry::new();
-        assert!(registry.for_lang(Lang::Python).is_none());
+        assert!(registry.for_lang(Lang::Lua).is_none());
+    }
+
+    #[test]
+    fn every_supported_language_has_an_extractor_version() {
+        for lang in Registry::supported() {
+            assert!(
+                extractor_version(lang) > 0,
+                "{lang} has an extractor but no extractor version"
+            );
+        }
+        assert_eq!(extractor_version(Lang::Lua), 0);
     }
 
     #[test]

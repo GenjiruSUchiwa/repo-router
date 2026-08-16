@@ -4,9 +4,11 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use rr_core::extractor_version;
 use rr_core::parser::RustExtractor;
-use rr_core::EXTRACTOR_VERSION;
-use rr_core::{DefKind, DegradedReason, Facts, ParseStatus, ReferenceKind, FACT_SCHEMA_VERSION};
+use rr_core::{
+    DefKind, DegradedReason, Facts, Lang, ParseStatus, ReferenceKind, FACT_SCHEMA_VERSION,
+};
 use serde::Serialize;
 
 #[derive(Debug, PartialEq, Serialize)]
@@ -93,6 +95,7 @@ fn status_label(status: ParseStatus) -> String {
             error_nodes,
             missing_nodes,
         } => format!("recovered(error={error_nodes},missing={missing_nodes})"),
+        ParseStatus::Tags { parse_errors } => format!("tags(parse_errors={parse_errors})"),
         ParseStatus::Degraded {
             reason,
             scanned_bytes,
@@ -489,6 +492,7 @@ fn a_rust_repository_indexes_identically_across_the_schema_bump() {
 
 #[test]
 fn versions_are_pinned() {
-    assert_eq!(EXTRACTOR_VERSION, 2);
-    assert_eq!(FACT_SCHEMA_VERSION, 3);
+    assert_eq!(extractor_version(Lang::Rust), 3);
+    assert_eq!(extractor_version(Lang::Python), 4);
+    assert_eq!(FACT_SCHEMA_VERSION, 4);
 }

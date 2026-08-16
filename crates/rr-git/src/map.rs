@@ -310,6 +310,8 @@ impl BuildContext {
             parses: worker.parses,
             complete: worker.complete,
             recovered: worker.recovered,
+            tags: worker.tags,
+            tags_recovered: worker.tags_recovered,
             degraded: worker.degraded,
             cache_hits: worker.cache_hits,
             cache_misses: worker.cache_misses,
