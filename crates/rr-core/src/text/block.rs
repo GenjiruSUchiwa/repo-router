@@ -35,11 +35,19 @@ pub const MALFORMED_MARKERS_REASON: &str =
 /// The contents a file should have, given what it has now.
 ///
 /// Unrelated lines are preserved exactly, in order; a missing block is appended
-/// after one blank line.
+/// after one blank line. A file that arrived with CRLF line endings leaves with
+/// them too — see [`apply_block`]'s newline note below.
 ///
 /// # Errors
 /// Returns [`TextError::ManagedIgnore`] for malformed or duplicated markers, and
 /// [`TextError::Newline`] for content this crate cannot write back.
+///
+/// # Newlines
+/// The surgery runs on LF internally, because every marker comparison and line
+/// split below assumes it. The file's own ending is restored on the way out:
+/// rewriting a CRLF file as LF would touch every byte outside the markers, and
+/// the contract these markers carry promises the opposite — "everything outside
+/// those markers is yours and is preserved exactly".
 pub fn apply_block(
     existing: Option<&str>,
     markers: BlockMarkers,
@@ -48,10 +56,22 @@ pub fn apply_block(
     let Some(existing) = existing else {
         return Ok(block.to_owned());
     };
-    let existing = super::parse::normalize_newlines_public(existing)?;
+    let normalized = super::parse::normalize_newlines_public(existing)?;
+    // That call refuses a file mixing the two endings, so a carriage return
+    // surviving here means every line in the original ended CRLF.
+    let was_crlf = existing.contains('\r');
+    let applied = apply_to_lf(&normalized, markers, block)?;
+    Ok(if was_crlf {
+        applied.replace('\n', "\r\n")
+    } else {
+        applied
+    })
+}
 
-    let begins = marker_lines(&existing, markers.begin);
-    let ends = marker_lines(&existing, markers.end);
+/// The surgery itself, on text whose lines are already known to end in LF.
+fn apply_to_lf(existing: &str, markers: BlockMarkers, block: &str) -> TextResult<String> {
+    let begins = marker_lines(existing, markers.begin);
+    let ends = marker_lines(existing, markers.end);
     if begins.len() > 1 || ends.len() > 1 {
         return Err(TextError::ManagedIgnore {
             reason: DUPLICATE_MARKERS_REASON,
@@ -59,7 +79,7 @@ pub fn apply_block(
     }
     let lines: Vec<&str> = existing.lines().collect();
     match (begins.first(), ends.first()) {
-        (None, None) => Ok(append_block(&existing, block)),
+        (None, None) => Ok(append_block(existing, block)),
         (Some(&begin), Some(&end)) if begin < end => {
             let mut out = String::new();
             for line in &lines[..begin] {
@@ -165,6 +185,51 @@ mod tests {
     #[test]
     fn an_absent_file_becomes_the_block_alone() {
         assert_eq!(apply_block(None, MARKERS, BLOCK).unwrap(), BLOCK);
+    }
+
+    /// The block promises that everything outside the markers is preserved
+    /// exactly. A file's line endings are part of "exactly": normalizing them
+    /// rewrites every line the user owns, and shows up as a whole-file diff.
+    #[test]
+    fn a_crlf_file_stays_crlf() {
+        let existing = "mine.txt\r\n";
+        let updated = apply_block(Some(existing), MARKERS, BLOCK).unwrap();
+        assert!(updated.starts_with("mine.txt\r\n"));
+        assert!(
+            !updated.contains('\n')
+                || updated.matches('\n').count() == updated.matches("\r\n").count(),
+            "every line feed must still be paired with a carriage return: {updated:?}"
+        );
+        assert!(updated.contains("# rr:begin local artifacts\r\n"));
+    }
+
+    /// The other direction, so the restoration cannot be a blanket conversion.
+    #[test]
+    fn an_lf_file_gains_no_carriage_returns() {
+        let updated = apply_block(Some("mine.txt\n"), MARKERS, BLOCK).unwrap();
+        assert!(!updated.contains('\r'), "{updated:?}");
+    }
+
+    /// Replacing an existing region in a CRLF file keeps the surrounding lines
+    /// byte-identical, carriage returns included.
+    #[test]
+    fn a_replaced_region_in_a_crlf_file_leaves_the_rest_untouched() {
+        let existing = format!(
+            "before\r\n{}\r\nafter\r\n",
+            BLOCK.trim_end().replace('\n', "\r\n")
+        );
+        let replacement = "# rr:begin local artifacts\n/NEW.md\n# rr:end local artifacts\n";
+        let updated = apply_block(Some(&existing), MARKERS, replacement).unwrap();
+        assert!(updated.starts_with("before\r\n"), "{updated:?}");
+        assert!(updated.ends_with("after\r\n"), "{updated:?}");
+        assert!(updated.contains("/NEW.md\r\n"));
+        assert!(!updated.contains("/SYMBOLS.md"));
+    }
+
+    /// A file mixing the two endings is still refused rather than picked apart.
+    #[test]
+    fn a_mixed_newline_file_is_still_refused() {
+        assert!(apply_block(Some("a\r\nb\n"), MARKERS, BLOCK).is_err());
     }
 
     #[test]

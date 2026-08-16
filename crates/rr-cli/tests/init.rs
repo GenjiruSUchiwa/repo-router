@@ -19,7 +19,7 @@ use rr_core::agent::{
 };
 use rr_core::text::{Digest, IGNORE_BEGIN_MARKER, IGNORE_END_MARKER, IGNORE_PATH};
 
-const RESTART_NOTE: &str = ".claude/skills/ is new; restart Claude Code so it picks up the skill.";
+const RESTART_NOTE: &str = "the rr skill is new; restart Claude Code so it picks it up.";
 
 const FOUR_TARGETS: [&str; 4] = [IGNORE_PATH, "AGENTS.md", "CLAUDE.md", SKILL_PATH];
 
@@ -414,8 +414,8 @@ fn init_reports_json_that_parses() {
     );
 }
 
-/// Amendment C: a newly created `.claude/skills/` is invisible until Claude
-/// Code is restarted, so the run that creates it has to say so.
+/// Amendment C: a newly installed skill is invisible until Claude Code is
+/// restarted, so the run that installs it has to say so.
 #[test]
 fn the_first_init_says_to_restart_claude_code() {
     let temp = empty_dir();
@@ -443,6 +443,94 @@ fn a_second_init_does_not_say_to_restart() {
         "a later init must not repeat the restart note: {}",
         stdout(&second)
     );
+}
+
+/// What the note is really about is the skill, not the directory holding it.
+///
+/// A repository that already keeps another skill under `.claude/skills/` still
+/// receives a brand new `rr` skill, and still has to restart to see it. Keying
+/// the note on the directory's absence silently skipped exactly this case.
+#[test]
+fn a_repository_with_another_skill_still_says_to_restart() {
+    let temp = empty_dir();
+    write(
+        temp.path(),
+        ".claude/skills/other/SKILL.md",
+        "# someone else\n",
+    );
+
+    let output = run(temp.path(), &["init"]);
+
+    assert_eq!(code(&output), 0);
+    assert!(
+        is_rr_written_skill(&read(temp.path(), SKILL_PATH)),
+        "the rr skill must have been installed beside the existing one"
+    );
+    assert!(
+        stdout(&output).contains(RESTART_NOTE),
+        "a new skill beside an existing one must still mention the restart: {}",
+        stdout(&output)
+    );
+    // The stranger's skill is none of rr's business.
+    assert_eq!(
+        read(temp.path(), ".claude/skills/other/SKILL.md"),
+        "# someone else\n"
+    );
+}
+
+/// A refused run installs no skill, so it has nothing to restart for.
+#[test]
+fn a_refused_skill_does_not_say_to_restart() {
+    let temp = empty_dir();
+    write(temp.path(), SKILL_PATH, "# mine\n");
+
+    let output = run(temp.path(), &["init"]);
+
+    assert_ne!(code(&output), 0, "a refused target is a non-zero exit");
+    assert!(
+        !stdout(&output).contains(RESTART_NOTE),
+        "a refusal must not advertise a skill that was never written: {}",
+        stdout(&output)
+    );
+    assert_eq!(read(temp.path(), SKILL_PATH), "# mine\n");
+}
+
+/// The contract promises the bytes outside the markers are preserved exactly,
+/// and a file's line endings are part of "exactly".
+#[test]
+fn a_crlf_agent_file_keeps_its_line_endings() {
+    let temp = empty_dir();
+    write(
+        temp.path(),
+        "AGENTS.md",
+        "# My notes\r\n\r\nSome prose.\r\n",
+    );
+
+    let output = run(temp.path(), &["init"]);
+    assert_eq!(code(&output), 0);
+
+    let after = read(temp.path(), "AGENTS.md");
+    assert!(
+        after.starts_with("# My notes\r\n\r\nSome prose.\r\n"),
+        "the user's own lines must come back byte-identical: {after:?}"
+    );
+    assert_eq!(
+        after.matches('\n').count(),
+        after.matches("\r\n").count(),
+        "rr must not leave a CRLF file with bare line feeds: {after:?}"
+    );
+}
+
+/// The other direction: an LF file must not acquire carriage returns.
+#[test]
+fn an_lf_agent_file_gains_no_carriage_returns() {
+    let temp = empty_dir();
+    write(temp.path(), "AGENTS.md", "# My notes\n\nSome prose.\n");
+
+    assert_eq!(code(&run(temp.path(), &["init"])), 0);
+
+    let after = read(temp.path(), "AGENTS.md");
+    assert!(!after.contains('\r'), "{after:?}");
 }
 
 /// `rr init` reads no Git state, so a directory that is not a repository is

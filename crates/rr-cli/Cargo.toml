@@ -16,6 +16,7 @@ rr-core = { path = "../rr-core" }
 rr-git = { path = "../rr-git" }
 anyhow = { workspace = true }
 clap = { workspace = true }
+tempfile = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }
