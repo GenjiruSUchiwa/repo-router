@@ -94,7 +94,13 @@ impl Refusal {
 
 struct Report {
     targets: Vec<(String, Outcome)>,
-    skills_dir_created: bool,
+    /// Whether the rr skill itself was installed for the first time.
+    ///
+    /// The restart note exists because Claude Code discovers a *skill* at
+    /// startup, so this asks about the skill and not about `.claude/skills/`:
+    /// a repository that already keeps another skill there still gets a brand
+    /// new `rr` one, and still has to restart to see it.
+    skill_created: bool,
 }
 
 impl Report {
@@ -151,11 +157,12 @@ pub fn run(args: &Args) -> anyhow::Result<u8> {
             apply_block(existing, CONTRACT_MARKERS, CONTRACT_BLOCK)
         }));
     }
-    let (skill_path, skill_outcome, skills_dir_created) = install_skill(&root);
+    let (skill_path, skill_outcome) = install_skill(&root);
+    let skill_created = skill_outcome == Outcome::Created;
     targets.push((skill_path, skill_outcome));
     let report = Report {
         targets,
-        skills_dir_created,
+        skill_created,
     };
 
     if args.json {
@@ -222,7 +229,7 @@ where
         return (reported, Outcome::Unchanged);
     }
     let created = existing.is_none();
-    if std::fs::write(&path, content.as_bytes()).is_err() {
+    if write_atomic(&path, content.as_bytes()).is_err() {
         return refused(Refusal::WriteFailed);
     }
     let outcome = if created {
@@ -280,19 +287,19 @@ fn resolve_existing_name(root: &Path, name: &str) -> PathBuf {
 
 /// Installs `SKILL.md`, refusing anything rr did not write.
 ///
-/// The boolean is whether this run created `.claude/skills/` *and* the skill
-/// write succeeded. Early refusals carry `false` so a restart note is never
-/// printed for a file that was not installed.
-fn install_skill(root: &Path) -> (String, Outcome, bool) {
+/// [`Outcome::Created`] is what the restart note keys on, so a refusal or an
+/// unchanged file never prints one: both mean this run installed no new skill
+/// for Claude Code to discover.
+fn install_skill(root: &Path) -> (String, Outcome) {
     let path = resolve_existing_name(root, agent::SKILL_PATH);
     let reported = reported_name(agent::SKILL_PATH, &path);
-    let refused = |reason| (reported.clone(), Outcome::Refused(reason), false);
+    let refused = |reason| (reported.clone(), Outcome::Refused(reason));
     let wanted = agent::skill_document();
 
     let existing = match std::fs::read(&path) {
         Ok(bytes) => {
             if bytes == wanted.as_bytes() {
-                return (reported, Outcome::Unchanged, false);
+                return (reported, Outcome::Unchanged);
             }
             match String::from_utf8(bytes) {
                 Ok(text) => Some(text),
@@ -309,13 +316,10 @@ fn install_skill(root: &Path) -> (String, Outcome, bool) {
         }
     }
 
-    // Amendment C: sampled *before* the directory is created, because that is
-    // the only moment the answer is still knowable.
-    let skills_dir_was_absent = !root.join(agent::SKILLS_ROOT).exists();
     if std::fs::create_dir_all(root.join(agent::SKILL_DIR)).is_err() {
         return refused(Refusal::WriteFailed);
     }
-    if std::fs::write(&path, wanted.as_bytes()).is_err() {
+    if write_atomic(&path, wanted.as_bytes()).is_err() {
         return refused(Refusal::WriteFailed);
     }
     let outcome = if existing.is_none() {
@@ -323,7 +327,45 @@ fn install_skill(root: &Path) -> (String, Outcome, bool) {
     } else {
         Outcome::Updated
     };
-    (reported, outcome, skills_dir_was_absent)
+    (reported, outcome)
+}
+
+/// Replaces a file's contents without ever leaving a half-written one behind.
+///
+/// [`std::fs::write`] truncates in place, so a crash between the truncate and
+/// the last byte leaves `AGENTS.md` or `CLAUDE.md` short — and most of what is
+/// in those files is prose rr does not own and cannot regenerate. This is the
+/// pattern `rr-core` already uses for the snapshot (`snapshot.rs:174`) and the
+/// fact cache (`cache.rs:212`): a unique temp file in the target's own
+/// directory, then a rename that either happens or does not.
+fn write_atomic(path: &Path, contents: &[u8]) -> std::io::Result<()> {
+    use std::io::Write as _;
+
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let mut temp = tempfile::NamedTempFile::new_in(parent)?;
+    temp.write_all(contents)?;
+    carry_mode(path, &temp)?;
+    temp.persist(path).map_err(|error| error.error)?;
+    Ok(())
+}
+
+/// Gives the replacement the mode the original had.
+///
+/// A temp file is created `0600`. These targets are files a repository commits
+/// and a human reads, so replacing one must not quietly narrow its permissions;
+/// a target that does not exist yet takes the mode a plain create would give.
+#[cfg(unix)]
+fn carry_mode(path: &Path, temp: &tempfile::NamedTempFile) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let mode = std::fs::metadata(path).map_or(0o644, |meta| meta.permissions().mode() & 0o777);
+    temp.as_file()
+        .set_permissions(std::fs::Permissions::from_mode(mode))
+}
+
+#[cfg(not(unix))]
+fn carry_mode(_path: &Path, _temp: &tempfile::NamedTempFile) -> std::io::Result<()> {
+    Ok(())
 }
 
 fn render_json(report: &Report) -> String {
@@ -392,10 +434,8 @@ fn render_text(report: &Report) -> String {
             "\n  note: AGENTS.md, CLAUDE.md and .claude/ carry the agent contract; commit them\n        if your team should share it.",
         );
     }
-    if report.skills_dir_created {
-        out.push_str(
-            "\n  note: .claude/skills/ is new; restart Claude Code so it picks up the skill.",
-        );
+    if report.skill_created {
+        out.push_str("\n  note: the rr skill is new; restart Claude Code so it picks it up.");
     }
     out
 }
