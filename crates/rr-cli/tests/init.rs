@@ -404,7 +404,11 @@ fn init_reports_json_that_parses() {
     assert_eq!(text.lines().count(), 1, "stdout is one JSON object");
 
     let report = json(&output);
-    assert_eq!(report["v"], 1);
+    assert_eq!(report["schema_version"], 1);
+    assert!(
+        report["v"].is_null(),
+        "the old one-letter key must be gone: {report}"
+    );
     assert_eq!(
         report["targets"]
             .as_array()

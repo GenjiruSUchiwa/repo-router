@@ -37,10 +37,11 @@ pub use lex::{
 };
 pub use oid::{HashAlgo, Oid, OidError};
 pub use refresh::{
-    render_refresh_json, render_refresh_text, render_status_json, render_status_text,
-    DiscoveryIdentity, FullReason, GitLabel, PlanDraft, RefreshCommand, RefreshError, RefreshMode,
-    RefreshOutcome, RefreshPlan, RefreshReport, ReportedMode, SnapshotLabel, StatusReport,
-    REPORT_SCHEMA_VERSION,
+    render_refresh_json, render_refresh_text, render_refresh_verbose, render_status_json,
+    render_status_text, DiscoveryIdentity, FullReason, GitLabel, PlanDraft, RefreshCommand,
+    RefreshError, RefreshMode, RefreshOutcome, RefreshPlan, RefreshReport, ReportDetail,
+    ReportedMode, RunReport, SnapshotLabel, StatusReport, REFRESH_SCHEMA_VERSION,
+    STATUS_SCHEMA_VERSION,
 };
 
 pub use parser::extractor_version;

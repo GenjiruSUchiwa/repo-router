@@ -16,9 +16,7 @@ use common::{git, git_add_and_commit, init_git_repo, write};
 use rr_core::cancel::CancelToken;
 use rr_core::parser::Registry;
 use rr_core::path::RelPath;
-use rr_core::refresh::{
-    FullReason, GitLabel, RefreshMode, RefreshOutcome, SnapshotLabel, StatusReport,
-};
+use rr_core::refresh::{FullReason, GitLabel, RefreshMode, SnapshotLabel, StatusReport};
 use rr_core::snapshot::SnapshotStore;
 use rr_core::walk::WalkCfg;
 use rr_git::plan::{plan_for, Published};
@@ -55,11 +53,9 @@ fn agrees_with_refresh(dir: &Path) -> StatusReport {
         .expect("refresh after status failed");
 
     if report.snapshot == SnapshotLabel::Fresh {
-        assert_eq!(
-            refreshed.outcome,
-            RefreshOutcome::Unchanged,
-            "status said fresh but refresh reported {:?}",
-            refreshed.outcome
+        assert!(
+            !refreshed.snapshot_updated,
+            "status said fresh but refresh republished the snapshot"
         );
         assert_eq!(
             refreshed.reparsed, 0,
@@ -509,9 +505,8 @@ fn a_symlink_that_becomes_a_source_file_is_indexed() {
 
     let report = refresh(temp.path(), 1, RefreshMode::Full, &CancelToken::new())
         .expect("full refresh failed");
-    assert_eq!(
-        report.outcome,
-        RefreshOutcome::Unchanged,
+    assert!(
+        !report.snapshot_updated,
         "the incremental snapshot disagrees with a full build of the same tree"
     );
 }

@@ -21,7 +21,7 @@ use rr_core::cancel::CancelToken;
 use rr_core::index::{ContentRepresentation, Snapshot};
 use rr_core::lang::Lang;
 use rr_core::path::RelPath;
-use rr_core::refresh::{RefreshMode, RefreshOutcome, RefreshPlan, RefreshReport, ReportedMode};
+use rr_core::refresh::{RefreshMode, RefreshPlan, RefreshReport, ReportedMode};
 use rr_core::snapshot::SnapshotStore;
 use rr_core::walk::discover;
 use rr_core::{FactCache, Oid};
@@ -165,11 +165,6 @@ impl PreparedRefresh {
     /// Returns I/O failures from the atomic replacement.
     pub fn publish(&mut self) -> Result<()> {
         self.report.snapshot_updated = self.store.publish(&self.envelope)?;
-        self.report.outcome = if self.report.snapshot_updated {
-            RefreshOutcome::Updated
-        } else {
-            RefreshOutcome::Unchanged
-        };
         Ok(())
     }
 

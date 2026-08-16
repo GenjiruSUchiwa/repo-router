@@ -5,17 +5,24 @@
 //! the summary must never be able to disagree about what happened.
 
 use crate::oid::Oid;
+use crate::text::{Conflict, SymbolsState, TextReport};
 
 use super::{FullReason, RefreshOutcome};
 
-/// Version of the `refresh`/`status` JSON contract.
+/// Version of the `rr refresh` / `rr map` JSON contract.
 ///
-/// #31 widened fact and snapshot schemas without changing this envelope:
-/// its counters never carried fact vocabulary. Version 2 adds the `tags`
-/// counter, which changes the serialized shape and therefore requires a bump.
-/// Version 3 adds `tags_recovered`, so a tags-tier file whose tree carried
-/// parse errors is countable apart from one that read cleanly.
-pub const REPORT_SCHEMA_VERSION: u32 = 3;
+/// One number per command surface, and this one covers both because they are
+/// one report. The rule for when it moves is `docs/json-contract.md`; the log
+/// of what each value meant is there too, not here, so that #14's surfaces read
+/// one page instead of three doc comments.
+pub const REFRESH_SCHEMA_VERSION: u32 = 4;
+
+/// Version of the `rr status` JSON contract.
+///
+/// Seeded at 3, not 1: 3 is what `rr status --json` published while it shared a
+/// constant with `refresh`, and a version that went backwards would be a
+/// stronger claim than any this split is making.
+pub const STATUS_SCHEMA_VERSION: u32 = 3;
 
 /// The one text spelling of the tags-tier counter.
 ///
@@ -84,8 +91,6 @@ impl ReportedMode {
 /// wildly different cost, and only these counters tell them apart.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize)]
 pub struct RefreshReport {
-    /// Whether a new snapshot was published.
-    pub outcome: RefreshOutcome,
     /// How much of the repository was rebuilt.
     pub mode: ReportedMode,
     /// Why a delta was abandoned, when one was requested.
@@ -121,88 +126,236 @@ pub struct RefreshReport {
     pub elapsed_ms: u64,
 }
 
-impl RefreshOutcome {
-    /// The published spelling, identical to the serde name.
+/// One run of `rr refresh` or `rr map`, both halves of it.
+///
+/// The renderers take this and nothing else. A renderer that took the snapshot
+/// half alone is how `--json` came to report `unchanged` while it rewrote every
+/// committed map; there is now no value a renderer can be handed that omits the
+/// other half.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RunReport {
+    /// What the snapshot pass did.
+    pub refresh: RefreshReport,
+    /// What the text-artifact pass did.
+    pub text: TextReport,
+}
+
+impl RunReport {
+    /// What the run did, taken as a whole.
+    ///
+    /// Refusal first: a run that refused wrote nothing, so no counter below it
+    /// can be non-zero, and saying `updated` about a repository that is exactly
+    /// as it was found would be the same failure in a new place.
     #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Unchanged => "unchanged",
-            Self::Updated => "updated",
+    pub fn outcome(&self) -> RefreshOutcome {
+        if !self.text.conflicts.is_empty() {
+            return RefreshOutcome::Refused;
         }
+        if self.refresh.snapshot_updated || self.text.changed() {
+            return RefreshOutcome::Updated;
+        }
+        RefreshOutcome::Unchanged
     }
 }
 
-/// Renders one refresh report as the single-line human summary.
+/// How much of a report the JSON object carries.
 ///
-/// Counters that are zero and had nothing to say are omitted, so the line
-/// stays about what happened rather than about what did not.
+/// An enum rather than a `bool` because `render_refresh_json(&run, command,
+/// true)` says nothing at the call site, and because the set is closed: there
+/// is no third answer that is not a new surface.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReportDetail {
+    /// Counters and conflicts.
+    Summary,
+    /// Those, and the per-path breakdown behind them.
+    Verbose,
+}
+
+/// Renders one run as the single-line human summary.
+///
+/// Counters that are zero and had nothing to say are omitted, so the line stays
+/// about what happened rather than about what did not. The text clause is
+/// appended here and not by the caller: a caller that could forget it is how
+/// `--json` came to omit it entirely.
 #[must_use]
-pub fn render_refresh_text(report: &RefreshReport, command: RefreshCommand) -> String {
-    let fallback = report.fallback_reason.map_or_else(String::new, |reason| {
+pub fn render_refresh_text(report: &RunReport, command: RefreshCommand) -> String {
+    let snapshot = &report.refresh;
+    let outcome = report.outcome();
+    let fallback = snapshot.fallback_reason.map_or_else(String::new, |reason| {
         format!(" (full fallback: {})", reason.as_text())
     });
 
     // `reparsed` is always present: it is the one counter whose absence would
     // be read as "the number is unknown" rather than "the number is zero".
-    let mut counters = vec![format!("{} reparsed", report.reparsed)];
-    match report.outcome {
+    let mut counters = vec![format!("{} reparsed", snapshot.reparsed)];
+    match outcome {
         // Nothing was published, so the interesting question is what it cost to
         // find that out — which is content reads, not cache hits.
         RefreshOutcome::Unchanged => {
-            counters.push(format!("{} content reads", report.content_reads));
+            counters.push(format!("{} content reads", snapshot.content_reads));
         }
         RefreshOutcome::Updated => {
-            counters.push(format!("{} cached", report.cached));
+            counters.push(format!("{} cached", snapshot.cached));
             counters.extend(
                 [
-                    (report.removed, "removed"),
-                    (report.renamed, "renamed"),
-                    (report.degraded, "degraded"),
-                    (report.tags, TAGS_COUNTER_LABEL),
-                    (report.tags_recovered, TAGS_RECOVERED_COUNTER_LABEL),
-                    (report.conflicted, "conflicted"),
-                    (report.cache_corrupt, "cache corrupt"),
+                    (snapshot.removed, "removed"),
+                    (snapshot.renamed, "renamed"),
+                    (snapshot.degraded, "degraded"),
+                    (snapshot.tags, TAGS_COUNTER_LABEL),
+                    (snapshot.tags_recovered, TAGS_RECOVERED_COUNTER_LABEL),
+                    (snapshot.conflicted, "conflicted"),
+                    (snapshot.cache_corrupt, "cache corrupt"),
                 ]
                 .into_iter()
                 .filter(|&(count, _)| count > 0)
                 .map(|(count, noun)| format!("{count} {noun}")),
             );
         }
+        RefreshOutcome::Refused => {
+            counters.push(format!("{} conflicting", report.text.conflicts.len()));
+        }
     }
 
     format!(
-        "rr {} — {}{fallback}, {} ({} ms)",
+        "rr {} — {}{fallback}, {} ({} ms){}",
         command.as_str(),
-        report.outcome.as_str(),
+        outcome.as_str(),
         counters.join(", "),
-        report.elapsed_ms
+        snapshot.elapsed_ms,
+        report.text.clause()
     )
 }
 
-/// Renders one refresh report as the compact JSON object.
+/// The counter breakdown behind the summary, and the paths behind the clause.
+///
+/// The third renderer of the same value, and it lives here for the reason the
+/// other two do: a per-path block assembled at the call site is a block the
+/// `--json` surface can be shipped without.
+#[must_use]
+pub fn render_refresh_verbose(report: &RunReport) -> String {
+    let snapshot = &report.refresh;
+    let mut out = format!(
+        "  plan: {} mode, {} changed, {} removed, {} renamed, {} conflicted\n  \
+         work: {} reparsed, {} cached, {} content reads, {} degraded, {} {}, {} {}\n  \
+         cache: {} corrupt\n  snapshot: {}",
+        snapshot.mode.as_str(),
+        snapshot.changed,
+        snapshot.removed,
+        snapshot.renamed,
+        snapshot.conflicted,
+        snapshot.reparsed,
+        snapshot.cached,
+        snapshot.content_reads,
+        snapshot.degraded,
+        snapshot.tags,
+        TAGS_COUNTER_LABEL,
+        snapshot.tags_recovered,
+        TAGS_RECOVERED_COUNTER_LABEL,
+        snapshot.cache_corrupt,
+        if snapshot.snapshot_updated {
+            "republished"
+        } else {
+            "unchanged on disk"
+        }
+    );
+    let paths = report.text.verbose_lines();
+    if !paths.is_empty() {
+        out.push('\n');
+        out.push_str(&paths);
+    }
+    out
+}
+
+/// Renders one run as the compact JSON object.
+///
+/// Every key is named here rather than inherited through `#[serde(flatten)]`,
+/// for a reason that is not style: a flattened struct makes the contract's key
+/// set whatever the struct's fields happen to be, so an unrelated edit to
+/// `RefreshReport` publishes a key. `docs/json-contract.md` is the rule this
+/// object follows.
 ///
 /// # Errors
 /// Returns a serialization error, which for this fixed shape means the
 /// serializer itself failed rather than the data being unrepresentable.
 pub fn render_refresh_json(
-    report: &RefreshReport,
+    report: &RunReport,
     command: RefreshCommand,
+    detail: ReportDetail,
 ) -> Result<String, serde_json::Error> {
-    // Serialized through one envelope so the schema version and command sit in
-    // the same object as the counters without `RefreshReport` having to carry
-    // CLI-shaped fields it would otherwise never use.
     #[derive(serde::Serialize)]
     struct Envelope<'report> {
         schema_version: u32,
         command: &'static str,
-        #[serde(flatten)]
-        report: &'report RefreshReport,
+        outcome: RefreshOutcome,
+        mode: ReportedMode,
+        fallback_reason: Option<FullReason>,
+        changed: u64,
+        reparsed: u64,
+        cached: u64,
+        cache_corrupt: u64,
+        content_reads: u64,
+        removed: u64,
+        renamed: u64,
+        degraded: u64,
+        tags: u64,
+        tags_recovered: u64,
+        conflicted: u64,
+        snapshot_updated: bool,
+        text: Text<'report>,
+        elapsed_ms: u64,
     }
 
+    /// The text half. `written_paths` and `removed_paths` are absent rather
+    /// than empty under `ReportDetail::Summary`: rr's own repository generates
+    /// hundreds of committed maps, and a report that carried every path on
+    /// every run would be more verbose by default than the human line is.
+    #[derive(serde::Serialize)]
+    struct Text<'report> {
+        written: u64,
+        unchanged: u64,
+        removed: u64,
+        symbols: SymbolsState,
+        pending_purposes: u32,
+        over_budget: &'report [String],
+        conflicts: &'report [Conflict],
+        #[serde(skip_serializing_if = "Option::is_none")]
+        written_paths: Option<&'report [String]>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        removed_paths: Option<&'report [String]>,
+    }
+
+    let verbose = detail == ReportDetail::Verbose;
+    let snapshot = &report.refresh;
     serde_json::to_string(&Envelope {
-        schema_version: REPORT_SCHEMA_VERSION,
+        schema_version: REFRESH_SCHEMA_VERSION,
         command: command.as_str(),
-        report,
+        outcome: report.outcome(),
+        mode: snapshot.mode,
+        fallback_reason: snapshot.fallback_reason,
+        changed: snapshot.changed,
+        reparsed: snapshot.reparsed,
+        cached: snapshot.cached,
+        cache_corrupt: snapshot.cache_corrupt,
+        content_reads: snapshot.content_reads,
+        removed: snapshot.removed,
+        renamed: snapshot.renamed,
+        degraded: snapshot.degraded,
+        tags: snapshot.tags,
+        tags_recovered: snapshot.tags_recovered,
+        conflicted: snapshot.conflicted,
+        snapshot_updated: snapshot.snapshot_updated,
+        text: Text {
+            written: report.text.written,
+            unchanged: report.text.unchanged,
+            removed: report.text.removed,
+            symbols: report.text.symbols,
+            pending_purposes: report.text.pending_purposes,
+            over_budget: &report.text.over_budget,
+            conflicts: &report.text.conflicts,
+            written_paths: verbose.then_some(report.text.written_paths.as_slice()),
+            removed_paths: verbose.then_some(report.text.removed_paths.as_slice()),
+        },
+        elapsed_ms: snapshot.elapsed_ms,
     })
 }
 
@@ -322,7 +475,7 @@ pub fn render_status_json(report: &StatusReport) -> Result<String, serde_json::E
     }
 
     serde_json::to_string(&Envelope {
-        schema_version: REPORT_SCHEMA_VERSION,
+        schema_version: STATUS_SCHEMA_VERSION,
         command: "status",
         report,
     })

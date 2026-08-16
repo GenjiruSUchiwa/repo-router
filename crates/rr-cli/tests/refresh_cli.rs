@@ -11,7 +11,7 @@ mod common;
 use serde_json::Value;
 use tempfile::TempDir;
 
-use common::{code, commit_all, empty_repo, json, run, stdout, write};
+use common::{code, commit_all, empty_repo, json, run, stderr, stdout, write};
 
 /// A repository with one committed source file and no snapshot.
 fn repo() -> TempDir {
@@ -175,6 +175,8 @@ fn every_json_report_is_exactly_one_line() {
         vec!["status", "--json"],
         vec!["refresh", "--json"],
         vec!["map", "--json"],
+        vec!["refresh", "--json", "--verbose"],
+        vec!["map", "--json", "--verbose"],
     ] {
         let text = stdout(&run(temp.path(), &args));
         assert!(text.ends_with('\n'), "{args:?} did not terminate its line");
@@ -184,4 +186,135 @@ fn every_json_report_is_exactly_one_line() {
             "{args:?} emitted more than one object"
         );
     }
+
+    obstruct(&temp);
+    let refused = stdout(&run(temp.path(), &["map", "--json"]));
+    assert!(
+        refused.ends_with('\n'),
+        "a refusal did not terminate a line"
+    );
+    assert_eq!(refused.lines().count(), 1, "a refusal is one object too");
+}
+
+/// Leaves a file rr did not write at a reserved path.
+fn obstruct(temp: &TempDir) {
+    write(temp.path(), "MAP.md", "hand-written, not rr's\n");
+}
+
+#[test]
+fn refresh_json_reports_the_text_artifacts_it_wrote() {
+    let temp = repo();
+
+    let mapped = json(&run(temp.path(), &["map", "--json"]));
+    assert_eq!(mapped["schema_version"], 4);
+    assert_eq!(mapped["outcome"], "updated");
+    assert!(
+        mapped["text"]["written"].as_u64().unwrap_or_default() > 0,
+        "a first map writes committed artifacts: {mapped}"
+    );
+    assert_eq!(mapped["text"]["symbols"], "written");
+    assert_eq!(mapped["text"]["removed"], 0);
+    assert!(mapped["text"]["conflicts"]
+        .as_array()
+        .is_some_and(Vec::is_empty));
+
+    std::fs::remove_file(temp.path().join("MAP.md")).expect("failed to drop the root map");
+    let repaired = json(&run(temp.path(), &["refresh", "--json"]));
+    assert_eq!(
+        repaired["snapshot_updated"], false,
+        "the snapshot was already current: {repaired}"
+    );
+    assert_eq!(
+        repaired["outcome"], "updated",
+        "rewriting the root map is a change: {repaired}"
+    );
+    assert!(repaired["text"]["written"].as_u64().unwrap_or_default() > 0);
+}
+
+#[test]
+fn a_conflict_is_parseable_and_still_exits_one() {
+    let temp = repo();
+    run(temp.path(), &["map"]);
+    obstruct(&temp);
+
+    let output = run(temp.path(), &["map", "--json"]);
+
+    assert_eq!(code(&output), 1, "a refusal is a failure");
+    let value = json(&output);
+    assert_eq!(value["outcome"], "refused");
+    assert_eq!(value["snapshot_updated"], false);
+    assert_eq!(value["text"]["written"], 0);
+    let conflicts = value["text"]["conflicts"]
+        .as_array()
+        .expect("conflicts is an array");
+    let first = conflicts.first().expect("at least one conflict");
+    assert_eq!(first["path"], "MAP.md");
+    assert_eq!(first["reason"], "not-owned");
+    assert!(
+        first["message"].as_str().is_some_and(|m| !m.is_empty()),
+        "the sentence a human reads is in the object too: {value}"
+    );
+}
+
+#[test]
+fn a_conflict_still_explains_itself_to_a_human() {
+    let temp = repo();
+    run(temp.path(), &["map"]);
+    obstruct(&temp);
+
+    let output = run(temp.path(), &["map"]);
+
+    assert_eq!(code(&output), 1);
+    let stderr = stderr(&output);
+    assert!(
+        stderr.contains("text artifacts conflict with the repository:"),
+        "got {stderr:?}"
+    );
+    assert!(stderr.contains("MAP.md"), "got {stderr:?}");
+    assert!(stderr.contains("nothing was written"), "got {stderr:?}");
+    assert!(stdout(&output).is_empty(), "a refusal reports no summary");
+}
+
+#[test]
+fn the_human_summary_line_is_unchanged_by_this_issue() {
+    let temp = repo();
+
+    let mapped = stdout(&run(temp.path(), &["map"]));
+    let line = mapped.lines().next().unwrap_or_default();
+    assert!(line.starts_with("rr map — updated,"), "got {line:?}");
+    assert!(
+        line.contains("; text: ")
+            && line.contains(" written, ")
+            && line.contains(" unchanged, ")
+            && line.contains(" removed, SYMBOLS.md written, ")
+            && line.ends_with(" purpose pending"),
+        "got {line:?}"
+    );
+
+    let again = stdout(&run(temp.path(), &["refresh"]));
+    let line = again.lines().next().unwrap_or_default();
+    assert!(line.starts_with("rr refresh — unchanged,"), "got {line:?}");
+    assert!(line.contains("SYMBOLS.md unchanged"), "got {line:?}");
+}
+
+#[test]
+fn verbose_output_is_the_same_facts_on_both_surfaces() {
+    let temp = repo();
+
+    let text = stdout(&run(temp.path(), &["map", "--verbose"]));
+    assert!(text.contains("  text write   MAP.md"), "got {text}");
+    assert!(text.contains("  snapshot: republished"), "got {text}");
+
+    std::fs::remove_file(temp.path().join("MAP.md")).expect("failed to drop the root map");
+    let value = json(&run(temp.path(), &["map", "--json", "--verbose"]));
+    let written = value["text"]["written_paths"]
+        .as_array()
+        .expect("verbose JSON carries the paths");
+    assert!(written.iter().any(|path| path == "MAP.md"), "got {value}");
+
+    let quiet = json(&run(temp.path(), &["refresh", "--json"]));
+    assert!(
+        quiet["text"]["written_paths"].is_null(),
+        "the summary object stays a summary: {quiet}"
+    );
 }

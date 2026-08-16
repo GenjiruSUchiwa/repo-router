@@ -16,9 +16,10 @@ use crate::path::RelPath;
 use crate::walk::{WalkCfg, DEFAULT_EXCLUDES};
 
 pub use report::{
-    render_refresh_json, render_refresh_text, render_status_json, render_status_text, GitLabel,
-    RefreshCommand, RefreshReport, ReportedMode, SnapshotLabel, StatusReport,
-    REPORT_SCHEMA_VERSION, TAGS_COUNTER_LABEL, TAGS_RECOVERED_COUNTER_LABEL,
+    render_refresh_json, render_refresh_text, render_refresh_verbose, render_status_json,
+    render_status_text, GitLabel, RefreshCommand, RefreshReport, ReportDetail, ReportedMode,
+    RunReport, SnapshotLabel, StatusReport, REFRESH_SCHEMA_VERSION, STATUS_SCHEMA_VERSION,
+    TAGS_COUNTER_LABEL, TAGS_RECOVERED_COUNTER_LABEL,
 };
 
 /// How much of the repository a refresh is allowed to skip.
@@ -30,15 +31,36 @@ pub enum RefreshMode {
     Full,
 }
 
-/// Whether a refresh published anything.
+/// What a refresh run did, taken as a whole.
+///
+/// Not the snapshot's verdict alone. A run that found the snapshot current and
+/// rewrote every committed map changed the repository, and a report that called
+/// that `unchanged` would be lying to the one consumer that cannot check —
+/// which is what issue #43 was. The snapshot's own verdict is
+/// [`RefreshReport::snapshot_updated`].
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum RefreshOutcome {
-    /// The snapshot on disk already described the repository.
+    /// Nothing on disk changed.
     #[default]
     Unchanged,
-    /// A new snapshot was published.
+    /// The snapshot, a text artifact, or both were written.
     Updated,
+    /// Committed files are in a state only a human can resolve, so the run
+    /// wrote nothing at all.
+    Refused,
+}
+
+impl RefreshOutcome {
+    /// The published spelling, identical to the serde name.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Unchanged => "unchanged",
+            Self::Updated => "updated",
+            Self::Refused => "refused",
+        }
+    }
 }
 
 /// Why an incremental refresh had to rebuild everything.

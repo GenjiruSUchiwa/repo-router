@@ -1041,6 +1041,10 @@ SOURCE REFUSED (not-text; no content returned): src/auth/token.rs is not UTF-8 t
 
 ## 16.2 JSON output (v1)
 
+This section describes `rr query` only. `docs/json-contract.md` is the authority
+for every shipped `--json` surface, including why `rr query` keeps the key `v`
+where the report surfaces publish `schema_version`.
+
 ```bash
 rr query "verify_token" --json
 ```

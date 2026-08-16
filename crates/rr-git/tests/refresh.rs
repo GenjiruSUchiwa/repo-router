@@ -781,9 +781,8 @@ fn a_repository_with_no_commits_settles_and_agrees() {
     assert_eq!(report.mode, ReportedMode::Incremental);
 
     let settled = refresh(temp.path(), RefreshMode::Incremental);
-    assert_eq!(
-        settled.outcome,
-        rr_core::refresh::RefreshOutcome::Unchanged,
+    assert!(
+        !settled.snapshot_updated,
         "an uncommitted repository that stopped changing has to stop reporting work"
     );
     assert_eq!(settled.reparsed, 0, "the no-op path must have been taken");

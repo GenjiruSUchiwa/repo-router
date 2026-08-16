@@ -240,9 +240,19 @@ pub struct InitTarget<'a> {
     pub reason: Option<&'a str>,
 }
 
+/// Version of the `rr init` JSON contract.
+///
+/// Seeded at 1, which is what the surface published under the key `v` between
+/// PR #50 and this change. The object did not change, only the key naming its
+/// version, so the number does not move. The rule is `docs/json-contract.md`:
+/// `v` belongs to `rr query` alone, because that key is pinned by a published
+/// schema at a stable `$id`. This surface has no such schema, so it moves to
+/// the spelling every other report uses rather than widening the exception.
+pub const INIT_SCHEMA_VERSION: u32 = 1;
+
 #[derive(Debug, serde::Serialize)]
 struct InitReport<'a> {
-    v: u32,
+    schema_version: u32,
     targets: &'a [InitTarget<'a>],
 }
 
@@ -252,10 +262,14 @@ struct InitReport<'a> {
 /// struct declares, are the serializer's problem rather than this function's.
 #[must_use]
 pub fn render_init_json(targets: &[InitTarget<'_>]) -> String {
-    let report = InitReport { v: 1, targets };
+    let report = InitReport {
+        schema_version: INIT_SCHEMA_VERSION,
+        targets,
+    };
     // A struct of `&str` has no map key, no non-finite float and no non-string
     // key, which are the only three things `to_string` can fail on.
-    serde_json::to_string(&report).unwrap_or_else(|_| String::from("{\"v\":1,\"targets\":[]}"))
+    serde_json::to_string(&report)
+        .unwrap_or_else(|_| String::from("{\"schema_version\":1,\"targets\":[]}"))
 }
 
 #[cfg(test)]

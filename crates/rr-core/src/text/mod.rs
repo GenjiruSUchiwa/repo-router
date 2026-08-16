@@ -6,7 +6,8 @@
 //! one thing back: the validated contents of their `purpose` slot.
 //!
 //! Submodules, in reading order: [`block`], [`digest`], [`encode`], [`model`],
-//! [`plan`], [`render`], [`parse`], [`purpose`], [`ignore`], [`validate`].
+//! [`plan`], [`render`], [`parse`], [`purpose`], [`ignore`], [`validate`],
+//! [`report`].
 //!
 //! # Where this reads issue #11 rather than quotes it
 //!
@@ -31,6 +32,7 @@ mod parse;
 mod plan;
 mod purpose;
 mod render;
+mod report;
 mod validate;
 
 pub use block::{apply_block, BlockMarkers, DUPLICATE_MARKERS_REASON, MALFORMED_MARKERS_REASON};
@@ -45,6 +47,7 @@ pub use parse::{
 };
 pub use purpose::{read_existing_purposes, ExistingPurposes};
 pub use render::{ArtifactKind, RenderedArtifactSet, RenderedFile};
+pub use report::{SymbolsState, TextReport};
 pub use validate::{
     stage_text_artifacts, validate_text_artifacts, validated_map_catalog, Conflict, ConflictReason,
     MapCatalog, MapIdentity, StagedText, TextValidation,
