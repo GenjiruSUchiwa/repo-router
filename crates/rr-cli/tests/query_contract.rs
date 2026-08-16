@@ -907,24 +907,31 @@ fn query_contract_source_never_reaches_candidates_or_no_match() {
     }
 }
 
-#[test]
-fn query_contract_an_oversized_anchor_reports_exactly_what_it_omitted() {
-    let repo = setup_test_repo();
+/// Rewrites `verify_token` as a 203-line function and re-indexes, returning the
+/// file's exact bytes.
+///
+/// The anchor is then past `MAX_SOURCE_LINES`, which is the only way to observe
+/// a truncated packet end to end. Shared because two tests need that packet and
+/// a second copy of the arithmetic is a second thing to keep in step with the
+/// budget.
+fn grow_token_past_the_line_budget(repo: &TempDir) -> String {
     let body = (0..200).fold(String::new(), |mut body, n| {
         use std::fmt::Write as _;
         let _ = writeln!(body, "    let v{n} = {n};");
         body
     });
     let long = format!("pub fn verify_token() -> bool {{\n{body}    true\n}}\n");
-    fs::write(token_path(&repo), long.as_bytes()).unwrap();
+    fs::write(token_path(repo), long.as_bytes()).unwrap();
     run_cmd(repo.path(), "git", &["add", "."]);
     run_cmd(repo.path(), "git", &["commit", "-m", "grow"]);
-    let map = Command::new(env!("CARGO_BIN_EXE_rr"))
-        .current_dir(repo.path())
-        .arg("map")
-        .output()
-        .unwrap();
-    assert!(map.status.success());
+    run_cmd(repo.path(), env!("CARGO_BIN_EXE_rr"), &["map"]);
+    long
+}
+
+#[test]
+fn query_contract_an_oversized_anchor_reports_exactly_what_it_omitted() {
+    let repo = setup_test_repo();
+    let long = grow_token_past_the_line_budget(&repo);
 
     let output = query(&repo, &["--json", "--source", "verify_token"]);
     let source = source_of(&output);
@@ -998,21 +1005,16 @@ fn query_contract_the_byte_count_is_the_last_header_line() {
     }
 
     // Truncated packet: same position relative to the fence.
-    let body = (0..200).fold(String::new(), |mut body, n| {
-        use std::fmt::Write as _;
-        let _ = writeln!(body, "    let v{n} = {n};");
-        body
-    });
-    let long = format!("pub fn verify_token() -> bool {{\n{body}    true\n}}\n");
-    fs::write(token_path(&repo), long.as_bytes()).unwrap();
-    run_cmd(repo.path(), "git", &["add", "."]);
-    run_cmd(repo.path(), "git", &["commit", "-m", "grow"]);
-    run_cmd(repo.path(), env!("CARGO_BIN_EXE_rr"), &["map"]);
+    grow_token_past_the_line_budget(&repo);
 
     let truncated = stdout_of(&query(&repo, &["--source", "verify_token"]));
     let (header, _) = truncated
         .split_once("---\n")
         .expect("truncated packet is fenced");
+    assert!(
+        header.contains("SOURCE TRUNCATED ("),
+        "this test only covers what it claims while the packet is truncated: {header:?}"
+    );
     assert!(
         header
             .lines()
