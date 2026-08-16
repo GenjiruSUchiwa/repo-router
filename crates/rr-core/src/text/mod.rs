@@ -53,6 +53,23 @@ pub use validate::{
 /// Bumped whenever parsing, canonicalization, escaping, hashing, page planning,
 /// or ordering changes incompatibly — that is, whenever a file written by the
 /// previous version would be misread rather than merely regenerated.
+///
+/// Deliberately *not* bumped by #31, which widened the fact vocabulary and both
+/// binary schemas. #31 taught the symbol-record parser two more visibility
+/// labels, `protected` and `internal`, and that is a widening in one direction
+/// only: this version reads everything the previous one wrote. The reverse —
+/// an older binary meeting a file with a label it does not know — reaches
+/// `.rr/SYMBOLS.md` alone, because `MAP.md` carries no visibility label, and
+/// `validate::repairs_in_place` rewrites an unparseable `SYMBOLS.md` rather than
+/// reporting it. No extractor emits either label yet in any case; #33 is what
+/// makes them reachable.
+///
+/// Bumping instead would have cost what widening a *binary* schema does not.
+/// This number is stamped into every committed `MAP.md` and folded into
+/// `digest`, so a bump rewrites a file in every indexed directory of every
+/// repository and moves every `index_hash` and `api_hash` — for a grammar
+/// change no `MAP.md` can express. The day the rendered content of a map
+/// changes, that bump is right and cheap by comparison.
 pub const TEXT_FORMAT_VERSION: u32 = 1;
 
 /// The default `tokens` ceiling for one rendered page body.
@@ -138,3 +155,113 @@ pub enum TextError {
 }
 
 type TextResult<T> = std::result::Result<T, TextError>;
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use crate::facts::{Def, DefKind, Facts, ParseStatus, Span, TestSignals, Visibility};
+    use crate::index::{ContentRepresentation, FileInput, SnapshotBuilder, SnapshotMeta};
+    use crate::lang::Lang;
+    use crate::oid::Oid;
+    use crate::path::RelPath;
+
+    /// Every kind reaches a rendered map.
+    ///
+    /// Written against `DefKind::ALL` rather than against a fixture, because a
+    /// fixture can only hold the kinds some language happens to produce today —
+    /// and #33 is about to add kinds no Rust fixture will ever contain. What
+    /// this rules out is a projection that groups by kind and drops the ones it
+    /// does not recognise: a definition rr indexed but no reader can find is
+    /// worse than one it never indexed, because nothing says it is missing.
+    #[test]
+    fn every_def_kind_renders_in_a_map() {
+        let mut defs = Vec::new();
+        for (index, kind) in DefKind::ALL.into_iter().enumerate() {
+            let line = u32::try_from(index).unwrap() + 1;
+            let start = u32::try_from(index).unwrap() * 32;
+            let span = Span::new(start, start + 16, line, line).unwrap();
+            let name = def_name(kind);
+            defs.push(Def {
+                signature: format!("{kind} {name}"),
+                name,
+                local_qualified: None,
+                kind,
+                visibility: Visibility::Public,
+                span,
+                signature_span: span,
+                signature_idents: Vec::new(),
+                body_idents: Vec::new(),
+                doc_idents: Vec::new(),
+                attribute_idents: Vec::new(),
+                test_signals: TestSignals::default(),
+            });
+        }
+        let facts = Facts::from_parts(defs, Vec::new(), Vec::new(), ParseStatus::Complete).unwrap();
+
+        let input = FileInput {
+            path: RelPath::new("src/kinds.rs").unwrap(),
+            oid: Oid::from_raw(blake3::hash(b"kinds").as_bytes()).unwrap(),
+            representation: ContentRepresentation::RawNoGit,
+            generated: false,
+            language: Lang::Rust,
+            parse_status: facts.status(),
+            facts,
+        };
+        let (snapshot, _) = SnapshotBuilder::new(SnapshotMeta::new(None, true, [0; 32]))
+            .build(vec![input])
+            .unwrap();
+
+        let rendered = TextProjection::from_snapshot(&snapshot, DEFAULT_MAP_BUDGET)
+            .unwrap()
+            .render(&ExistingPurposes::none())
+            .unwrap();
+        // Maps only, and every map in the generation: `.rr/SYMBOLS.md` lists
+        // the same names, so counting it would let a kind pass this test while
+        // being absent from the artifact the test is named after. Overflow
+        // pages do count — twenty records do not fit a default budget, and a
+        // record pushed onto a second page is still rendered.
+        //
+        // Parsed back into records rather than searched as text. These names
+        // nest — `kind_const` is a substring of `kind_constructor`, `kind_trait`
+        // of `kind_trait_method` — so a projection that dropped `Const` and
+        // `Trait` would satisfy a `contains` on the rendered bytes and fail
+        // nothing. Comparing records also makes the map's own grammar part of
+        // what this test proves.
+        let mut rendered_names: Vec<String> = Vec::new();
+        for file in rendered.files() {
+            if file.kind() == ArtifactKind::Symbols {
+                continue;
+            }
+            let map = parse_map(file.bytes()).unwrap();
+            // The record displays the qualified name; the kind is identified by
+            // its last segment, which is the name the def was built with.
+            rendered_names.extend(
+                map.api()
+                    .iter()
+                    .map(|record| record.name.rsplit("::").next().unwrap_or("").to_owned()),
+            );
+        }
+
+        // Before naming anything: every def produced exactly one record, so a
+        // kind that vanished cannot be hidden by a kind that rendered twice,
+        // and an empty parse cannot make the loop below vacuous.
+        assert_eq!(rendered_names.len(), DefKind::ALL.len());
+
+        for kind in DefKind::ALL {
+            // `Vec::contains`, comparing whole names — not `str::contains`,
+            // which is the substring search this assertion used to be and which
+            // the nesting above defeats.
+            assert!(
+                rendered_names.contains(&def_name(kind)),
+                "a {kind} definition reached the index and no map names it"
+            );
+        }
+    }
+
+    /// The definition name this test gives a kind, spelled once so the record it
+    /// builds and the record it looks for cannot drift apart.
+    fn def_name(kind: DefKind) -> String {
+        format!("kind_{}", kind.as_str().replace('-', "_"))
+    }
+}

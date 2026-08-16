@@ -17,7 +17,16 @@ use crate::{Error, Result};
 /// span later would mean opening a file the index has already spoken for — and
 /// two readings of the same declaration is exactly the second truth the text
 /// artifacts exist to rule out.
-pub const FACT_SCHEMA_VERSION: u32 = 2;
+///
+/// Version 3 widened the vocabulary from Rust's to a general one: new
+/// [`DefKind`], [`Visibility`], and [`ImportKind`] variants, a neutral
+/// [`TestSignals`] field, and [`DegradedReason::NoExtractor`]. Every change is
+/// additive, so a Rust file's facts are unchanged in *content* — but postcard
+/// writes enum variants positionally and structs field by field, so a version-2
+/// payload decodes its successor's `TestSignals` out of alignment. The version
+/// in the cache file name is what keeps the two apart: a stale entry is never
+/// found, never misread, and simply reparsed.
+pub const FACT_SCHEMA_VERSION: u32 = 3;
 
 /// A source range over one exact UTF-8 byte buffer.
 ///
@@ -206,6 +215,20 @@ impl LocalDefId {
 }
 
 /// Kind of a named definition extracted from source.
+///
+/// The vocabulary is general, not Rust's: a language keeps the variants that
+/// name its own constructs and ignores the rest. Rust never produces a `Class`;
+/// TypeScript never produces a `Trait`. Nothing here is a lowest common
+/// denominator, because a kind that had to fit every language would tell a
+/// reader nothing about any of them.
+///
+/// **New variants are appended, never inserted.** `def_key` uses this
+/// derived `Ord` as its final tiebreaker, so a variant slipped in among the
+/// existing ones would reorder two definitions that share a span — a
+/// content-identical repository whose facts no longer sort the same way.
+///
+/// A variant added here must also be added to [`DefKind::as_str`], which the
+/// compiler enforces, and to [`DefKind::ALL`], which it does not.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum DefKind {
@@ -222,9 +245,64 @@ pub enum DefKind {
     Static,
     Module,
     Macro,
+    /// A nominal type with members. TypeScript and Python `class`.
+    Class,
+    /// A named contract carrying no implementation. TypeScript `interface`.
+    ///
+    /// Distinct from [`DefKind::Trait`] on purpose: a trait may carry default
+    /// bodies and is implemented by name, an interface is satisfied
+    /// structurally, and a reader looking for one should not be handed the
+    /// other.
+    Interface,
+    /// A stored member of a type. A TypeScript class field, a Python class
+    /// attribute.
+    Field,
+    /// A member reached like a field and computed like a method. A TypeScript
+    /// getter or setter, a Python `@property`.
+    Property,
+    /// The member that builds an instance. A TypeScript `constructor`.
+    Constructor,
+    /// A named declaration scope that is not a file. A TypeScript `namespace`.
+    ///
+    /// [`DefKind::Module`] stays what Rust means by `mod`; a language that has
+    /// both spellings can tell them apart.
+    Namespace,
+    /// A rebindable binding. A TypeScript `const`/`let`, a Python module-level
+    /// assignment.
+    ///
+    /// [`DefKind::Const`] and [`DefKind::Static`] keep their Rust meanings,
+    /// which say more than `Variable` does and are not generalised away.
+    Variable,
 }
 
 impl DefKind {
+    /// Every kind, in declaration order.
+    ///
+    /// Exists so that a projection or a test can prove it handles all of them
+    /// rather than the handful its fixtures happen to contain.
+    pub const ALL: [Self; 20] = [
+        Self::Function,
+        Self::Method,
+        Self::TraitMethod,
+        Self::Struct,
+        Self::Enum,
+        Self::Union,
+        Self::Trait,
+        Self::TypeAlias,
+        Self::AssociatedType,
+        Self::Const,
+        Self::Static,
+        Self::Module,
+        Self::Macro,
+        Self::Class,
+        Self::Interface,
+        Self::Field,
+        Self::Property,
+        Self::Constructor,
+        Self::Namespace,
+        Self::Variable,
+    ];
+
     /// Stable kebab-case identifier matching the serde name.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
@@ -242,6 +320,13 @@ impl DefKind {
             Self::Static => "static",
             Self::Module => "module",
             Self::Macro => "macro",
+            Self::Class => "class",
+            Self::Interface => "interface",
+            Self::Field => "field",
+            Self::Property => "property",
+            Self::Constructor => "constructor",
+            Self::Namespace => "namespace",
+            Self::Variable => "variable",
         }
     }
 }
@@ -253,29 +338,55 @@ impl fmt::Display for DefKind {
 }
 
 /// Visibility modifier of a definition or import.
+///
+/// Rust's two spellings stay Rust's. A `pub(crate)` is not an `Internal` and a
+/// `pub(in path)` is not a `Restricted` with the path thrown away: generalising
+/// either one would lose the only detail that makes it worth recording.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Visibility {
     Private,
     Public,
+    /// Visible to the declaring type and its subtypes. TypeScript `protected`.
+    Protected,
+    /// Visible within its unit by convention rather than by modifier. A Python
+    /// `_name`, which PEP 8 makes a weak internal-use indicator — weaker than
+    /// the `__name` that mangles and so reads as [`Visibility::Private`].
+    Internal,
+    /// Rust `pub(crate)`.
     Crate,
+    /// Rust `pub(in path)`, carrying the path.
     Restricted(String),
 }
 
-/// Test-related signals derived from content attributes and `cfg` ancestry.
+/// Test-related signals derived from content attributes and enclosing scope.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct TestSignals {
     /// An attached outer attribute is a recognized test attribute.
+    ///
+    /// Already language-neutral in substance: a Rust `#[test]`, a Python
+    /// `@pytest.mark.parametrize`, and a Java `@Test` are the same claim
+    /// written three ways.
     pub explicit_attribute: bool,
     /// The definition or a content ancestor carries a lexical `cfg(test)` signal.
     pub inside_cfg_test: bool,
+    /// The definition sits inside something the language treats as a test
+    /// scope, without saying so on the definition itself.
+    ///
+    /// Separate from [`TestSignals::inside_cfg_test`] rather than a
+    /// reinterpretation of it: that field's name states a Rust mechanism and
+    /// keeps meaning exactly that. A TypeScript `describe(…)` block and a
+    /// Python `class Test…` are the same *kind* of signal, but they are not
+    /// `#[cfg(test)]`, and a reader who greps for the Rust name must not find
+    /// a TypeScript file.
+    pub inside_test_scope: bool,
 }
 
 impl TestSignals {
-    /// Returns true when either test signal is set.
+    /// Returns true when any test signal is set.
     #[must_use]
     pub const fn any(self) -> bool {
-        self.explicit_attribute || self.inside_cfg_test
+        self.explicit_attribute || self.inside_cfg_test || self.inside_test_scope
     }
 }
 
@@ -290,11 +401,54 @@ pub enum ReferenceKind {
 }
 
 /// Kind of an import clause.
+///
+/// Appended to rather than inserted into, for the reason [`DefKind`] gives:
+/// `import_key` uses this derived `Ord` as a tiebreaker.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ImportKind {
     Use,
     ExternCrate,
+    /// A whole module or its default binding. TypeScript `import x from "y"`,
+    /// Python `import os`.
+    Import,
+    /// Named leaves selected out of a module. Python `from x import y`,
+    /// TypeScript `import { y } from "x"` and `export { y } from "x"`.
+    From,
+    /// A module pulled in by call rather than by declaration. A `CommonJS`
+    /// `require("y")`, including TypeScript's `import x = require("y")`.
+    Require,
+}
+
+impl ImportKind {
+    /// Whether [`Import::path`] is a path *this index's resolver* can follow to
+    /// a definition it holds.
+    ///
+    /// Answered about the resolver, not about the language. `index::build`
+    /// splits a path on `::` and rejoins it onto the importing file's module
+    /// path, so `use` is the only kind it can follow today. A TypeScript
+    /// `./Button` or a Python `os.path` is one segment to that splitter, and one
+    /// segment gets pasted onto the importing module — `./Button` imported from
+    /// `ui` would be looked up as `ui::./Button`, or worse, `react` from `app`
+    /// would be looked up as `app::react` and *find* an unrelated local symbol
+    /// of that name. Unresolved is a true statement about what rr knows;
+    /// a resolution to the wrong definition is not.
+    ///
+    /// So the new kinds are false here until #33 brings both an extractor that
+    /// emits them and a resolver that knows their separators. Flipping a row on
+    /// is then a one-line change with that resolver's tests behind it, which is
+    /// the point of the seam.
+    ///
+    /// One predicate rather than a condition repeated at every resolution site:
+    /// the two sites in `index::build` disagreeing about which kinds resolve is
+    /// exactly how a symbol becomes reachable from one query and not another.
+    #[must_use]
+    pub const fn resolves_by_path(self) -> bool {
+        match self {
+            Self::Use => true,
+            Self::ExternCrate | Self::Import | Self::From | Self::Require => false,
+        }
+    }
 }
 
 /// Reason a file could not produce structural facts.
@@ -302,9 +456,40 @@ pub enum ImportKind {
 #[serde(rename_all = "kebab-case")]
 pub enum DegradedReason {
     InvalidUtf8,
+    /// The language's own parser was asked and returned nothing.
+    ///
+    /// A property of this file, reproducible from these bytes, and therefore
+    /// worth caching. Not to be confused with [`DegradedReason::NoExtractor`],
+    /// which the two shared until this vocabulary could tell them apart.
     ParserReturnedNone,
     SourceTooLarge,
     QueryMatchLimit,
+    /// rr has no extractor for this language.
+    ///
+    /// A statement about rr at this moment, not about the file. The bytes did
+    /// not change when the extractor landed, so facts carrying this reason must
+    /// never be cached: the run that gained the extractor would be served the
+    /// lexical-only entry the run before it wrote, and would have no way to
+    /// know it had been.
+    NoExtractor,
+}
+
+impl DegradedReason {
+    /// Whether facts degraded for this reason are worth keeping for a later run.
+    ///
+    /// Every reason but one describes the file, and the file is what the cache
+    /// is keyed on. [`DegradedReason::NoExtractor`] describes rr instead, and
+    /// rr is not in the key.
+    #[must_use]
+    pub const fn is_cacheable(self) -> bool {
+        match self {
+            Self::InvalidUtf8
+            | Self::ParserReturnedNone
+            | Self::SourceTooLarge
+            | Self::QueryMatchLimit => true,
+            Self::NoExtractor => false,
+        }
+    }
 }
 
 /// Outcome of extracting facts from one source buffer.
@@ -321,6 +506,21 @@ pub enum ParseStatus {
         scanned_bytes: u32,
         truncated: bool,
     },
+}
+
+impl ParseStatus {
+    /// Whether facts with this status may be written to the fact cache.
+    ///
+    /// The question is answered from the status itself rather than from which
+    /// branch produced it, so a caller cannot cache a `NoExtractor` degrade by
+    /// forgetting which arm it came from.
+    #[must_use]
+    pub const fn is_cacheable(self) -> bool {
+        match self {
+            Self::Complete | Self::Recovered { .. } => true,
+            Self::Degraded { reason, .. } => reason.is_cacheable(),
+        }
+    }
 }
 
 /// A named definition extracted from source.
@@ -835,6 +1035,25 @@ mod tests {
         Span::new(start, end, start_line, end_line).unwrap()
     }
 
+    /// Asserts that `T` has exactly `count` fieldless variants.
+    ///
+    /// Three enums in this file are covered by hand-written lists that the
+    /// compiler has no opinion about, so a variant added to one and forgotten in
+    /// the other would leave its test quietly weaker than it reads. postcard
+    /// writes a fieldless variant as its index, which makes the count checkable:
+    /// the last index a list covers must decode, and the next one must not.
+    fn assert_variant_count<T: serde::de::DeserializeOwned>(count: usize, listed: &str) {
+        let last = u8::try_from(count - 1).unwrap();
+        assert!(
+            postcard::from_bytes::<T>(&[last]).is_ok(),
+            "{listed} lists more variants than the enum has"
+        );
+        assert!(
+            postcard::from_bytes::<T>(&[last + 1]).is_err(),
+            "a variant was added to the enum and not to {listed}"
+        );
+    }
+
     fn sample_def(name: &str, start: u32, end: u32) -> Def {
         Def {
             name: name.to_string(),
@@ -947,7 +1166,39 @@ mod tests {
 
     #[test]
     fn def_kind_serde_matches_as_str_and_display() {
-        let kinds = [
+        for kind in DefKind::ALL {
+            let json = serde_json::to_string(&kind).unwrap();
+            assert_eq!(json, format!("\"{}\"", kind.as_str()));
+            assert_eq!(kind.to_string(), kind.as_str());
+            let back: DefKind = serde_json::from_str(&json).unwrap();
+            assert_eq!(back, kind);
+            let bytes = postcard::to_allocvec(&kind).unwrap();
+            let decoded: DefKind = postcard::from_bytes(&bytes).unwrap();
+            assert_eq!(decoded, kind);
+        }
+    }
+
+    /// `ALL` is the list every exhaustive walk trusts, and nothing but this
+    /// test stops it from silently going stale.
+    #[test]
+    fn def_kind_all_names_each_kind_once() {
+        let mut names: Vec<&str> = DefKind::ALL.iter().map(|kind| kind.as_str()).collect();
+        names.sort_unstable();
+        let unique = names.len();
+        names.dedup();
+        assert_eq!(names.len(), unique, "a kind is listed in ALL twice");
+        // Duplicate-freedom is only half of it: a kind missing from `ALL`
+        // weakens every ALL-driven test, including the one asserting that every
+        // kind reaches a map.
+        assert_variant_count::<DefKind>(DefKind::ALL.len(), "DefKind::ALL");
+    }
+
+    /// The pre-#31 kinds keep their relative order, because [`def_key`] breaks
+    /// span ties with it: an inserted variant would reorder two definitions
+    /// that start and end at the same byte.
+    #[test]
+    fn def_kind_order_is_append_only() {
+        let rust_kinds = [
             DefKind::Function,
             DefKind::Method,
             DefKind::TraitMethod,
@@ -962,13 +1213,168 @@ mod tests {
             DefKind::Module,
             DefKind::Macro,
         ];
-        for kind in kinds {
-            let json = serde_json::to_string(&kind).unwrap();
-            assert_eq!(json, format!("\"{}\"", kind.as_str()));
-            assert_eq!(kind.to_string(), kind.as_str());
-            let back: DefKind = serde_json::from_str(&json).unwrap();
-            assert_eq!(back, kind);
+        assert_eq!(DefKind::ALL[..rust_kinds.len()], rust_kinds);
+        assert!(rust_kinds.windows(2).all(|pair| pair[0] < pair[1]));
+        assert!(DefKind::ALL.windows(2).all(|pair| pair[0] < pair[1]));
+    }
+
+    #[test]
+    fn visibility_round_trips_including_the_widened_variants() {
+        let all = [
+            (Visibility::Private, "\"private\""),
+            (Visibility::Public, "\"public\""),
+            (Visibility::Protected, "\"protected\""),
+            (Visibility::Internal, "\"internal\""),
+            (Visibility::Crate, "\"crate\""),
+            (
+                Visibility::Restricted("super::inner".into()),
+                "{\"restricted\":\"super::inner\"}",
+            ),
+        ];
+        for (visibility, expected) in all {
+            let json = serde_json::to_string(&visibility).unwrap();
+            assert_eq!(json, expected);
+            let back: Visibility = serde_json::from_str(&json).unwrap();
+            assert_eq!(back, visibility);
+            let bytes = postcard::to_allocvec(&visibility).unwrap();
+            let decoded: Visibility = postcard::from_bytes(&bytes).unwrap();
+            assert_eq!(decoded, visibility);
         }
+    }
+
+    #[test]
+    fn import_kind_round_trips_and_says_which_paths_resolve() {
+        // Only `use` resolves, and deliberately: the resolver splits on `::`,
+        // which no other kind's path uses. See `ImportKind::resolves_by_path`.
+        let all = [
+            (ImportKind::Use, "\"use\"", true),
+            (ImportKind::ExternCrate, "\"extern-crate\"", false),
+            (ImportKind::Import, "\"import\"", false),
+            (ImportKind::From, "\"from\"", false),
+            (ImportKind::Require, "\"require\"", false),
+        ];
+        for (kind, expected, resolves) in all {
+            let json = serde_json::to_string(&kind).unwrap();
+            assert_eq!(json, expected);
+            let back: ImportKind = serde_json::from_str(&json).unwrap();
+            assert_eq!(back, kind);
+            assert_eq!(kind.resolves_by_path(), resolves, "{kind:?}");
+        }
+        assert!(ImportKind::Use < ImportKind::ExternCrate);
+        assert!(ImportKind::ExternCrate < ImportKind::Import);
+        assert_variant_count::<ImportKind>(all.len(), "the list above");
+    }
+
+    #[test]
+    fn degraded_reason_round_trips_and_only_no_extractor_is_uncacheable() {
+        let all = [
+            (DegradedReason::InvalidUtf8, "\"invalid-utf8\"", true),
+            (
+                DegradedReason::ParserReturnedNone,
+                "\"parser-returned-none\"",
+                true,
+            ),
+            (DegradedReason::SourceTooLarge, "\"source-too-large\"", true),
+            (
+                DegradedReason::QueryMatchLimit,
+                "\"query-match-limit\"",
+                true,
+            ),
+            (DegradedReason::NoExtractor, "\"no-extractor\"", false),
+        ];
+        for (reason, expected, cacheable) in all {
+            let json = serde_json::to_string(&reason).unwrap();
+            assert_eq!(json, expected);
+            let back: DegradedReason = serde_json::from_str(&json).unwrap();
+            assert_eq!(back, reason);
+            assert_eq!(reason.is_cacheable(), cacheable, "{reason:?}");
+        }
+        // A reason missing from the list is a reason nothing here asks
+        // `is_cacheable` about, and the answer it would inherit by default is
+        // the one that puts facts into the cache.
+        assert_variant_count::<DegradedReason>(all.len(), "the list above");
+    }
+
+    /// The two reasons #31 separated must stay separated on the wire, since the
+    /// whole point of adding one was that a reader can tell them apart.
+    #[test]
+    fn a_missing_extractor_and_a_failed_parse_are_different_facts() {
+        let no_extractor = Facts::degraded(Vec::new(), DegradedReason::NoExtractor, 0, false);
+        let parse_failure =
+            Facts::degraded(Vec::new(), DegradedReason::ParserReturnedNone, 0, false);
+        assert_ne!(no_extractor, parse_failure);
+        assert!(!no_extractor.status().is_cacheable());
+        assert!(parse_failure.status().is_cacheable());
+
+        let bytes = postcard::to_allocvec(&no_extractor).unwrap();
+        let back: Facts = postcard::from_bytes(&bytes).unwrap();
+        assert_eq!(back, no_extractor);
+    }
+
+    #[test]
+    fn the_neutral_test_signal_counts_without_claiming_cfg_test() {
+        let neutral = TestSignals {
+            explicit_attribute: false,
+            inside_cfg_test: false,
+            inside_test_scope: true,
+        };
+        assert!(neutral.any());
+        assert!(!neutral.inside_cfg_test, "a neutral scope is not cfg(test)");
+        assert!(!TestSignals::default().any());
+
+        let bytes = postcard::to_allocvec(&neutral).unwrap();
+        let back: TestSignals = postcard::from_bytes(&bytes).unwrap();
+        assert_eq!(back, neutral);
+    }
+
+    /// Every widened variant reaches the on-disk format through a whole `Facts`
+    /// value, not only on its own: a `Def` is what the cache actually stores.
+    #[test]
+    fn facts_round_trip_carries_every_widened_variant() {
+        let mut defs = Vec::new();
+        for (index, kind) in DefKind::ALL.into_iter().enumerate() {
+            let start = u32::try_from(index).unwrap() * 10;
+            let mut def = sample_def(kind.as_str(), start, start + 5);
+            def.kind = kind;
+            def.visibility = match index % 6 {
+                0 => Visibility::Private,
+                1 => Visibility::Public,
+                2 => Visibility::Protected,
+                3 => Visibility::Internal,
+                4 => Visibility::Crate,
+                _ => Visibility::Restricted("super".into()),
+            };
+            def.test_signals.inside_test_scope = index % 2 == 0;
+            defs.push(def);
+        }
+        let imports = [
+            ImportKind::Use,
+            ImportKind::ExternCrate,
+            ImportKind::Import,
+            ImportKind::From,
+            ImportKind::Require,
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(index, kind)| {
+            let start = 1000 + u32::try_from(index).unwrap();
+            Import {
+                kind,
+                path: format!("pkg{index}"),
+                alias: None,
+                is_public: false,
+                is_glob: false,
+                span: span(start, start + 1, 1, 1),
+                owner: None,
+            }
+        })
+        .collect();
+
+        let facts = Facts::from_parts(defs, Vec::new(), imports, ParseStatus::Complete).unwrap();
+        let bytes = postcard::to_allocvec(&facts).unwrap();
+        let back: Facts = postcard::from_bytes(&bytes).unwrap();
+        assert_eq!(back, facts);
+        assert_eq!(back.defs().len(), DefKind::ALL.len());
     }
 
     #[test]

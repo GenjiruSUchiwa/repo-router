@@ -258,6 +258,59 @@ mod tests {
         );
     }
 
+    /// An entry written under the previous fact schema is not served, and is
+    /// not reported corrupt either — it is simply not found, so the caller
+    /// reparses and the whole cache rebuilds itself one miss at a time.
+    ///
+    /// This is why #31's format break costs nothing: the schema version is in
+    /// the file name, so no migration code exists, and none is needed.
+    #[test]
+    fn a_stale_cache_from_the_previous_schema_triggers_a_full_rebuild() {
+        let temp = TempDir::new().unwrap();
+        let cache = FactCache::open(temp.path()).unwrap();
+        let oid = Oid::from_hex(SHA1_HEX).unwrap();
+        let key = CacheKey::new(oid, Lang::Rust);
+
+        let stale = cache.root.join(oid.shard_prefix()).join(format!(
+            "{SHA1_HEX}-rust-{EXTRACTOR_VERSION}-{}.bin",
+            FACT_SCHEMA_VERSION - 1
+        ));
+        assert_ne!(
+            stale.file_name(),
+            cache.path_for(&key).file_name(),
+            "the schema version has to be part of the name for any of this to work"
+        );
+        std::fs::create_dir_all(stale.parent().unwrap()).unwrap();
+        let previous = DummyFacts {
+            symbols: vec!["written_by_schema_2".to_string()],
+            imports: Vec::new(),
+        };
+        std::fs::write(&stale, postcard::to_allocvec(&previous).unwrap()).unwrap();
+
+        let outcome: CacheOutcome<DummyFacts> = cache.get(&key).unwrap();
+        assert_eq!(outcome, CacheOutcome::Miss);
+        assert_eq!(cache.stats().hits(), 0, "a stale entry was served");
+        assert_eq!(cache.stats().corrupt(), 0, "a stale entry was even opened");
+        assert_eq!(cache.stats().misses(), 1);
+
+        // Reparsing writes the entry this schema asks for beside — not over —
+        // the one the previous schema left, so no reader ever has to decide
+        // between them. Nothing reclaims the old file: there is no pruner in
+        // this workspace, and a bump strands every entry written before it
+        // until the cache directory is deleted. That is a disk cost, paid once
+        // per bump, and it is the price of the miss being unmistakable.
+        let rebuilt = DummyFacts {
+            symbols: vec!["written_by_schema_3".to_string()],
+            imports: Vec::new(),
+        };
+        cache.put(&key, &rebuilt).unwrap();
+        assert_eq!(
+            cache.get::<DummyFacts>(&key).unwrap(),
+            CacheOutcome::Hit(rebuilt)
+        );
+        assert!(stale.exists(), "the previous schema's entry was disturbed");
+    }
+
     #[test]
     fn open_creates_directory_structure_and_verifies_probe() {
         let temp = TempDir::new().unwrap();

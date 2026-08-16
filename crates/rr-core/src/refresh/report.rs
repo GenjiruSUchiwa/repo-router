@@ -9,6 +9,14 @@ use crate::oid::Oid;
 use super::{FullReason, RefreshOutcome};
 
 /// Version of the `refresh`/`status` JSON contract.
+///
+/// Deliberately *not* bumped by #31, which widened the fact vocabulary and
+/// bumped both the fact and snapshot schemas. This report holds counters and
+/// outcomes — `degraded` is a number, never a `DegradedReason` — so no
+/// `DefKind`, `Visibility`, `ImportKind`, or test signal has ever crossed into
+/// it, and nothing an existing consumer parses has changed shape. The day a
+/// reason or a kind does appear here, that is this contract's own versioning
+/// decision to make, separately and on purpose.
 pub const REPORT_SCHEMA_VERSION: u32 = 1;
 
 /// Which command produced a report.
