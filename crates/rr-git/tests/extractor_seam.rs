@@ -44,6 +44,101 @@ fn a_file_is_never_served_another_languages_facts() {
     assert_eq!(cache.stats().hits(), 0, "no entry was shared");
 }
 
+/// The sharper form of the test above, because here the collision is one a
+/// real repository produces rather than one a test has to contrive. `.ts` and
+/// `.tsx` are two grammars over one syntax: a file with no JSX in it is
+/// legal, identical bytes under both, and a plausible thing to find committed
+/// twice. They also share a query and differ only in the grammar it was
+/// compiled against, so nothing but the cache key can keep them apart.
+#[test]
+fn an_identical_file_in_two_languages_does_not_share_a_cache_entry() {
+    let root = tempfile::tempdir().unwrap();
+    // Deliberately JSX-free, so both grammars parse it and the two results are
+    // separated by the key rather than by one of them having failed.
+    let identical =
+        "export class Badge {\n    render(): string {\n        return \"x\";\n    }\n}\n";
+    write(root.path(), "badge.ts", identical);
+    write(root.path(), "badge.tsx", identical);
+
+    let cache = FactCache::open(root.path()).unwrap();
+    let mut worker = Worker::new(root.path());
+
+    let (typescript, _) = worker
+        .process(&source("badge.ts", Lang::TypeScript), &cache)
+        .unwrap();
+    let (tsx, _) = worker
+        .process(&source("badge.tsx", Lang::Tsx), &cache)
+        .unwrap();
+
+    assert_eq!(cache.stats().hits(), 0, "the two grammars shared an entry");
+    let typescript = typescript.unwrap().facts;
+    let tsx = tsx.unwrap().facts;
+    assert_eq!(typescript.defs().len(), 2);
+    assert_eq!(tsx.defs().len(), 2);
+
+    // Same bytes, same defs, and still two entries — which is the only thing
+    // that makes the *next* file, the one with JSX in it, come out right.
+    let (again, _) = worker
+        .process(&source("badge.tsx", Lang::Tsx), &cache)
+        .unwrap();
+    assert_eq!(
+        cache.stats().hits(),
+        1,
+        "the second read missed its own entry"
+    );
+    assert_eq!(again.unwrap().facts, tsx);
+}
+
+/// The companion to `an_unsupported_language_degrades_without_being_cached`,
+/// which proves the entry is not written. This proves it was worth not
+/// writing: the same OID, asked for again once rr has an extractor for it,
+/// comes back as a real parse rather than as the empty record rr stored when
+/// it had nothing to read the file with.
+///
+/// That is exactly what happens to every `.ts` file in every repository that
+/// was indexed before this branch.
+#[test]
+fn facts_made_without_an_extractor_are_never_cached() {
+    let root = tempfile::tempdir().unwrap();
+    let content = "class Service:\n    def run(self):\n        return helper()\n";
+    write(root.path(), "service.py", content);
+
+    let cache = FactCache::open(root.path()).unwrap();
+    let mut worker = Worker::new(root.path());
+
+    // Phase one: the same bytes, read as a language rr cannot parse.
+    let (unsupported, _) = worker
+        .process(&source("service.py", Lang::Lua), &cache)
+        .unwrap();
+    let unsupported = unsupported.unwrap().facts;
+    assert!(matches!(
+        unsupported.status(),
+        ParseStatus::Degraded {
+            reason: DegradedReason::NoExtractor,
+            ..
+        }
+    ));
+    assert!(unsupported.defs().is_empty());
+    let misses = cache.stats().misses();
+
+    // Phase two: the same bytes, and therefore the same OID, under a language
+    // that has one.
+    let (supported, _) = worker
+        .process(&source("service.py", Lang::Python), &cache)
+        .unwrap();
+    let supported = supported.unwrap().facts;
+    assert_eq!(cache.stats().hits(), 0, "the empty record was served back");
+    assert!(
+        cache.stats().misses() > misses,
+        "the second read did not reach the cache at all"
+    );
+    assert!(matches!(supported.status(), ParseStatus::Tags { .. }));
+    assert!(
+        supported.defs().iter().any(|def| def.name == "run"),
+        "the file rr can now read came back empty"
+    );
+}
+
 #[test]
 fn the_walk_allowlist_is_exactly_what_the_registry_supports() {
     let root = tempfile::tempdir().unwrap();
