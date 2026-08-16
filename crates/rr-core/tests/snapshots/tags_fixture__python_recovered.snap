@@ -8,6 +8,7 @@ defs:
   - name: before
     local_qualified: ~
     kind: function
+    visibility: public
     start_line: 1
     end_line: 2
     signature: "def before(value):"
@@ -18,9 +19,11 @@ defs:
       - return
       - value
     doc_idents: []
+    attribute_idents: []
   - name: broken
     local_qualified: ~
     kind: function
+    visibility: public
     start_line: 5
     end_line: 6
     signature: "def broken(:"
@@ -30,9 +33,11 @@ defs:
       - return
       - missing
     doc_idents: []
+    attribute_idents: []
   - name: after
     local_qualified: ~
     kind: function
+    visibility: public
     start_line: 9
     end_line: 10
     signature: "def after(value):"
@@ -44,6 +49,7 @@ defs:
       - helper
       - value
     doc_idents: []
+    attribute_idents: []
 references:
   - name: missing
     line: 6

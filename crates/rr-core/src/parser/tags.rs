@@ -1,6 +1,7 @@
 //! Generic facts extraction from a grammar's `queries/tags.scm`.
 
 use std::ops::Range;
+use std::sync::OnceLock;
 
 use tree_sitter_language::LanguageFn;
 use tree_sitter_tags::{TagsConfiguration, TagsContext};
@@ -30,33 +31,48 @@ pub struct LanguageSpec {
     pub kinds: &'static [(&'static str, DefKind)],
     /// Reference capture suffixes, without the `reference.` prefix.
     pub reference_kinds: &'static [(&'static str, ReferenceKind)],
-    pub visibility: Visibility,
-    pub separator: &'static str,
+    /// Visibility judged from the bare definition name — the only evidence a
+    /// tags query surfaces.
+    pub visibility: fn(&str) -> Visibility,
+    /// Whether one attribute identifier marks the definition as a test.
+    pub test_attribute: fn(&str) -> bool,
+    /// Whether an enclosing definition of this name is a test scope.
+    pub test_scope: fn(&str) -> bool,
+    /// The compiled tags query, shared by every worker that speaks this
+    /// language. Compiling it costs milliseconds that rayon would otherwise
+    /// repeat once per work split; only [`TagsContext`] stays per worker.
+    pub config: OnceLock<std::result::Result<TagsConfiguration, String>>,
 }
 
 /// Stateful generic tags extractor: one tags parser/context per worker.
 pub struct TagsExtractor {
     spec: &'static LanguageSpec,
-    config: TagsConfiguration,
+    config: &'static TagsConfiguration,
     context: TagsContext,
 }
 
 impl TagsExtractor {
-    /// Compiles and validates one language's tags query.
+    /// Compiles and validates one language's tags query, once per process.
     ///
     /// # Errors
     /// Returns a construction error when the query is invalid or contains a
     /// definition/reference capture with no kind mapping.
     pub fn new(spec: &'static LanguageSpec) -> std::result::Result<Self, String> {
-        let language: tree_sitter::Language = spec.language.into();
-        let config = TagsConfiguration::new(language, spec.tags_query, spec.locals_query)
-            .map_err(|error| error.to_string())?;
-        validate_kind_maps(spec, &config)?;
-        Ok(Self {
-            spec,
-            config,
-            context: TagsContext::new(),
-        })
+        let config = spec.config.get_or_init(|| {
+            let language: tree_sitter::Language = spec.language.into();
+            let config = TagsConfiguration::new(language, spec.tags_query, spec.locals_query)
+                .map_err(|error| error.to_string())?;
+            validate_kind_maps(spec, &config)?;
+            Ok(config)
+        });
+        match config {
+            Ok(config) => Ok(Self {
+                spec,
+                config,
+                context: TagsContext::new(),
+            }),
+            Err(message) => Err(message.clone()),
+        }
     }
 
     /// Extracts validated facts from exactly these bytes.
@@ -76,12 +92,12 @@ impl TagsExtractor {
         };
         let lines = LineIndex::new(content)?;
         let spec = self.spec;
-        let config = &self.config;
+        let config = self.config;
         let Ok((tags, parse_errors)) = self.context.generate_tags(config, content, None) else {
             return Ok(degraded_facts(content, DegradedReason::ParserReturnedNone));
         };
 
-        let mut defs = Vec::new();
+        let mut defs: Vec<(Def, Vec<Span>)> = Vec::new();
         let mut references = Vec::new();
         for item in tags {
             let Ok(tag) = item else {
@@ -98,23 +114,40 @@ impl TagsExtractor {
                     continue;
                 };
                 let span = span_for_range(&tag.range, &lines, source)?;
-                let (signature_span, signature, signature_idents) =
-                    signature_for(span, name, source, &lines)?;
-                let doc_idents = tag.docs.as_deref().map(scan_idents).unwrap_or_default();
-                defs.push(Def {
-                    name: name.to_owned(),
-                    local_qualified: None,
-                    kind,
-                    visibility: spec.visibility.clone(),
+                let header = header_for(
                     span,
-                    signature_span,
-                    signature,
-                    signature_idents,
-                    body_idents: Vec::new(),
-                    doc_idents,
-                    attribute_idents: Vec::new(),
-                    test_signals: TestSignals::default(),
-                });
+                    tag.name_range.start,
+                    name,
+                    tag.docs.is_some(),
+                    source,
+                    &lines,
+                )?;
+                let doc_idents = tag.docs.as_deref().map(scan_idents).unwrap_or_default();
+                let test_signals = TestSignals {
+                    explicit_attribute: header
+                        .attribute_idents
+                        .iter()
+                        .any(|ident| (spec.test_attribute)(ident)),
+                    inside_cfg_test: false,
+                    inside_test_scope: false,
+                };
+                defs.push((
+                    Def {
+                        name: name.to_owned(),
+                        local_qualified: None,
+                        kind,
+                        visibility: (spec.visibility)(name),
+                        span,
+                        signature_span: header.signature_span,
+                        signature: header.signature,
+                        signature_idents: header.signature_idents,
+                        body_idents: Vec::new(),
+                        doc_idents,
+                        attribute_idents: header.attribute_idents,
+                        test_signals,
+                    },
+                    header.exclusions,
+                ));
             } else {
                 let Some(kind) = reference_kind(spec, config, tag.syntax_type_id) else {
                     continue;
@@ -129,9 +162,10 @@ impl TagsExtractor {
             }
         }
 
-        defs.sort_by(|left, right| def_key(left).cmp(&def_key(right)));
-        defs.dedup_by(|left, right| def_key(left) == def_key(right));
-        assign_nesting(&mut defs, source, spec.separator);
+        defs.sort_by(|left, right| def_key(&left.0).cmp(&def_key(&right.0)));
+        defs.dedup_by(|left, right| def_key(&left.0) == def_key(&right.0));
+        let (mut defs, header_exclusions): (Vec<Def>, Vec<Vec<Span>>) = defs.into_iter().unzip();
+        assign_nesting(&mut defs, &header_exclusions, source, spec);
 
         references.sort_by(|left, right| reference_key(left).cmp(&reference_key(right)));
         let owners = OwnerIndex::new(&defs);
@@ -233,6 +267,14 @@ impl LineIndex {
             message: "line number exceeds u32::MAX",
         })
     }
+
+    /// The byte offset at which the line containing `offset` starts.
+    fn line_start(&self, offset: usize) -> usize {
+        let offset = u32::try_from(offset).unwrap_or(u32::MAX);
+        // `partition_point >= 1` because `starts[0]` is `0`.
+        let line = self.starts.partition_point(|start| *start <= offset);
+        self.starts[line - 1] as usize
+    }
 }
 
 fn span_for_range(range: &Range<usize>, lines: &LineIndex, source: &str) -> Result<Span> {
@@ -264,24 +306,53 @@ fn span_for_range(range: &Range<usize>, lines: &LineIndex, source: &str) -> Resu
     )
 }
 
-fn signature_for(
+/// The header of one tagged definition: its signature, its attached
+/// attributes, and the regions the body scan must skip.
+struct Header {
+    signature_span: Span,
+    signature: String,
+    signature_idents: Vec<String>,
+    attribute_idents: Vec<String>,
+    /// Regions the body scan must not read: attached attributes and the
+    /// captured documentation string. The signature span is excluded by the
+    /// caller, which already holds it.
+    exclusions: Vec<Span>,
+}
+
+fn header_for(
     span: Span,
+    name_start: usize,
     name: &str,
+    has_docs: bool,
     source: &str,
     lines: &LineIndex,
-) -> Result<(Span, String, Vec<String>)> {
-    let start = span.start_byte() as usize;
-    let end = span.end_byte() as usize;
-    let first_line_end = source
-        .get(start..end)
-        .and_then(|text| text.find('\n').map(|offset| start + offset))
-        .unwrap_or(end);
-    let mut signature_end = first_line_end.min(start.saturating_add(MAX_SIGNATURE_BYTES));
-    while signature_end > start && !source.is_char_boundary(signature_end) {
-        signature_end -= 1;
-    }
-    let signature_span = span_for_range(&(start..signature_end), lines, source)?;
-    let raw = source.get(start..signature_end).unwrap_or_default();
+) -> Result<Header> {
+    let span_start = span.start_byte() as usize;
+    let span_end = span.end_byte() as usize;
+    // The line that names the definition opens the header. Everything the span
+    // holds before that line is attached attributes — a decorated Python
+    // definition's span starts at its first decorator.
+    let line_start = lines.line_start(name_start).max(span_start);
+    let item_start = source
+        .get(line_start..span_end)
+        .and_then(|text| text.find(|character: char| !character.is_ascii_whitespace()))
+        .map_or(line_start, |offset| line_start + offset)
+        .max(span_start);
+
+    let mut exclusions = Vec::new();
+    let attribute_idents = if line_start > span_start {
+        exclusions.push(span_for_range(&(span_start..line_start), lines, source)?);
+        source
+            .get(span_start..line_start)
+            .map(scan_idents)
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+
+    let sig_end = signature_end(source, item_start, span_end);
+    let signature_span = span_for_range(&(item_start..sig_end), lines, source)?;
+    let raw = source.get(item_start..sig_end).unwrap_or_default();
     let signature = {
         let displayed = crate::facts::display_signature(raw);
         if displayed.is_empty() {
@@ -294,10 +365,123 @@ fn signature_for(
         .into_iter()
         .filter(|ident| ident != name)
         .collect();
-    Ok((signature_span, signature, signature_idents))
+
+    if has_docs {
+        if let Some(range) = docstring_range(source, sig_end, span_end) {
+            exclusions.push(span_for_range(&range, lines, source)?);
+        }
+    }
+
+    Ok(Header {
+        signature_span,
+        signature,
+        signature_idents,
+        attribute_idents,
+        exclusions,
+    })
 }
 
-fn assign_nesting(defs: &mut [Def], source: &str, separator: &str) {
+/// Where the declaration header ends: the first line break outside brackets
+/// and strings, so a parameter list wrapped across lines stays one signature.
+///
+/// When no such break exists before the cap — an unbalanced, malformed header —
+/// this falls back to the first line so the header cannot swallow the body.
+fn signature_end(source: &str, start: usize, span_end: usize) -> usize {
+    let cap = span_end.min(start.saturating_add(MAX_SIGNATURE_BYTES));
+    let bytes = source.as_bytes();
+    let mut depth = 0usize;
+    let mut quote: Option<u8> = None;
+    let mut first_newline = None;
+    let mut index = start;
+    while index < cap {
+        let byte = bytes[index];
+        if let Some(open) = quote {
+            match byte {
+                b'\\' => index += 1,
+                // A header never wraps inside a string; treat it as malformed.
+                b'\n' => {
+                    first_newline.get_or_insert(index);
+                    break;
+                }
+                _ if byte == open => quote = None,
+                _ => {}
+            }
+        } else {
+            match byte {
+                b'\'' | b'"' => quote = Some(byte),
+                b'(' | b'[' | b'{' => depth += 1,
+                b')' | b']' | b'}' => depth = depth.saturating_sub(1),
+                b'\n' => {
+                    first_newline.get_or_insert(index);
+                    if depth == 0 {
+                        return index;
+                    }
+                }
+                _ => {}
+            }
+        }
+        index += 1;
+    }
+    let mut end = first_newline.unwrap_or(cap);
+    while end > start && !source.is_char_boundary(end) {
+        end -= 1;
+    }
+    end
+}
+
+/// The byte range of the string literal that opens the body after `from` —
+/// the literal the tags query captured as documentation, which the body scan
+/// must therefore not read as body identifiers.
+///
+/// `None` leaves the body scan untouched, for spans so malformed that the text
+/// after the header is not a string literal after all.
+fn docstring_range(source: &str, from: usize, span_end: usize) -> Option<Range<usize>> {
+    let bytes = source.as_bytes();
+    let mut index = from;
+    while index < span_end && bytes[index].is_ascii_whitespace() {
+        index += 1;
+    }
+    let start = index;
+    // String prefixes such as `r`, `b`, `f`, `u`, alone or paired.
+    while index < span_end && bytes[index].is_ascii_alphabetic() {
+        index += 1;
+    }
+    if index >= span_end || index - start > 2 {
+        return None;
+    }
+    let open = bytes[index];
+    if open != b'"' && open != b'\'' {
+        return None;
+    }
+    let triple = bytes
+        .get(index..index + 3)
+        .is_some_and(|quotes| quotes[1] == open && quotes[2] == open);
+    if triple {
+        let needle = if open == b'"' { "\"\"\"" } else { "'''" };
+        let body = source.get(index + 3..span_end)?;
+        let close = body.find(needle)?;
+        return Some(start..index + 3 + close + 3);
+    }
+    let mut cursor = index + 1;
+    while cursor < span_end {
+        match bytes[cursor] {
+            b'\\' => cursor += 1,
+            b'\n' => return None,
+            byte if byte == open => return Some(start..cursor + 1),
+            _ => {}
+        }
+        cursor += 1;
+    }
+    None
+}
+
+fn assign_nesting(
+    defs: &mut [Def],
+    header_exclusions: &[Vec<Span>],
+    source: &str,
+    spec: &LanguageSpec,
+) {
+    let separator = spec.lang.qualified_separator();
     let mut order: Vec<usize> = (0..defs.len()).collect();
     order.sort_by(|left, right| {
         let left_span = defs[*left].span;
@@ -327,12 +511,20 @@ fn assign_nesting(defs: &mut [Def], source: &str, separator: &str) {
             defs[index].local_qualified = Some(segments.join(separator));
             direct_children[parent].push(defs[index].span);
         }
+        let inside_test_scope = stack
+            .iter()
+            .any(|ancestor| (spec.test_scope)(&defs[*ancestor].name));
+        if inside_test_scope {
+            defs[index].test_signals.inside_test_scope = true;
+        }
         stack.push(index);
     }
 
     for (index, def) in defs.iter_mut().enumerate() {
-        let mut exclusions = Vec::with_capacity(direct_children[index].len() + 1);
+        let mut exclusions =
+            Vec::with_capacity(1 + header_exclusions[index].len() + direct_children[index].len());
         exclusions.push(def.signature_span);
+        exclusions.extend(header_exclusions[index].iter().copied());
         exclusions.extend(direct_children[index].iter().copied());
         def.body_idents = scan_excluding(source, def.span, &exclusions);
     }
@@ -372,10 +564,37 @@ fn scan_excluding(source: &str, container: Span, excluded: &[Span]) -> Vec<Strin
     idents
 }
 
+/// PEP 8 as [`Visibility`] documents it: a `__mangled` name is private, a
+/// `_internal` name is a weak internal-use indicator, and a `__dunder__` name
+/// is the public protocol a class exposes.
+fn python_visibility(name: &str) -> Visibility {
+    let is_dunder = name.len() > 4 && name.starts_with("__") && name.ends_with("__");
+    if is_dunder {
+        Visibility::Public
+    } else if name.starts_with("__") {
+        Visibility::Private
+    } else if name.starts_with('_') {
+        Visibility::Internal
+    } else {
+        Visibility::Public
+    }
+}
+
+/// A decorator mentioning either standard test framework marks a test, the
+/// tags-tier reading of what `#[test]` states in Rust.
+fn python_test_attribute(ident: &str) -> bool {
+    ident == "pytest" || ident == "unittest"
+}
+
+/// pytest collects the methods of `Test*`-named classes.
+fn python_test_scope(name: &str) -> bool {
+    name.starts_with("Test")
+}
+
 pub(crate) static PYTHON: LanguageSpec = LanguageSpec {
     lang: Lang::Python,
     language: tree_sitter_python::LANGUAGE,
-    tags_query: tree_sitter_python::TAGS_QUERY,
+    tags_query: include_str!("queries/python.scm"),
     locals_query: "",
     kinds: &[
         ("constant", DefKind::Variable),
@@ -383,8 +602,10 @@ pub(crate) static PYTHON: LanguageSpec = LanguageSpec {
         ("function", DefKind::Function),
     ],
     reference_kinds: &[("call", ReferenceKind::Call)],
-    visibility: Visibility::Public,
-    separator: ".",
+    visibility: python_visibility,
+    test_attribute: python_test_attribute,
+    test_scope: python_test_scope,
+    config: OnceLock::new(),
 };
 
 #[cfg(test)]
@@ -400,6 +621,9 @@ mod tests {
         assert_eq!(lines.line_for(3).unwrap(), 1);
         assert_eq!(lines.line_for(4).unwrap(), 2);
         assert_eq!(lines.line_for(source.len()).unwrap(), 3);
+        assert_eq!(lines.line_start(0), 0);
+        assert_eq!(lines.line_start(3), 0);
+        assert_eq!(lines.line_start(5), 4);
         assert_eq!(
             span_for_range(&(0..4), &lines, source).unwrap().end_line(),
             1
@@ -429,8 +653,10 @@ mod tests {
             locals_query: "",
             kinds: &[],
             reference_kinds: &[],
-            visibility: Visibility::Public,
-            separator: ".",
+            visibility: python_visibility,
+            test_attribute: python_test_attribute,
+            test_scope: python_test_scope,
+            config: OnceLock::new(),
         };
         static INCOMPLETE: LanguageSpec = LanguageSpec {
             lang: Lang::Python,
@@ -439,8 +665,10 @@ mod tests {
             locals_query: "",
             kinds: &[],
             reference_kinds: &[],
-            visibility: Visibility::Public,
-            separator: ".",
+            visibility: python_visibility,
+            test_attribute: python_test_attribute,
+            test_scope: python_test_scope,
+            config: OnceLock::new(),
         };
         assert!(TagsExtractor::new(&ILLEGAL).is_err());
         assert!(TagsExtractor::new(&INCOMPLETE).is_err());
@@ -471,23 +699,106 @@ mod tests {
     }
 
     #[test]
-    fn tags_docs_are_scanned_into_doc_idents() {
-        static DOCUMENTED: LanguageSpec = LanguageSpec {
-            lang: Lang::Python,
-            language: tree_sitter_python::LANGUAGE,
-            tags_query: "(function_definition name: (identifier) @name body: (block) @doc) @definition.function",
-            locals_query: "",
-            kinds: &[("function", DefKind::Function)],
-            reference_kinds: &[],
-            visibility: Visibility::Public,
-            separator: ".",
-        };
-        let mut extractor = TagsExtractor::new(&DOCUMENTED).unwrap();
+    fn tags_docs_are_scanned_into_doc_idents_and_out_of_body_idents() {
+        let mut extractor = TagsExtractor::new(&PYTHON).unwrap();
         let facts = extractor
-            .extract(b"def documented():\n    return helper()\n")
+            .extract(
+                b"def documented():\n    \"\"\"Prose mentions widget.\"\"\"\n    return helper()\n",
+            )
             .unwrap();
         let documented = facts.defs().first().unwrap();
-        assert!(documented.doc_idents.iter().any(|ident| ident == "helper"));
+        assert!(documented.doc_idents.iter().any(|ident| ident == "widget"));
+        assert!(documented.body_idents.iter().any(|ident| ident == "helper"));
+        assert!(!documented.body_idents.iter().any(|ident| ident == "widget"));
+    }
+
+    #[test]
+    fn a_multi_line_header_is_one_signature_and_not_body() {
+        let mut extractor = TagsExtractor::new(&PYTHON).unwrap();
+        let facts = extractor
+            .extract(b"def configure(\n    host,\n    port,\n):\n    return host\n")
+            .unwrap();
+        let configure = facts.defs().first().unwrap();
+        assert_eq!(configure.signature, "def configure( host, port, ):");
+        assert!(configure
+            .signature_idents
+            .iter()
+            .any(|ident| ident == "host"));
+        assert!(configure
+            .signature_idents
+            .iter()
+            .any(|ident| ident == "port"));
+        assert!(!configure.body_idents.iter().any(|ident| ident == "port"));
+    }
+
+    #[test]
+    fn decorators_are_attributes_of_the_decorated_definition() {
+        let mut extractor = TagsExtractor::new(&PYTHON).unwrap();
+        let facts = extractor
+            .extract(
+                b"class Service:\n    @staticmethod\n    def run(value):\n        return value\n",
+            )
+            .unwrap();
+        let run = facts.defs().iter().find(|def| def.name == "run").unwrap();
+        assert!(run
+            .attribute_idents
+            .iter()
+            .any(|ident| ident == "staticmethod"));
+        assert_eq!(run.signature, "def run(value):");
+        assert!(!run.body_idents.iter().any(|ident| ident == "staticmethod"));
+        let service = facts
+            .defs()
+            .iter()
+            .find(|def| def.name == "Service")
+            .unwrap();
+        assert!(!service
+            .body_idents
+            .iter()
+            .any(|ident| ident == "staticmethod"));
+    }
+
+    #[test]
+    fn python_names_carry_their_conventional_visibility() {
+        let mut extractor = TagsExtractor::new(&PYTHON).unwrap();
+        let facts = extractor
+            .extract(
+                b"class Service:\n    def __init__(self):\n        pass\n    def __mangled(self):\n        pass\n    def _hidden(self):\n        pass\n    def run(self):\n        pass\n",
+            )
+            .unwrap();
+        let visibility_of = |name: &str| {
+            facts
+                .defs()
+                .iter()
+                .find(|def| def.name == name)
+                .unwrap()
+                .visibility
+                .clone()
+        };
+        assert_eq!(visibility_of("__init__"), Visibility::Public);
+        assert_eq!(visibility_of("__mangled"), Visibility::Private);
+        assert_eq!(visibility_of("_hidden"), Visibility::Internal);
+        assert_eq!(visibility_of("run"), Visibility::Public);
+    }
+
+    #[test]
+    fn python_test_conventions_set_test_signals() {
+        let mut extractor = TagsExtractor::new(&PYTHON).unwrap();
+        let facts = extractor
+            .extract(
+                b"import pytest\n\nclass TestService:\n    def test_run(self):\n        pass\n\n@pytest.fixture\ndef service():\n    return None\n\ndef plain():\n    pass\n",
+            )
+            .unwrap();
+        let signals_of = |name: &str| {
+            facts
+                .defs()
+                .iter()
+                .find(|def| def.name == name)
+                .unwrap()
+                .test_signals
+        };
+        assert!(signals_of("test_run").inside_test_scope);
+        assert!(signals_of("service").explicit_attribute);
+        assert!(!signals_of("plain").any());
     }
 
     #[test]

@@ -256,6 +256,7 @@ pub fn prepare(
     report.cache_corrupt = built.stats().cache_corrupt;
     report.degraded = built.stats().degraded;
     report.tags = built.stats().tags;
+    report.tags_recovered = built.stats().tags_recovered;
     report.content_reads += built.stats().clean_blob_reads + built.stats().filtered_raw_reads;
     // Derived before the inputs are consumed by assembly: this is the list of
     // claims the run has to stand behind.

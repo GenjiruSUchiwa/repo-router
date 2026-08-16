@@ -22,12 +22,14 @@ struct SnapshotDef {
     name: String,
     local_qualified: Option<String>,
     kind: String,
+    visibility: String,
     start_line: u32,
     end_line: u32,
     signature: String,
     signature_idents: Vec<String>,
     body_idents: Vec<String>,
     doc_idents: Vec<String>,
+    attribute_idents: Vec<String>,
 }
 
 #[derive(Debug, PartialEq, Serialize)]
@@ -84,12 +86,14 @@ fn to_snapshot(path: &str, facts: &Facts) -> SnapshotFile {
                 name: def.name.clone(),
                 local_qualified: def.local_qualified.clone(),
                 kind: def.kind.to_string(),
+                visibility: format!("{:?}", def.visibility).to_lowercase(),
                 start_line: def.span.start_line(),
                 end_line: def.span.end_line(),
                 signature: def.signature.clone(),
                 signature_idents: def.signature_idents.clone(),
                 body_idents: def.body_idents.clone(),
                 doc_idents: def.doc_idents.clone(),
+                attribute_idents: def.attribute_idents.clone(),
             })
             .collect(),
         references: facts
@@ -132,7 +136,7 @@ fn a_tags_based_file_is_reported_at_its_real_fidelity() {
         ..RefreshReport::default()
     };
     let json = render_refresh_json(&report, RefreshCommand::Refresh).unwrap();
-    assert!(json.contains(r#""schema_version":2"#));
+    assert!(json.contains(r#""schema_version":3"#));
     assert!(json.contains(r#""tags":1"#));
 }
 

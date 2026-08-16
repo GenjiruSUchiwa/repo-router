@@ -12,10 +12,26 @@ use crate::facts::{DegradedReason, Facts};
 use crate::lang::Lang;
 use crate::Result;
 
-/// Bump on ANY change to a pinned Tree-sitter runtime, tags/grammar version,
-/// language specification table, tags-capture interpretation, signature
-/// slicing, fallback scanning, qualification, test detection, or ordering.
-pub const EXTRACTOR_VERSION: u32 = 3;
+/// Per-language extractor versions.
+///
+/// Bump a language's version on ANY change to its pinned Tree-sitter runtime,
+/// tags/grammar version, language specification, capture interpretation,
+/// signature slicing, fallback scanning, qualification, test detection, or
+/// ordering. One version per language rather than one global constant, because
+/// `Lang` is already a cache-key field: a Python grammar bump must not
+/// invalidate every cached Rust fact.
+pub const RUST_EXTRACTOR_VERSION: u32 = 3;
+pub const PYTHON_EXTRACTOR_VERSION: u32 = 4;
+
+/// The extractor version for `lang`, `0` when rr has no extractor for it.
+#[must_use]
+pub const fn extractor_version(lang: Lang) -> u32 {
+    match lang {
+        Lang::Rust => RUST_EXTRACTOR_VERSION,
+        Lang::Python => PYTHON_EXTRACTOR_VERSION,
+        _ => 0,
+    }
+}
 
 const MAX_FALLBACK_BYTES: usize = 256 * 1024;
 const MAX_FALLBACK_IDENTIFIERS: usize = 16 * 1024;
@@ -251,6 +267,17 @@ mod tests {
     fn for_lang_returns_none_for_an_unsupported_language() {
         let mut registry = Registry::new();
         assert!(registry.for_lang(Lang::Lua).is_none());
+    }
+
+    #[test]
+    fn every_supported_language_has_an_extractor_version() {
+        for lang in Registry::supported() {
+            assert!(
+                extractor_version(lang) > 0,
+                "{lang} has an extractor but no extractor version"
+            );
+        }
+        assert_eq!(extractor_version(Lang::Lua), 0);
     }
 
     #[test]

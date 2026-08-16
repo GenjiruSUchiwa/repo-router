@@ -21,15 +21,22 @@ use super::{encode, TextError, TextResult, BYTES_PER_TOKEN};
 /// A syntactic reading, never a compiler-semantic one. The field exists so a
 /// reader cannot mistake "we parsed this" for "we resolved this", and so that a
 /// file we failed to parse cannot masquerade as a file with no public API.
+/// Variant order is the severity order [`Fidelity::worst`] maxes over: a clean
+/// tags-tier read is shallower than a full parse but trustworthy, while a
+/// recovered parse carries real errors — so `Recovered` outranks `Tags`, and a
+/// tags-tier file can never mask a sibling's parse-error warning.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub enum Fidelity {
     /// Every contributing file parsed completely.
     #[default]
     Syntax,
+    /// Some contributing file came from a grammar's tags query, cleanly.
+    Tags,
     /// Some contributing file parsed with recovered errors.
     Recovered,
-    /// Some contributing file came from a grammar's tags query.
-    Tags,
+    /// Some contributing file came from a grammar's tags query over a tree
+    /// with parse errors.
+    TagsRecovered,
     /// Some contributing file could not be parsed as source at all.
     Partial,
 }
@@ -42,6 +49,7 @@ impl Fidelity {
             Self::Syntax => "syntax",
             Self::Recovered => "syntax-recovered",
             Self::Tags => "syntax-tags",
+            Self::TagsRecovered => "syntax-tags-recovered",
             Self::Partial => "syntax-partial",
         }
     }
@@ -55,10 +63,11 @@ impl Fidelity {
             "syntax" => Ok(Self::Syntax),
             "syntax-recovered" => Ok(Self::Recovered),
             "syntax-tags" => Ok(Self::Tags),
+            "syntax-tags-recovered" => Ok(Self::TagsRecovered),
             "syntax-partial" => Ok(Self::Partial),
             _ => Err(TextError::Frontmatter {
-                reason:
-                    "fidelity is not one of syntax, syntax-recovered, syntax-tags, syntax-partial",
+                reason: "fidelity is not one of syntax, syntax-recovered, syntax-tags, \
+                         syntax-tags-recovered, syntax-partial",
             }),
         }
     }
@@ -76,7 +85,10 @@ impl Fidelity {
         match status {
             ParseStatus::Complete => Self::Syntax,
             ParseStatus::Recovered { .. } => Self::Recovered,
-            ParseStatus::Tags { .. } => Self::Tags,
+            ParseStatus::Tags {
+                parse_errors: false,
+            } => Self::Tags,
+            ParseStatus::Tags { parse_errors: true } => Self::TagsRecovered,
             ParseStatus::Degraded { .. } => Self::Partial,
         }
     }

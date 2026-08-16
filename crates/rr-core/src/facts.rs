@@ -511,7 +511,9 @@ pub enum ParseStatus {
     },
     /// Tier-2 extraction from the grammar's tags query. Definitions, spans,
     /// signatures and identifier bags are real; visibility and test signals
-    /// are per-language defaults. `parse_errors` records tree errors.
+    /// are judged from names and attributes by the language's conventions
+    /// rather than from resolved semantics. `parse_errors` records tree
+    /// errors.
     Tags {
         parse_errors: bool,
     },
@@ -1592,7 +1594,7 @@ mod tests {
             .join(format!(
                 "{}-rust-{}-{FACT_SCHEMA_VERSION}.bin",
                 oid.to_hex(),
-                crate::parser::EXTRACTOR_VERSION
+                crate::parser::extractor_version(crate::lang::Lang::Rust)
             ));
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, bytes).unwrap();

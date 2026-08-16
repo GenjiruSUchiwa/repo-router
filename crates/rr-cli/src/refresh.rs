@@ -259,7 +259,7 @@ fn refuse_on_conflict(staged: &StagedText) -> Result<(), Published> {
 fn verbose_lines(report: &RefreshReport) -> String {
     format!(
         "  plan: {} mode, {} changed, {} removed, {} renamed, {} conflicted\n  \
-         work: {} reparsed, {} cached, {} content reads, {} degraded, {} name-only\n  \
+         work: {} reparsed, {} cached, {} content reads, {} degraded, {} {}, {} {}\n  \
          cache: {} corrupt\n  snapshot: {}",
         report.mode.as_str(),
         report.changed,
@@ -271,6 +271,9 @@ fn verbose_lines(report: &RefreshReport) -> String {
         report.content_reads,
         report.degraded,
         report.tags,
+        rr_core::refresh::TAGS_COUNTER_LABEL,
+        report.tags_recovered,
+        rr_core::refresh::TAGS_RECOVERED_COUNTER_LABEL,
         report.cache_corrupt,
         if report.snapshot_updated {
             "republished"

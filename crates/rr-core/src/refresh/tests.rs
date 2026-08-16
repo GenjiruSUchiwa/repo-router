@@ -441,13 +441,18 @@ fn tags_are_named_in_text_and_json_reports() {
     let report = RefreshReport {
         outcome: RefreshOutcome::Updated,
         tags: 2,
+        tags_recovered: 1,
         elapsed_ms: 3,
         ..RefreshReport::default()
     };
     let text = render_refresh_text(&report, RefreshCommand::Refresh);
-    assert!(text.contains("2 name-only"), "{text}");
+    // The text label is the JSON field name, so a consumer grepping either
+    // rendering for `tags` finds the counter.
+    assert!(text.contains("2 tags"), "{text}");
+    assert!(text.contains("1 tags recovered"), "{text}");
     let json = render_refresh_json(&report, RefreshCommand::Refresh).unwrap();
     assert!(json.contains(r#""tags":2"#), "{json}");
+    assert!(json.contains(r#""tags_recovered":1"#), "{json}");
 }
 
 #[test]
@@ -473,7 +478,7 @@ fn a_fallback_names_its_reason_in_both_renderings() {
         json.contains(r#""fallback_reason":"head-changed""#),
         "{json}"
     );
-    assert!(json.contains(r#""schema_version":2"#), "{json}");
+    assert!(json.contains(r#""schema_version":3"#), "{json}");
     assert!(json.contains(r#""command":"refresh""#), "{json}");
     assert!(!json.contains('\n'), "JSON must be one compact object");
 }
@@ -498,6 +503,7 @@ fn the_json_object_carries_every_documented_field() {
         "renamed",
         "degraded",
         "tags",
+        "tags_recovered",
         "conflicted",
         "snapshot_updated",
         "elapsed_ms",

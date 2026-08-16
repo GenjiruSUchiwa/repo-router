@@ -310,7 +310,10 @@ fn record_status(counts: &mut WorkerStats, status: ParseStatus) {
     match status {
         ParseStatus::Complete => counts.complete += 1,
         ParseStatus::Recovered { .. } => counts.recovered += 1,
-        ParseStatus::Tags { .. } => counts.tags += 1,
+        ParseStatus::Tags {
+            parse_errors: false,
+        } => counts.tags += 1,
+        ParseStatus::Tags { parse_errors: true } => counts.tags_recovered += 1,
         ParseStatus::Degraded { .. } => counts.degraded += 1,
     }
 }

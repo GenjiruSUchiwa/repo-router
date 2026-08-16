@@ -21,8 +21,12 @@ use super::{
 /// meaning of a field. Version 3 added the per-symbol display signature and the
 /// per-file test classification — both because a text projection has to state
 /// them, and neither can be re-derived later without opening a file the index
-/// has already spoken for.
-pub const BUILD_VERSION: u32 = 3;
+/// has already spoken for. Version 4 made qualification language-aware: the
+/// module prefix strips the file's own extension and the segments join on the
+/// language's separator, so a Python symbol is `service.Service.run` — a
+/// spelling `rr query` accepts — rather than `service.py::Service.run`, which
+/// no query can ever match.
+pub const BUILD_VERSION: u32 = 4;
 
 #[derive(Debug, Clone)]
 pub struct FileInput {
@@ -48,6 +52,7 @@ pub struct WorkerStats {
     pub complete: u64,
     pub recovered: u64,
     pub tags: u64,
+    pub tags_recovered: u64,
     pub degraded: u64,
 }
 
@@ -64,6 +69,7 @@ impl WorkerStats {
         self.complete += other.complete;
         self.recovered += other.recovered;
         self.tags += other.tags;
+        self.tags_recovered += other.tags_recovered;
         self.degraded += other.degraded;
     }
 }
@@ -85,6 +91,7 @@ pub struct BuildStats {
     pub complete: u64,
     pub recovered: u64,
     pub tags: u64,
+    pub tags_recovered: u64,
     pub degraded: u64,
     pub cache_hits: u64,
     pub cache_misses: u64,
@@ -197,7 +204,7 @@ impl SnapshotBuilder {
     fn add_file(&mut self, input: &FileInput) -> Result<()> {
         let file_id = FileId::checked(self.files.len())?;
         let path_id = self.strings.intern(input.path.as_str())?;
-        let module = module_prefix(&input.path);
+        let module = module_prefix(&input.path, input.language);
         self.file_modules.push(module.clone());
 
         let first_symbol = checked_u32(self.symbols.len(), "symbol offset")?;
@@ -218,7 +225,12 @@ impl SnapshotBuilder {
             let symbol_id = SymbolId::checked(self.symbols.len())?;
             local_to_global[local_index] = Some(symbol_id);
             let name = self.strings.intern(&def.name)?;
-            let qualified_text = qualify(&module, def.local_qualified.as_deref(), &def.name);
+            let qualified_text = qualify(
+                &module,
+                def.local_qualified.as_deref(),
+                &def.name,
+                input.language.qualified_separator(),
+            );
             let qualified_name = self.strings.intern(&qualified_text)?;
             let mut terms: [Vec<TermId>; LexicalField::COUNT] = Default::default();
             append_into(
@@ -897,31 +909,42 @@ fn checked_u32(value: usize, label: &'static str) -> Result<u32> {
     u32::try_from(value).map_err(|_| Error::IdSpaceExhausted(label))
 }
 
-fn module_prefix(path: &RelPath) -> Vec<String> {
+fn module_prefix(path: &RelPath, lang: Lang) -> Vec<String> {
     let mut components: Vec<String> = path.as_str().split('/').map(str::to_owned).collect();
     if components.first().map(String::as_str) == Some("src") {
         components.remove(0);
     }
+    // The extension is dropped only when it spells the file's own language, so
+    // `service.py` becomes the module `service` while an unexpected suffix is
+    // left visible rather than half-stripped.
     if let Some(file) = components.last_mut() {
-        if let Some(stem) = file.strip_suffix(".rs") {
-            *file = stem.to_owned();
+        if let Some((stem, extension)) = file.rsplit_once('.') {
+            if !stem.is_empty() && Lang::from_extension(extension) == Some(lang) {
+                *file = stem.to_owned();
+            }
         }
     }
+    // File names that name their directory's module rather than their own.
+    let implicit: &[&str] = match lang {
+        Lang::Rust => &["lib", "main", "mod"],
+        Lang::Python => &["__init__", "__main__"],
+        _ => &[],
+    };
     if components
         .last()
-        .is_some_and(|part| matches!(part.as_str(), "lib" | "main" | "mod"))
+        .is_some_and(|part| implicit.contains(&part.as_str()))
     {
         components.pop();
     }
     components
 }
 
-fn qualify(module: &[String], local: Option<&str>, name: &str) -> String {
+fn qualify(module: &[String], local: Option<&str>, name: &str, separator: &str) -> String {
     let suffix = local.unwrap_or(name);
     if module.is_empty() {
         suffix.to_owned()
     } else {
-        format!("{}::{suffix}", module.join("::"))
+        format!("{}{separator}{suffix}", module.join(separator))
     }
 }
 
@@ -988,16 +1011,56 @@ mod tests {
     #[test]
     fn module_prefix_keeps_file_module_stem() {
         assert_eq!(
-            module_prefix(&RelPath::new("tests/auth.rs").unwrap()),
+            module_prefix(&RelPath::new("tests/auth.rs").unwrap(), Lang::Rust),
             ["tests", "auth"]
         );
         assert_eq!(
-            module_prefix(&RelPath::new("src/auth/token.rs").unwrap()),
+            module_prefix(&RelPath::new("src/auth/token.rs").unwrap(), Lang::Rust),
             ["auth", "token"]
         );
         assert_eq!(
-            module_prefix(&RelPath::new("src/lib.rs").unwrap()),
+            module_prefix(&RelPath::new("src/lib.rs").unwrap(), Lang::Rust),
             Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn module_prefix_speaks_each_language_own_conventions() {
+        assert_eq!(
+            module_prefix(&RelPath::new("src/service.py").unwrap(), Lang::Python),
+            ["service"]
+        );
+        assert_eq!(
+            module_prefix(&RelPath::new("pkg/__init__.py").unwrap(), Lang::Python),
+            ["pkg"]
+        );
+        // A foreign extension is not this language's to strip.
+        assert_eq!(
+            module_prefix(&RelPath::new("src/service.py").unwrap(), Lang::Rust),
+            ["service.py"]
+        );
+    }
+
+    #[test]
+    fn qualification_uses_the_language_separator() {
+        let module = vec!["service".to_owned()];
+        assert_eq!(
+            qualify(
+                &module,
+                Some("Service.run"),
+                "run",
+                Lang::Python.qualified_separator()
+            ),
+            "service.Service.run"
+        );
+        assert_eq!(
+            qualify(
+                &module,
+                Some("Auth::new"),
+                "new",
+                Lang::Rust.qualified_separator()
+            ),
+            "service::Auth::new"
         );
     }
     #[test]
