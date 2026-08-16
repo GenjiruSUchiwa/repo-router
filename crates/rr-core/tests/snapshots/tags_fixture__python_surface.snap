@@ -1,0 +1,86 @@
+---
+source: crates/rr-core/tests/tags_fixture.rs
+expression: "to_snapshot(\"surface.py\", &facts)"
+---
+path: surface.py
+status: tags(parse_errors=false)
+defs:
+  - name: MODULE_VALUE
+    local_qualified: ~
+    kind: variable
+    start_line: 3
+    end_line: 3
+    signature: MODULE_VALUE = 1
+    signature_idents: []
+    body_idents: []
+    doc_idents: []
+  - name: Service
+    local_qualified: ~
+    kind: class
+    start_line: 5
+    end_line: 17
+    signature: "class Service:"
+    signature_idents:
+      - class
+    body_idents:
+      - Service
+      - documentation
+      - mentions
+      - helper
+      - and
+      - result
+      - class_value
+      - staticmethod
+    doc_idents: []
+  - name: run
+    local_qualified: Service.run
+    kind: function
+    start_line: 11
+    end_line: 17
+    signature: "def run(value):"
+    signature_idents:
+      - def
+      - value
+    body_idents:
+      - result
+      - helper
+      - value
+      - return
+      - result
+    doc_idents: []
+  - name: nested
+    local_qualified: Service.run.nested
+    kind: function
+    start_line: 14
+    end_line: 15
+    signature: "def nested():"
+    signature_idents:
+      - def
+    body_idents:
+      - return
+      - hidden
+    doc_idents: []
+  - name: top
+    local_qualified: ~
+    kind: function
+    start_line: 20
+    end_line: 21
+    signature: "def top(value):"
+    signature_idents:
+      - def
+      - value
+    body_idents:
+      - return
+      - helper
+      - value
+    doc_idents: []
+references:
+  - name: helper
+    line: 12
+    owner: run
+  - name: hidden
+    line: 15
+    owner: nested
+  - name: helper
+    line: 21
+    owner: top

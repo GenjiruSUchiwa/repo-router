@@ -13,7 +13,7 @@ fn bench_extract(c: &mut Criterion) {
     assert!(
         matches!(
             facts.status(),
-            ParseStatus::Complete | ParseStatus::Recovered { .. }
+            ParseStatus::Complete | ParseStatus::Recovered { .. } | ParseStatus::Tags { .. }
         ),
         "benchmark fixture must not degrade"
     );

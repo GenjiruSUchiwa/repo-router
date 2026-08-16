@@ -26,7 +26,10 @@ use crate::{Error, Result};
 /// payload decodes its successor's `TestSignals` out of alignment. The version
 /// in the cache file name is what keeps the two apart: a stale entry is never
 /// found, never misread, and simply reparsed.
-pub const FACT_SCHEMA_VERSION: u32 = 3;
+/// Version 4 adds [`ParseStatus::Tags`], a validated tier-2 result produced
+/// from a grammar's `tags.scm`. The status is serialized positionally, so the
+/// new variant is appended rather than inserted between existing variants.
+pub const FACT_SCHEMA_VERSION: u32 = 4;
 
 /// A source range over one exact UTF-8 byte buffer.
 ///
@@ -506,6 +509,12 @@ pub enum ParseStatus {
         scanned_bytes: u32,
         truncated: bool,
     },
+    /// Tier-2 extraction from the grammar's tags query. Definitions, spans,
+    /// signatures and identifier bags are real; visibility and test signals
+    /// are per-language defaults. `parse_errors` records tree errors.
+    Tags {
+        parse_errors: bool,
+    },
 }
 
 impl ParseStatus {
@@ -517,7 +526,7 @@ impl ParseStatus {
     #[must_use]
     pub const fn is_cacheable(self) -> bool {
         match self {
-            Self::Complete | Self::Recovered { .. } => true,
+            Self::Complete | Self::Recovered { .. } | Self::Tags { .. } => true,
             Self::Degraded { reason, .. } => reason.is_cacheable(),
         }
     }
@@ -835,6 +844,13 @@ fn validate_facts(
             if error_nodes == 0 && missing_nodes == 0 {
                 return Err(Error::InvalidFacts {
                     reason: "recovered status requires at least one diagnostic node",
+                });
+            }
+        }
+        ParseStatus::Tags { .. } => {
+            if !lexical_idents.is_empty() {
+                return Err(Error::InvalidFacts {
+                    reason: "tags facts must not carry lexical identifiers",
                 });
             }
         }

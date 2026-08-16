@@ -10,14 +10,10 @@ use super::{FullReason, RefreshOutcome};
 
 /// Version of the `refresh`/`status` JSON contract.
 ///
-/// Deliberately *not* bumped by #31, which widened the fact vocabulary and
-/// bumped both the fact and snapshot schemas. This report holds counters and
-/// outcomes — `degraded` is a number, never a `DegradedReason` — so no
-/// `DefKind`, `Visibility`, `ImportKind`, or test signal has ever crossed into
-/// it, and nothing an existing consumer parses has changed shape. The day a
-/// reason or a kind does appear here, that is this contract's own versioning
-/// decision to make, separately and on purpose.
-pub const REPORT_SCHEMA_VERSION: u32 = 1;
+/// #31 widened fact and snapshot schemas without changing this envelope:
+/// its counters never carried fact vocabulary. Version 2 adds the `tags`
+/// counter, which changes the serialized shape and therefore requires a bump.
+pub const REPORT_SCHEMA_VERSION: u32 = 2;
 
 /// Which command produced a report.
 ///
@@ -102,6 +98,8 @@ pub struct RefreshReport {
     pub degraded: u64,
     /// Paths with unmerged index stages.
     pub conflicted: u64,
+    /// Files whose definitions came from a grammar's tags query.
+    pub tags: u64,
     /// Whether the snapshot file was replaced.
     pub snapshot_updated: bool,
     /// Wall-clock duration of the run.
@@ -145,6 +143,7 @@ pub fn render_refresh_text(report: &RefreshReport, command: RefreshCommand) -> S
                     (report.removed, "removed"),
                     (report.renamed, "renamed"),
                     (report.degraded, "degraded"),
+                    (report.tags, "name-only"),
                     (report.conflicted, "conflicted"),
                     (report.cache_corrupt, "cache corrupt"),
                 ]

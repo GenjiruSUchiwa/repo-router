@@ -19,12 +19,15 @@ use crate::index::Snapshot;
 /// decodes its successor's fields out of alignment, so the envelope has to
 /// refuse it before postcard is asked to try.
 /// Version 6 widened the fact vocabulary (`FACT_SCHEMA_VERSION` 3). Every
-/// symbol carries a `DefKind`, a `Visibility`, and a `TestSignals`, all three of
-/// which postcard writes positionally — a new enum variant shifts no existing
+/// symbol carries a `DefKind`, a `Visibility`, and a `TestSignals`, all three
+/// of which postcard writes positionally — a new enum variant shifts no existing
 /// discriminant, but the third `TestSignals` field shifts everything after it,
 /// and a version-5 file read as a version-6 one would report a symbol as a test
 /// because the byte that used to end the struct is now read as its new field.
-pub const SNAPSHOT_SCHEMA_VERSION: u32 = 6;
+/// Version 7 adds the serialized `ParseStatus::Tags` tier from the tags-based
+/// extractor, so old snapshots must be rebuilt rather than decoded as newer
+/// facts.
+pub const SNAPSHOT_SCHEMA_VERSION: u32 = 7;
 pub const SNAPSHOT_MAGIC: [u8; 8] = *b"RRIDX\0\0\0";
 const HEADER_LEN: usize = 8 + 4 + 8 + 32;
 

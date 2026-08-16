@@ -61,12 +61,11 @@ fn the_walk_allowlist_is_exactly_what_the_registry_supports() {
 #[test]
 fn an_unsupported_language_degrades_without_being_cached() {
     let root = tempfile::tempdir().unwrap();
-    write(root.path(), "script.py", "def greet():\n    pass\n");
+    write(root.path(), "script.lua", "function greet() end\n");
 
     let cache = FactCache::open(root.path()).unwrap();
     let mut worker = Worker::new(root.path());
-    let script = source("script.py", Lang::Python);
-
+    let script = source("script.lua", Lang::Lua);
     let (input, _) = worker.process(&script, &cache).unwrap();
     let facts = input.unwrap().facts;
     assert!(matches!(

@@ -14,7 +14,7 @@ use std::path::Path;
 
 use common::{git, git_add_and_commit, init_git_repo, write};
 use rr_core::cancel::CancelToken;
-use rr_core::lang::Lang;
+use rr_core::parser::Registry;
 use rr_core::path::RelPath;
 use rr_core::refresh::{
     FullReason, GitLabel, RefreshMode, RefreshOutcome, SnapshotLabel, StatusReport,
@@ -548,7 +548,7 @@ fn a_delta_that_contradicts_itself_is_not_reported_as_an_unreadable_repository()
     let store = SnapshotStore::new(temp.path());
     let published = Published::load(&store).expect("loading the snapshot failed");
     let walk = WalkCfg {
-        languages: Some(vec![Lang::Rust]),
+        languages: Some(Registry::supported()),
         threads: Some(1),
         ..WalkCfg::default()
     };

@@ -47,6 +47,7 @@ pub struct WorkerStats {
     pub parses: u64,
     pub complete: u64,
     pub recovered: u64,
+    pub tags: u64,
     pub degraded: u64,
 }
 
@@ -62,6 +63,7 @@ impl WorkerStats {
         self.parses += other.parses;
         self.complete += other.complete;
         self.recovered += other.recovered;
+        self.tags += other.tags;
         self.degraded += other.degraded;
     }
 }
@@ -82,6 +84,7 @@ pub struct BuildStats {
     pub parses: u64,
     pub complete: u64,
     pub recovered: u64,
+    pub tags: u64,
     pub degraded: u64,
     pub cache_hits: u64,
     pub cache_misses: u64,

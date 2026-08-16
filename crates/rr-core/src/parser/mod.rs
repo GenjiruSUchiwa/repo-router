@@ -1,8 +1,10 @@
 //! Language extractors and extractor versioning.
 
 mod rust;
+mod tags;
 
 pub use rust::RustExtractor;
+pub use tags::{LanguageSpec, TagsExtractor};
 
 use std::collections::BTreeMap;
 
@@ -10,10 +12,10 @@ use crate::facts::{DegradedReason, Facts};
 use crate::lang::Lang;
 use crate::Result;
 
-/// Bump on ANY change to the pinned Tree-sitter runtime/grammar version,
-/// queries/rust.scm, capture interpretation, use-tree expansion,
-/// qualification, test detection, fallback scanning, or ordering.
-pub const EXTRACTOR_VERSION: u32 = 2;
+/// Bump on ANY change to a pinned Tree-sitter runtime, tags/grammar version,
+/// language specification table, tags-capture interpretation, signature
+/// slicing, fallback scanning, qualification, test detection, or ordering.
+pub const EXTRACTOR_VERSION: u32 = 3;
 
 const MAX_FALLBACK_BYTES: usize = 256 * 1024;
 const MAX_FALLBACK_IDENTIFIERS: usize = 16 * 1024;
@@ -122,12 +124,16 @@ type Builder = fn() -> Built;
 
 /// Each language beside the only builder allowed to fill it, so the lookup and
 /// [`Registry::supported`] cannot disagree.
-const EXTRACTORS: &[(Lang, Builder)] = &[(Lang::Rust, build_rust)];
+const EXTRACTORS: &[(Lang, Builder)] = &[(Lang::Rust, build_rust), (Lang::Python, build_python)];
 
 fn build_rust() -> Built {
     RustExtractor::new()
         .map(|extractor| Box::new(extractor) as Box<dyn Extractor>)
         .map_err(|error| error.to_string())
+}
+
+fn build_python() -> Built {
+    TagsExtractor::new(&tags::PYTHON).map(|extractor| Box::new(extractor) as Box<dyn Extractor>)
 }
 
 /// One lazily built extractor per supported language, keyed by [`Lang`].
@@ -216,8 +222,8 @@ mod tests {
         assert!(!truncated);
     }
     #[test]
-    fn supported_lists_only_rust() {
-        assert_eq!(Registry::supported(), vec![Lang::Rust]);
+    fn supported_lists_registered_extractors() {
+        assert_eq!(Registry::supported(), vec![Lang::Rust, Lang::Python]);
     }
 
     #[test]
@@ -244,7 +250,7 @@ mod tests {
     #[test]
     fn for_lang_returns_none_for_an_unsupported_language() {
         let mut registry = Registry::new();
-        assert!(registry.for_lang(Lang::Python).is_none());
+        assert!(registry.for_lang(Lang::Lua).is_none());
     }
 
     #[test]

@@ -28,6 +28,8 @@ pub enum Fidelity {
     Syntax,
     /// Some contributing file parsed with recovered errors.
     Recovered,
+    /// Some contributing file came from a grammar's tags query.
+    Tags,
     /// Some contributing file could not be parsed as source at all.
     Partial,
 }
@@ -39,6 +41,7 @@ impl Fidelity {
         match self {
             Self::Syntax => "syntax",
             Self::Recovered => "syntax-recovered",
+            Self::Tags => "syntax-tags",
             Self::Partial => "syntax-partial",
         }
     }
@@ -51,9 +54,11 @@ impl Fidelity {
         match text {
             "syntax" => Ok(Self::Syntax),
             "syntax-recovered" => Ok(Self::Recovered),
+            "syntax-tags" => Ok(Self::Tags),
             "syntax-partial" => Ok(Self::Partial),
             _ => Err(TextError::Frontmatter {
-                reason: "fidelity is not one of syntax, syntax-recovered, syntax-partial",
+                reason:
+                    "fidelity is not one of syntax, syntax-recovered, syntax-tags, syntax-partial",
             }),
         }
     }
@@ -71,6 +76,7 @@ impl Fidelity {
         match status {
             ParseStatus::Complete => Self::Syntax,
             ParseStatus::Recovered { .. } => Self::Recovered,
+            ParseStatus::Tags { .. } => Self::Tags,
             ParseStatus::Degraded { .. } => Self::Partial,
         }
     }
