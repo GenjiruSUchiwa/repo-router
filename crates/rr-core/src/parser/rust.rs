@@ -15,6 +15,15 @@ use super::{degraded_facts, scan_idents};
 
 const QUERY_SOURCE: &str = include_str!("queries/rust.scm");
 
+/// Captures this extractor's query must declare, checked once at construction.
+///
+/// A capture belongs here when [`route_capture`] reads it. It is not a list of
+/// everything the query captures and must not become one: an entry here is a
+/// build-time obligation on `queries/rust.scm`, so a capture that is required
+/// and unrouted forces every future editor of that file to keep a pattern alive
+/// for matches that are discarded. `@doc` was exactly that until #41 removed
+/// it — documentation reaches [`Def::doc_idents`] through
+/// [`attached_metadata`], which reads an attachment rule no query can express.
 const REQUIRED_CAPTURES: &[&str] = &[
     "def.item",
     "def.name",
@@ -28,7 +37,6 @@ const REQUIRED_CAPTURES: &[&str] = &[
     "import.declaration",
     "identifier",
     "attribute",
-    "doc",
     "syntax.error",
     "syntax.missing",
 ];
@@ -42,7 +50,6 @@ pub struct RustExtractor {
 }
 
 #[derive(Debug, Clone, Copy)]
-#[allow(dead_code)]
 struct CaptureIds {
     def_item: u32,
     def_name: u32,
@@ -56,7 +63,6 @@ struct CaptureIds {
     import_declaration: u32,
     identifier: u32,
     attribute: u32,
-    doc: u32,
     syntax_error: u32,
     syntax_missing: u32,
 }
@@ -552,7 +558,6 @@ impl CaptureIds {
             import_declaration: index_of["import.declaration"],
             identifier: index_of["identifier"],
             attribute: index_of["attribute"],
-            doc: index_of["doc"],
             syntax_error: index_of["syntax.error"],
             syntax_missing: index_of["syntax.missing"],
         })
@@ -930,6 +935,13 @@ fn metadata_idents(node: Node<'_>, source: &str) -> (Vec<String>, Vec<String>) {
 /// Attributes attach through interleaved ordinary comments (comments are
 /// trivia to rustc); an ordinary comment between a doc block and the item
 /// stops doc attachment only.
+///
+/// This walk is why the query has no documentation capture. A `@doc` pattern
+/// tags every outer doc comment in a file and says nothing about which item it
+/// attaches to, cannot express the blocking rule above, and never sees
+/// `#[doc = "…"]` at all — that is an `attribute_item`. Both behaviours are
+/// pinned: `plain_comment_blocks_docs_but_not_attributes` and
+/// `raw_string_doc_attribute_is_documentation`.
 fn attached_metadata(node: Node<'_>) -> Vec<Node<'_>> {
     let mut out = Vec::new();
     let mut doc_blocked = false;

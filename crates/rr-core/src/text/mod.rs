@@ -44,8 +44,8 @@ pub use parse::{
 pub use purpose::{read_existing_purposes, ExistingPurposes};
 pub use render::{ArtifactKind, RenderedArtifactSet, RenderedFile};
 pub use validate::{
-    stage_text_artifacts, validate_text_artifacts, validated_map_catalog, ArtifactState, Conflict,
-    ConflictReason, MapCatalog, MapIdentity, StagedText, TextValidation,
+    stage_text_artifacts, validate_text_artifacts, validated_map_catalog, Conflict, ConflictReason,
+    MapCatalog, MapIdentity, StagedText, TextValidation,
 };
 
 /// The on-disk format version of every artifact this module writes.
@@ -61,8 +61,10 @@ pub use validate::{
 /// an older binary meeting a file with a label it does not know — reaches
 /// `.rr/SYMBOLS.md` alone, because `MAP.md` carries no visibility label, and
 /// `validate::repairs_in_place` rewrites an unparseable `SYMBOLS.md` rather than
-/// reporting it. No extractor emits either label yet in any case; #33 is what
-/// makes them reachable.
+/// reporting it. The tier-2 extractors emit both labels now — `protected` off a
+/// TypeScript member modifier, `internal` off a Python `_name` — so the
+/// widening is load bearing rather than anticipated, and this version still
+/// reads everything the previous one wrote.
 ///
 /// Bumping instead would have cost what widening a *binary* schema does not.
 /// This number is stamped into every committed `MAP.md` and folded into
@@ -146,12 +148,8 @@ pub enum TextError {
     Budget { budget: u32, reason: &'static str },
     #[error("two records claim the same identity: {reason}")]
     DuplicateRecord { reason: &'static str },
-    #[error("stored generated_hash does not match the file's generated region")]
-    GeneratedHashMismatch,
     #[error("artifacts disagree about index_hash; the generation is mixed")]
     IndexHashMismatch,
-    #[error("staged bytes did not validate before replacement: {reason}")]
-    Staging { reason: &'static str },
 }
 
 type TextResult<T> = std::result::Result<T, TextError>;
@@ -170,7 +168,7 @@ mod tests {
     ///
     /// Written against `DefKind::ALL` rather than against a fixture, because a
     /// fixture can only hold the kinds some language happens to produce today —
-    /// and #33 is about to add kinds no Rust fixture will ever contain. What
+    /// and the tier-2 extractors add kinds no Rust fixture will ever contain. What
     /// this rules out is a projection that groups by kind and drops the ones it
     /// does not recognise: a definition rr indexed but no reader can find is
     /// worse than one it never indexed, because nothing says it is missing.

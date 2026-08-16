@@ -1,7 +1,10 @@
 //! What is on disk, compared against what the snapshot says should be.
 //!
-//! One question per artifact — fresh, stale, missing, or conflicting — and no
-//! action on the answer: acting belongs to whoever holds the publication guard.
+//! One question per artifact — fresh, stale, missing, removable, or
+//! conflicting — and no action on the answer: acting belongs to whoever holds
+//! the publication guard. The answer is five lists on [`TextValidation`] rather
+//! than one label per file, because a caller acts on the *set*: it writes the
+//! stale ones, unlinks the removable ones, and stops on any conflict.
 //!
 //! Conflicts are collected, not thrown, so one run names every file that needs
 //! attention instead of one per run.
@@ -17,19 +20,6 @@ use super::digest::{ApiHash, Digest};
 use super::model::TextProjection;
 use super::purpose::read_existing_purposes;
 use super::{parse_map, parse_symbols, ArtifactKind, RenderedArtifactSet};
-
-/// How one artifact on disk compares to the generation that should replace it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ArtifactState {
-    /// Byte-identical to what would be written. Must not be replaced.
-    Fresh,
-    /// Owned by rr, but describing a different projection.
-    Stale,
-    /// Not present.
-    Missing,
-    /// Present and not safe to touch.
-    Conflicting,
-}
 
 /// Why one path cannot be written.
 ///

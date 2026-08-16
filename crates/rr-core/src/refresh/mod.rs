@@ -97,25 +97,19 @@ impl FullReason {
     }
 }
 
-/// Errors a refresh can fail with.
+/// Errors a refresh plan can be rejected with.
 ///
 /// Every variant names the thing that went wrong; there is deliberately no
 /// free-form variant, because a caller that cannot match on a failure cannot
 /// react to it either.
+///
+/// One variant, and that is the module boundary showing through rather than an
+/// omission. This module owns no I/O, so the only way it can fail is that the
+/// status items it was handed contradict each other. A lock it cannot take, a
+/// repository it cannot observe and a cancellation it has no point to check
+/// are `rr_git::Error`'s to report, and it does.
 #[derive(Debug, thiserror::Error)]
 pub enum RefreshError {
-    /// Another map or refresh holds the publication resource.
-    #[error("another refresh is publishing to {path}")]
-    PublicationLocked {
-        /// The lock resource that was already held.
-        path: std::path::PathBuf,
-    },
-    /// The repository state could not be observed or interpreted.
-    #[error("git state unavailable: {source}")]
-    GitState {
-        /// The underlying failure.
-        source: Box<dyn std::error::Error + Send + Sync>,
-    },
     /// Two status items claimed contradictory things about one path.
     #[error("invalid refresh plan for {path}: {reason}")]
     InvalidRefreshPlan {
@@ -124,12 +118,6 @@ pub enum RefreshError {
         /// What the contradiction was.
         reason: &'static str,
     },
-    /// The repository moved under the refresh before it could publish.
-    #[error("the repository changed during refresh; nothing was published")]
-    RepositoryChanged,
-    /// Cancellation was requested before the commit point.
-    #[error("refresh cancelled before publication")]
-    Cancelled,
 }
 
 // --- discovery identity -----------------------------------------------------
