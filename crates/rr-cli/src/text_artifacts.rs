@@ -198,6 +198,12 @@ fn write_generation(staged: &StagedText, root: &Path) -> anyhow::Result<TextRepo
 }
 
 /// Reads the whole generation back and checks it says what was written.
+///
+/// After the write rather than before it, and deliberately. Rendering twice and
+/// comparing would catch a render that disagrees with itself; reading the files
+/// back catches that *and* a write that did not land, a concurrent editor, and
+/// a filesystem that lied — for the cost of one extra stage on a path that has
+/// just done I/O for every artifact in the repository.
 fn confirm(snapshot: &Snapshot, root: &Path, budget: u32) -> anyhow::Result<()> {
     let after = stage(snapshot, root, budget)?;
     let validation = after.validation();

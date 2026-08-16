@@ -94,13 +94,7 @@
 (type_identifier) @identifier
 (field_identifier) @identifier
 
-; Documentation and attributes ------------------------------------------------
-
-(line_comment
-  (outer_doc_comment_marker)) @doc
-
-(block_comment
-  (outer_doc_comment_marker)) @doc
+; Attributes -------------------------------------------------------------------
 
 (attribute_item) @attribute
 

@@ -39,6 +39,15 @@ macro_rules! id_newtype {
                 self.0 as usize
             }
 
+            /// Rebuilds an id from an index this crate previously handed out.
+            ///
+            /// No non-test caller today, for any of the three id types this
+            /// macro generates — the production path builds ids through
+            /// [`Self::checked`] and never round-trips them. Kept because a
+            /// generated constructor that exists for two of three expansions
+            /// is worse than one that exists for all three, and allowed rather
+            /// than deleted because `dead_code` fires per expansion and the
+            /// tests do use it.
             #[allow(dead_code)]
             pub(crate) const fn from_index(index: u32) -> Self {
                 Self(index)
