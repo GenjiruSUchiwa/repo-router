@@ -114,26 +114,24 @@ defs:
     local_qualified: Ceiling.Http
     kind: field
     visibility: public
-    start_line: 13
-    end_line: 16
-    signature: "Http = 3,"
+    start_line: 14
+    end_line: 14
+    signature: Http = 3
     signature_idents: []
-    body_idents:
-      - Memory
+    body_idents: []
     doc_idents: []
     attribute_idents: []
   - name: Memory
     local_qualified: Ceiling.Memory
     kind: field
     visibility: public
-    start_line: 13
-    end_line: 16
-    signature: "Memory = 0,"
+    start_line: 15
+    end_line: 15
+    signature: Memory = 0
     signature_idents: []
     body_idents: []
     doc_idents: []
-    attribute_idents:
-      - Http
+    attribute_idents: []
   - name: DEFAULT_CEILING
     local_qualified: ~
     kind: variable
