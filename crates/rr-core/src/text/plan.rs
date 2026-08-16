@@ -401,13 +401,17 @@ mod tests {
             Section::Children,
             content.children.len(),
             content.omitted_children,
-        ) + section_bytes(records, Section::Api, content.api.len(), content.omitted_api)
-            + section_bytes(
-                records,
-                Section::Tests,
-                content.tests.len(),
-                content.omitted_tests,
-            )
+        ) + section_bytes(
+            records,
+            Section::Api,
+            content.api.len(),
+            content.omitted_api,
+        ) + section_bytes(
+            records,
+            Section::Tests,
+            content.tests.len(),
+            content.omitted_tests,
+        )
     }
 
     #[test]

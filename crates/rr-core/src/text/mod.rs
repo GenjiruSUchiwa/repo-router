@@ -5,8 +5,8 @@
 //! worktree, or derives one artifact from another. Existing files contribute
 //! one thing back: the validated contents of their `purpose` slot.
 //!
-//! Submodules, in reading order: [`digest`], [`encode`], [`model`], [`plan`],
-//! [`render`], [`parse`], [`purpose`], [`ignore`], [`validate`].
+//! Submodules, in reading order: [`block`], [`digest`], [`encode`], [`model`],
+//! [`plan`], [`render`], [`parse`], [`purpose`], [`ignore`], [`validate`].
 //!
 //! # Where this reads issue #11 rather than quotes it
 //!
@@ -22,6 +22,7 @@
 //!   coincide at the root, which is why the issue's example does not separate
 //!   them.
 
+mod block;
 mod digest;
 mod encode;
 mod ignore;
@@ -32,6 +33,7 @@ mod purpose;
 mod render;
 mod validate;
 
+pub use block::{apply_block, BlockMarkers};
 pub use digest::{ApiHash, Digest};
 pub use ignore::{
     apply_managed_block, managed_ignore_block, IGNORE_BEGIN_MARKER, IGNORE_END_MARKER,

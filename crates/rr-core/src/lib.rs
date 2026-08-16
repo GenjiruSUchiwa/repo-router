@@ -1,5 +1,6 @@
 #![deny(unsafe_code)]
 
+pub mod agent;
 pub mod cache;
 pub mod cancel;
 pub mod content;
