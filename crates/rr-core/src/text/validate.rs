@@ -25,7 +25,8 @@ use super::{parse_map, parse_symbols, ArtifactKind, RenderedArtifactSet, Rendere
 ///
 /// A closed set rather than a string, because the CLI prints these and issue
 /// #14 will branch on them. A message is a description; this is a decision.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum ConflictReason {
     /// A file exists at a reserved path that rr did not write.
     NotOwned,
@@ -54,9 +55,31 @@ pub enum ConflictReason {
 }
 
 impl ConflictReason {
-    /// The one-line explanation the CLI prints after the path.
+    /// The published spelling, identical to the serde name.
+    ///
+    /// Text output cannot go through serde, so the two spellings are pinned
+    /// together by a test rather than by construction.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::NotOwned => "not-owned",
+            Self::Symlink => "symlink",
+            Self::MergeConflict => "merge-conflict",
+            Self::Frontmatter => "frontmatter",
+            Self::UnsupportedFormat => "unsupported-format",
+            Self::Marker => "marker",
+            Self::Purpose => "purpose",
+            Self::GeneratedEdited => "generated-edited",
+            Self::Anchor => "anchor",
+            Self::ManagedIgnore => "managed-ignore",
+            Self::Unreadable => "unreadable",
+            Self::CaseCollision => "case-collision",
+        }
+    }
+
+    /// The one-line explanation the CLI prints after the path.
+    #[must_use]
+    pub const fn as_text(self) -> &'static str {
         match self {
             Self::NotOwned => "path is not owned by rr",
             Self::Symlink => "path is a symbolic link; rr writes only regular files",
@@ -78,7 +101,7 @@ impl ConflictReason {
 
 impl fmt::Display for ConflictReason {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_str())
+        f.write_str(self.as_text())
     }
 }
 
@@ -136,6 +159,28 @@ impl fmt::Display for Conflict {
             Some(found) => write!(f, "{}: {} ({found})", self.path, self.reason),
             None => write!(f, "{}: {}", self.path, self.reason),
         }
+    }
+}
+
+/// Serialized as `{path, reason, message}`.
+///
+/// `reason` is what a program branches on — the closed set this enum exists to
+/// be. `message` is the sentence a human reads, and it is here because under
+/// `--json` it is printed nowhere else: the refusal object replaces output that
+/// used to be nothing but that sentence. Derived from `reason` in one place, so
+/// the two cannot drift.
+impl serde::Serialize for Conflict {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct as _;
+
+        let mut object = serializer.serialize_struct("Conflict", 3)?;
+        object.serialize_field("path", &self.path)?;
+        object.serialize_field("reason", &self.reason)?;
+        object.serialize_field("message", self.reason.as_text())?;
+        object.end()
     }
 }
 

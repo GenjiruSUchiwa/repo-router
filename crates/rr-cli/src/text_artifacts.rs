@@ -6,80 +6,14 @@
 //! deepest-first, and the root `MAP.md` last as the generation marker.
 
 use std::collections::BTreeSet;
-use std::fmt::Write as _;
 use std::path::Path;
 
 use anyhow::Context;
 use rr_core::index::Snapshot;
 use rr_core::text::{
-    apply_managed_block, stage_text_artifacts, ArtifactKind, Conflict, StagedText, IGNORE_PATH,
+    apply_managed_block, stage_text_artifacts, ArtifactKind, StagedText, SymbolsState, TextReport,
+    IGNORE_PATH,
 };
-
-/// What happened to `.rr/SYMBOLS.md`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SymbolsState {
-    Written,
-    Unchanged,
-    Repaired,
-}
-
-impl SymbolsState {
-    const fn as_str(self) -> &'static str {
-        match self {
-            Self::Written => "written",
-            Self::Unchanged => "unchanged",
-            Self::Repaired => "repaired",
-        }
-    }
-}
-
-/// The text clause of a refresh summary.
-///
-/// Counts cover committed routers and overflow pages only. `.rr/SYMBOLS.md` has
-/// its own state and `.rr/.gitignore` is not an artifact of this generation.
-#[derive(Debug, Clone, Default)]
-pub struct TextReport {
-    pub written: u64,
-    pub unchanged: u64,
-    pub removed: u64,
-    pub pending_purposes: u32,
-    pub symbols: Option<SymbolsState>,
-    pub written_paths: Vec<String>,
-    pub removed_paths: Vec<String>,
-    pub over_budget: Vec<String>,
-}
-
-impl TextReport {
-    /// The one-line clause appended to the summary.
-    #[must_use]
-    pub fn clause(&self) -> String {
-        let symbols = self.symbols.map_or("absent", SymbolsState::as_str);
-        format!(
-            "; text: {} written, {} unchanged, {} removed, SYMBOLS.md {}, {} purpose pending",
-            self.written, self.unchanged, self.removed, symbols, self.pending_purposes
-        )
-    }
-
-    /// The per-path breakdown behind that clause.
-    #[must_use]
-    pub fn verbose_lines(&self) -> String {
-        let mut out = String::new();
-        for path in &self.written_paths {
-            let _ = writeln!(out, "  text write   {path}");
-        }
-        for path in &self.removed_paths {
-            let _ = writeln!(out, "  text remove  {path}");
-        }
-        for scope in &self.over_budget {
-            let _ = writeln!(
-                out,
-                "  text warning {scope}: no page of this scope fits the map budget"
-            );
-        }
-        out.pop();
-        out
-    }
-}
 
 /// Everything decided, nothing written.
 ///
@@ -88,38 +22,6 @@ impl TextReport {
 /// cannot be read at all.
 pub fn stage(snapshot: &Snapshot, root: &Path, budget: u32) -> anyhow::Result<StagedText> {
     stage_text_artifacts(snapshot, root, budget).context("stage text artifacts")
-}
-
-/// The report for a generation that was already on disk in full.
-#[must_use]
-pub fn unchanged(staged: &StagedText) -> TextReport {
-    let validation = staged.validation();
-    TextReport {
-        unchanged: u64::try_from(
-            staged
-                .rendered()
-                .files()
-                .iter()
-                .filter(|file| file.kind() != ArtifactKind::Symbols)
-                .count(),
-        )
-        .unwrap_or(u64::MAX),
-        pending_purposes: validation.pending_purposes(),
-        over_budget: validation.over_budget().to_vec(),
-        symbols: Some(SymbolsState::Unchanged),
-        ..TextReport::default()
-    }
-}
-
-/// The message a caller prints before exiting non-zero.
-#[must_use]
-pub fn conflict_report(conflicts: &[Conflict]) -> String {
-    let mut out = String::from("text artifacts conflict with the repository:\n");
-    for conflict in conflicts {
-        let _ = writeln!(out, "  {conflict}");
-    }
-    out.push_str("\nnothing was written. Resolve each file, then run `rr map` again.");
-    out
 }
 
 /// Writes one generation, in the order a reader can rely on, and reads it back.
@@ -164,7 +66,7 @@ fn write_generation(staged: &StagedText, root: &Path) -> anyhow::Result<TextRepo
 
         if fresh {
             if symbols {
-                report.symbols = Some(SymbolsState::Unchanged);
+                report.symbols = SymbolsState::Unchanged;
             } else {
                 report.unchanged += 1;
             }
@@ -173,11 +75,11 @@ fn write_generation(staged: &StagedText, root: &Path) -> anyhow::Result<TextRepo
 
         write_file(root, file.path(), file.bytes())?;
         if symbols {
-            report.symbols = Some(if validation.symbols_repaired() {
+            report.symbols = if validation.symbols_repaired() {
                 SymbolsState::Repaired
             } else {
                 SymbolsState::Written
-            });
+            };
         } else {
             report.written += 1;
         }

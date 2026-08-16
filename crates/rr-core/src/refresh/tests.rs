@@ -3,6 +3,7 @@
 
 use super::*;
 use crate::lang::Lang;
+use crate::text::{Conflict, ConflictReason, SymbolsState, TextReport};
 
 #[track_caller]
 fn path(value: &str) -> RelPath {
@@ -377,8 +378,36 @@ fn text_and_json_spell_every_enum_the_same_way() {
     ] {
         same(mode, mode.as_str());
     }
-    for outcome in [RefreshOutcome::Unchanged, RefreshOutcome::Updated] {
+    for outcome in [
+        RefreshOutcome::Unchanged,
+        RefreshOutcome::Updated,
+        RefreshOutcome::Refused,
+    ] {
         same(outcome, outcome.as_str());
+    }
+    for state in [
+        SymbolsState::Absent,
+        SymbolsState::Written,
+        SymbolsState::Unchanged,
+        SymbolsState::Repaired,
+    ] {
+        same(state, state.as_str());
+    }
+    for reason in [
+        ConflictReason::NotOwned,
+        ConflictReason::Symlink,
+        ConflictReason::MergeConflict,
+        ConflictReason::Frontmatter,
+        ConflictReason::UnsupportedFormat,
+        ConflictReason::Marker,
+        ConflictReason::Purpose,
+        ConflictReason::GeneratedEdited,
+        ConflictReason::Anchor,
+        ConflictReason::ManagedIgnore,
+        ConflictReason::Unreadable,
+        ConflictReason::CaseCollision,
+    ] {
+        same(reason, reason.as_str());
     }
     for label in [
         GitLabel::Clean,
@@ -403,23 +432,34 @@ fn text_and_json_spell_every_enum_the_same_way() {
 
 // --- rendering --------------------------------------------------------------
 
+/// A run whose text pass did nothing.
+fn run(refresh: RefreshReport) -> RunReport {
+    RunReport {
+        refresh,
+        text: TextReport::default(),
+    }
+}
+
+/// The clause a text pass that did nothing appends to every human summary.
+const QUIET_TEXT: &str =
+    "; text: 0 written, 0 unchanged, 0 removed, SYMBOLS.md absent, 0 purpose pending";
+
 #[test]
 fn an_unchanged_refresh_reports_the_work_it_did_not_do() {
-    let report = RefreshReport {
+    let report = run(RefreshReport {
         elapsed_ms: 7,
         ..RefreshReport::default()
-    };
+    });
 
     assert_eq!(
         render_refresh_text(&report, RefreshCommand::Refresh),
-        "rr refresh — unchanged, 0 reparsed, 0 content reads (7 ms)"
+        format!("rr refresh — unchanged, 0 reparsed, 0 content reads (7 ms){QUIET_TEXT}")
     );
 }
 
 #[test]
 fn an_updated_refresh_names_only_the_counters_with_something_to_say() {
-    let report = RefreshReport {
-        outcome: RefreshOutcome::Updated,
+    let report = run(RefreshReport {
         changed: 1,
         reparsed: 1,
         cached: 41,
@@ -428,65 +468,72 @@ fn an_updated_refresh_names_only_the_counters_with_something_to_say() {
         snapshot_updated: true,
         elapsed_ms: 24,
         ..RefreshReport::default()
-    };
+    });
 
     assert_eq!(
         render_refresh_text(&report, RefreshCommand::Refresh),
-        "rr refresh — updated, 1 reparsed, 41 cached, 1 removed (24 ms)"
+        format!("rr refresh — updated, 1 reparsed, 41 cached, 1 removed (24 ms){QUIET_TEXT}")
     );
 }
 
 #[test]
 fn tags_are_named_in_text_and_json_reports() {
-    let report = RefreshReport {
-        outcome: RefreshOutcome::Updated,
+    let report = run(RefreshReport {
         tags: 2,
         tags_recovered: 1,
+        snapshot_updated: true,
         elapsed_ms: 3,
         ..RefreshReport::default()
-    };
+    });
     let text = render_refresh_text(&report, RefreshCommand::Refresh);
     // The text label is the JSON field name, so a consumer grepping either
     // rendering for `tags` finds the counter.
     assert!(text.contains("2 tags"), "{text}");
     assert!(text.contains("1 tags recovered"), "{text}");
-    let json = render_refresh_json(&report, RefreshCommand::Refresh).unwrap();
+    let json =
+        render_refresh_json(&report, RefreshCommand::Refresh, ReportDetail::Summary).unwrap();
     assert!(json.contains(r#""tags":2"#), "{json}");
     assert!(json.contains(r#""tags_recovered":1"#), "{json}");
 }
 
 #[test]
 fn a_fallback_names_its_reason_in_both_renderings() {
-    let report = RefreshReport {
-        outcome: RefreshOutcome::Updated,
+    let report = run(RefreshReport {
         mode: ReportedMode::FallbackFull,
         fallback_reason: Some(FullReason::HeadChanged),
         cached: 42,
         snapshot_updated: true,
         elapsed_ms: 81,
         ..RefreshReport::default()
-    };
+    });
 
     assert_eq!(
         render_refresh_text(&report, RefreshCommand::Refresh),
-        "rr refresh — updated (full fallback: HEAD changed), 0 reparsed, 42 cached (81 ms)"
+        format!(
+            "rr refresh — updated (full fallback: HEAD changed), 0 reparsed, 42 cached (81 ms){QUIET_TEXT}"
+        )
     );
 
-    let json = render_refresh_json(&report, RefreshCommand::Refresh).unwrap_or_default();
+    let json = render_refresh_json(&report, RefreshCommand::Refresh, ReportDetail::Summary)
+        .unwrap_or_default();
     assert!(json.contains(r#""mode":"fallback-full""#), "{json}");
     assert!(
         json.contains(r#""fallback_reason":"head-changed""#),
         "{json}"
     );
-    assert!(json.contains(r#""schema_version":3"#), "{json}");
+    assert!(json.contains(r#""schema_version":4"#), "{json}");
     assert!(json.contains(r#""command":"refresh""#), "{json}");
     assert!(!json.contains('\n'), "JSON must be one compact object");
 }
 
 #[test]
 fn the_json_object_carries_every_documented_field() {
-    let json =
-        render_refresh_json(&RefreshReport::default(), RefreshCommand::Map).unwrap_or_default();
+    let json = render_refresh_json(
+        &RunReport::default(),
+        RefreshCommand::Map,
+        ReportDetail::Summary,
+    )
+    .unwrap_or_default();
 
     for field in [
         "schema_version",
@@ -506,6 +553,7 @@ fn the_json_object_carries_every_documented_field() {
         "tags_recovered",
         "conflicted",
         "snapshot_updated",
+        "text",
         "elapsed_ms",
     ] {
         assert!(
@@ -515,6 +563,213 @@ fn the_json_object_carries_every_documented_field() {
     }
     assert!(json.contains(r#""command":"map""#), "{json}");
     assert!(json.contains(r#""fallback_reason":null"#), "{json}");
+}
+
+// --- outcome ----------------------------------------------------------------
+
+#[test]
+fn a_run_that_only_rewrote_maps_is_not_unchanged() {
+    let report = RunReport {
+        refresh: RefreshReport::default(),
+        text: TextReport {
+            written: 3,
+            ..TextReport::default()
+        },
+    };
+
+    assert_eq!(report.outcome(), RefreshOutcome::Updated);
+    let text = render_refresh_text(&report, RefreshCommand::Refresh);
+    assert!(text.starts_with("rr refresh — updated,"), "{text}");
+    let json = render_refresh_json(&report, RefreshCommand::Refresh, ReportDetail::Summary)
+        .unwrap_or_default();
+    assert!(json.contains(r#""outcome":"updated""#), "{json}");
+    assert!(json.contains(r#""snapshot_updated":false"#), "{json}");
+    assert!(json.contains(r#""written":3"#), "{json}");
+}
+
+#[test]
+fn a_run_that_wrote_nothing_at_all_is_unchanged() {
+    let report = RunReport {
+        refresh: RefreshReport::default(),
+        text: TextReport {
+            unchanged: 12,
+            symbols: SymbolsState::Unchanged,
+            ..TextReport::default()
+        },
+    };
+
+    assert_eq!(report.outcome(), RefreshOutcome::Unchanged);
+}
+
+#[test]
+fn a_repaired_local_index_counts_as_a_change() {
+    for symbols in [SymbolsState::Written, SymbolsState::Repaired] {
+        let report = RunReport {
+            refresh: RefreshReport::default(),
+            text: TextReport {
+                symbols,
+                ..TextReport::default()
+            },
+        };
+        assert_eq!(
+            report.outcome(),
+            RefreshOutcome::Updated,
+            "SYMBOLS.md {}",
+            symbols.as_str()
+        );
+    }
+}
+
+/// `snapshot_updated` is set here on purpose: `refused` has to win over it.
+#[test]
+fn a_refused_run_reports_its_conflicts_and_no_work() {
+    let report = RunReport {
+        refresh: RefreshReport {
+            snapshot_updated: true,
+            elapsed_ms: 5,
+            ..RefreshReport::default()
+        },
+        text: TextReport {
+            conflicts: vec![Conflict::new(
+                "MAP.md".to_owned(),
+                ConflictReason::GeneratedEdited,
+            )],
+            ..TextReport::default()
+        },
+    };
+
+    assert_eq!(report.outcome(), RefreshOutcome::Refused);
+    let text = render_refresh_text(&report, RefreshCommand::Map);
+    assert!(
+        text.contains("refused, 0 reparsed, 1 conflicting"),
+        "{text}"
+    );
+    let json = render_refresh_json(&report, RefreshCommand::Map, ReportDetail::Summary)
+        .unwrap_or_default();
+    assert!(json.contains(r#""outcome":"refused""#), "{json}");
+    assert!(json.contains(r#""written":0"#), "{json}");
+}
+
+// --- the published key set --------------------------------------------------
+
+#[track_caller]
+fn keys(json: &str) -> Vec<String> {
+    let value: serde_json::Value = match serde_json::from_str(json) {
+        Ok(value) => value,
+        Err(error) => panic!("report is not JSON: {error}\n{json}"),
+    };
+    match value {
+        serde_json::Value::Object(map) => map.into_iter().map(|(key, _)| key).collect(),
+        other => panic!("report is not an object: {other}"),
+    }
+}
+
+#[test]
+fn the_refresh_object_carries_exactly_these_keys() {
+    let json = render_refresh_json(
+        &RunReport::default(),
+        RefreshCommand::Refresh,
+        ReportDetail::Summary,
+    )
+    .unwrap_or_default();
+
+    let mut expected = vec![
+        "schema_version",
+        "command",
+        "outcome",
+        "mode",
+        "fallback_reason",
+        "changed",
+        "reparsed",
+        "cached",
+        "cache_corrupt",
+        "content_reads",
+        "removed",
+        "renamed",
+        "degraded",
+        "tags",
+        "tags_recovered",
+        "conflicted",
+        "snapshot_updated",
+        "text",
+        "elapsed_ms",
+    ];
+    expected.sort_unstable();
+    let mut found = keys(&json);
+    found.sort();
+    assert_eq!(found, expected, "{json}");
+}
+
+#[test]
+fn per_path_detail_is_absent_without_verbose() {
+    let report = RunReport {
+        refresh: RefreshReport::default(),
+        text: TextReport {
+            written: 1,
+            removed: 1,
+            written_paths: vec!["MAP.md".to_owned()],
+            removed_paths: vec!["src/MAP.md".to_owned()],
+            ..TextReport::default()
+        },
+    };
+
+    let summary = render_refresh_json(&report, RefreshCommand::Refresh, ReportDetail::Summary)
+        .unwrap_or_default();
+    assert!(!summary.contains("written_paths"), "{summary}");
+    assert!(!summary.contains("removed_paths"), "{summary}");
+
+    let verbose = render_refresh_json(&report, RefreshCommand::Refresh, ReportDetail::Verbose)
+        .unwrap_or_default();
+    assert!(
+        verbose.contains(r#""written_paths":["MAP.md"]"#),
+        "{verbose}"
+    );
+    assert!(
+        verbose.contains(r#""removed_paths":["src/MAP.md"]"#),
+        "{verbose}"
+    );
+}
+
+#[test]
+fn a_conflict_serializes_its_reason_and_its_sentence() {
+    let conflict = Conflict::new("docs/MAP.md".to_owned(), ConflictReason::NotOwned);
+    let json = serde_json::to_string(&conflict).unwrap_or_default();
+
+    assert_eq!(
+        json,
+        format!(
+            r#"{{"path":"docs/MAP.md","reason":"not-owned","message":"{}"}}"#,
+            ConflictReason::NotOwned.as_text()
+        )
+    );
+}
+
+#[test]
+fn the_two_report_surfaces_version_independently() {
+    let refresh = render_refresh_json(
+        &RunReport::default(),
+        RefreshCommand::Refresh,
+        ReportDetail::Summary,
+    )
+    .unwrap_or_default();
+    assert!(
+        refresh.contains(&format!(r#""schema_version":{REFRESH_SCHEMA_VERSION}"#)),
+        "{refresh}"
+    );
+
+    let status = render_status_json(&StatusReport {
+        git: GitLabel::Clean,
+        head: None,
+        snapshot: SnapshotLabel::Missing,
+        stale_paths: None,
+        unresolved: 0,
+    })
+    .unwrap_or_default();
+    assert!(
+        status.contains(&format!(r#""schema_version":{STATUS_SCHEMA_VERSION}"#)),
+        "{status}"
+    );
+    assert!(status.contains(r#""command":"status""#), "{status}");
 }
 
 #[test]

@@ -5,7 +5,9 @@ use std::path::{Path, PathBuf};
 
 use rr_core::facts::display_signature;
 use rr_core::parser::Registry;
-use rr_core::refresh::{render_refresh_json, RefreshCommand, RefreshReport};
+use rr_core::refresh::{
+    render_refresh_json, RefreshCommand, RefreshReport, ReportDetail, RunReport,
+};
 use rr_core::{Facts, Lang, ParseStatus, Visibility};
 use serde::Serialize;
 
@@ -175,12 +177,16 @@ fn a_tags_based_file_is_reported_at_its_real_fidelity() {
     assert!(matches!(facts.status(), ParseStatus::Tags { .. }));
     assert!(!matches!(facts.status(), ParseStatus::Complete));
 
-    let report = RefreshReport {
-        tags: 1,
-        ..RefreshReport::default()
+    let report = RunReport {
+        refresh: RefreshReport {
+            tags: 1,
+            ..RefreshReport::default()
+        },
+        ..RunReport::default()
     };
-    let json = render_refresh_json(&report, RefreshCommand::Refresh).unwrap();
-    assert!(json.contains(r#""schema_version":3"#));
+    let json =
+        render_refresh_json(&report, RefreshCommand::Refresh, ReportDetail::Summary).unwrap();
+    assert!(json.contains(r#""schema_version":4"#));
     assert!(json.contains(r#""tags":1"#));
 }
 
