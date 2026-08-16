@@ -50,6 +50,7 @@ struct SnapshotDef {
 #[derive(Debug, PartialEq, Serialize)]
 struct SnapshotRef {
     name: String,
+    kind: String,
     line: u32,
     owner: Option<String>,
 }
@@ -133,6 +134,7 @@ fn to_snapshot(path: &str, facts: &Facts) -> SnapshotFile {
             .iter()
             .map(|reference| SnapshotRef {
                 name: reference.name.clone(),
+                kind: format!("{:?}", reference.kind).to_lowercase(),
                 line: reference.span.start_line(),
                 owner: owner_name(facts, reference.owner),
             })
@@ -322,7 +324,15 @@ fn a_typescript_member_reports_the_visibility_it_declares() {
     assert_eq!(visibility("#attempts"), "Private");
     assert_eq!(visibility("secret"), "Private");
     assert_eq!(visibility("reset"), "Private");
-    assert_eq!(visibility("shared"), "Protected");
+    assert_eq!(
+        facts
+            .defs()
+            .iter()
+            .find(|candidate| candidate.local_qualified.as_deref() == Some("Client.shared"))
+            .unwrap()
+            .visibility,
+        Visibility::Protected
+    );
     assert_eq!(visibility("baseUrl"), "Public");
     assert_eq!(visibility("send"), "Public");
     // Nesting is spelled the language's way, not Rust's.
@@ -366,6 +376,68 @@ fn typescript_documentation_is_the_comment_run_and_not_the_body() {
         .attribute_idents
         .iter()
         .any(|ident| ident == "sealed"));
+}
+
+#[test]
+fn a_typescript_var_binding_is_indexed() {
+    let (_, facts) = facts_for(Lang::TypeScript, "typescript", "surface.ts");
+    assert_eq!(def(&facts, "legacy").kind.to_string(), "variable");
+}
+
+#[test]
+fn an_exported_var_binding_is_documented() {
+    let (_, facts) = facts_for(Lang::TypeScript, "typescript", "surface.ts");
+    let shared = facts
+        .defs()
+        .iter()
+        .find(|candidate| candidate.name == "shared" && candidate.kind.to_string() == "variable")
+        .expect("no exported var named shared");
+    assert!(shared.doc_idents.iter().any(|ident| ident == "Shared"));
+}
+
+#[test]
+fn an_enum_member_is_a_field() {
+    let (_, facts) = facts_for(Lang::TypeScript, "typescript", "surface.ts");
+    assert_eq!(def(&facts, "Ceiling").kind.to_string(), "enum");
+    assert_eq!(def(&facts, "Http").kind.to_string(), "field");
+}
+
+#[test]
+fn an_enum_member_without_a_value_is_still_a_field() {
+    let facts = extract(Lang::TypeScript, b"enum Plain { A, B }\n");
+    assert_eq!(def(&facts, "Plain").kind.to_string(), "enum");
+    assert_eq!(def(&facts, "A").kind.to_string(), "field");
+    assert_eq!(def(&facts, "B").kind.to_string(), "field");
+}
+
+#[test]
+fn a_non_exported_binding_is_private() {
+    let (_, facts) = facts_for(Lang::TypeScript, "typescript", "surface.ts");
+    assert_eq!(
+        def(&facts, "INTERNAL_PREFIX").visibility,
+        Visibility::Private
+    );
+}
+
+#[test]
+fn an_exported_binding_stays_public() {
+    let (_, facts) = facts_for(Lang::TypeScript, "typescript", "surface.ts");
+    assert_eq!(
+        def(&facts, "DEFAULT_CEILING").visibility,
+        Visibility::Public
+    );
+}
+
+#[test]
+fn a_non_exported_declaration_is_private() {
+    let (_, facts) = facts_for(Lang::TypeScript, "typescript", "surface.ts");
+    assert_eq!(def(&facts, "join").visibility, Visibility::Private);
+}
+
+#[test]
+fn a_declared_modifier_still_beats_the_capture() {
+    let (_, facts) = facts_for(Lang::TypeScript, "typescript", "surface.ts");
+    assert_eq!(def(&facts, "#attempts").visibility, Visibility::Private);
 }
 
 #[test]

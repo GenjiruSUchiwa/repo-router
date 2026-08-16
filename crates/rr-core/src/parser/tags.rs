@@ -214,7 +214,8 @@ impl TagsExtractor {
                 continue;
             };
             if tag.is_definition {
-                let Some(kind) = definition_kind(spec, config, tag.syntax_type_id) else {
+                let Some((kind, is_local)) = definition_kind(spec, config, tag.syntax_type_id)
+                else {
                     continue;
                 };
                 let span = span_for_range(&tag.range, &lines, source)?;
@@ -239,7 +240,15 @@ impl TagsExtractor {
                     name: name.to_owned(),
                     local_qualified: None,
                     kind,
-                    visibility: (spec.visibility)(name),
+                    // A `local-` capture is the query stating this declaration is not
+                    // on the file's surface, which outranks anything the name suggests:
+                    // `LanguageSpec::visibility` reads name shape — a `#` prefix, a PEP 8
+                    // underscore — and a name shape cannot see an absent `export`.
+                    visibility: if is_local {
+                        Visibility::Private
+                    } else {
+                        (spec.visibility)(name)
+                    },
                     span,
                     signature_span: header.signature_span,
                     signature: header.signature,
@@ -306,6 +315,7 @@ fn validate_kind_maps(
 ) -> std::result::Result<(), String> {
     for capture in config.query.capture_names() {
         if let Some(kind) = capture.strip_prefix("definition.") {
+            let kind = kind.strip_prefix("local-").unwrap_or(kind);
             if !spec.kinds.iter().any(|(candidate, _)| *candidate == kind) {
                 return Err(format!("missing definition kind mapping for `{kind}`"));
             }
@@ -539,15 +549,32 @@ fn unquote(text: &str) -> &str {
     text.get(1..text.len() - 1).unwrap_or(text)
 }
 
+/// A definition capture split into its kind and whether the query said the
+/// declaration is local to its file.
+///
+/// `@definition.local-function` is a [`DefKind::Function`] declared where nothing
+/// outside the file can name it — what a TypeScript declaration says by leaving
+/// `export` off, and what no other channel could carry: `tree-sitter-tags` allows
+/// one `@definition.*` per pattern and returns one syntax type per tag.
+///
+/// Generic rather than TypeScript's, because the statement is not one language's
+/// opinion. A query that marks a declaration local has made a stronger claim than
+/// any name shape, so [`LanguageSpec::visibility`] is not consulted for one.
+fn split_local(capture: &str) -> (&str, bool) {
+    capture
+        .strip_prefix("local-")
+        .map_or((capture, false), |kind| (kind, true))
+}
+
 fn definition_kind(
     spec: &LanguageSpec,
     config: &TagsConfiguration,
     syntax_type_id: u32,
-) -> Option<DefKind> {
-    let name = config.syntax_type_name(syntax_type_id);
+) -> Option<(DefKind, bool)> {
+    let (name, is_local) = split_local(config.syntax_type_name(syntax_type_id));
     spec.kinds
         .iter()
-        .find_map(|(candidate, kind)| (*candidate == name).then_some(*kind))
+        .find_map(|(candidate, kind)| (*candidate == name).then_some((*kind, is_local)))
 }
 
 fn reference_kind(
@@ -952,15 +979,39 @@ fn python_test_scope(name: &str) -> bool {
     name.starts_with("Test")
 }
 
-/// The definition a language's query already described exactly.
+/// The last word on one Python definition.
 ///
-/// Python needs no second pass: `class`, `def` and a module-level assignment
-/// are three node types, so the query alone tells them apart, and PEP 8
-/// visibility is readable from the name. `@property` stays a decorated
-/// function rather than becoming a [`DefKind::Property`] — the decorator is a
-/// call whose meaning depends on what it resolves to, and the tags tier does
-/// not resolve.
-fn keep_as_captured(_def: &mut Def) {}
+/// The query alone tells `class`, `def` and a module-level assignment apart —
+/// three node types — and PEP 8 visibility is readable from the name, so the
+/// only thing left is the descriptor protocol. A `@property`, `@x.setter`,
+/// `@x.getter` or `@x.deleter` declares a member reached like a field and
+/// computed like a method, which is exactly [`DefKind::Property`].
+///
+/// Judged from the decorator identifiers rather than from what they resolve
+/// to, the same evidence `typescript_refine` reads for a `get`/`set` accessor.
+/// The limit is stated rather than hidden: this cannot see whether the
+/// function is inside a class, so a module-level function decorated
+/// `@property` is recorded as a property. That is a smaller error than
+/// recording every real property as a plain function, which is what the tags
+/// tier did before.
+fn python_refine(def: &mut Def) {
+    if def.kind == DefKind::Function && declares_a_descriptor(&def.attribute_idents) {
+        def.kind = DefKind::Property;
+    }
+}
+
+/// Whether the decorators on a definition spell one of the four descriptor
+/// forms: `@property`, `@x.setter`, `@x.getter`, `@x.deleter`.
+///
+/// `attribute_idents` is flat — `@size.setter` contributes `size` and `setter`
+/// — so the accessor forms are recognised by their trailing word. A decorator
+/// called `deleter` that is not an accessor is a name collision this tier
+/// cannot see through, and [`python_refine`] says so.
+fn declares_a_descriptor(attributes: &[String]) -> bool {
+    attributes
+        .iter()
+        .any(|ident| matches!(ident.as_str(), "property" | "setter" | "getter" | "deleter"))
+}
 
 pub(crate) static PYTHON: LanguageSpec = LanguageSpec {
     lang: Lang::Python,
@@ -972,12 +1023,15 @@ pub(crate) static PYTHON: LanguageSpec = LanguageSpec {
         ("class", DefKind::Class),
         ("function", DefKind::Function),
     ],
-    reference_kinds: &[("call", ReferenceKind::Call)],
+    reference_kinds: &[
+        ("call", ReferenceKind::Call),
+        ("method", ReferenceKind::MethodCall),
+    ],
     imports: Some(&PYTHON_IMPORTS),
     visibility: python_visibility,
     test_attribute: python_test_attribute,
     test_scope: python_test_scope,
-    refine: keep_as_captured,
+    refine: python_refine,
     doc_is_leading_body_string: true,
     config: OnceLock::new(),
 };
@@ -1287,7 +1341,7 @@ mod tests {
             visibility: python_visibility,
             test_attribute: python_test_attribute,
             test_scope: python_test_scope,
-            refine: keep_as_captured,
+            refine: python_refine,
             doc_is_leading_body_string: true,
             config: OnceLock::new(),
         };
@@ -1302,7 +1356,7 @@ mod tests {
             visibility: python_visibility,
             test_attribute: python_test_attribute,
             test_scope: python_test_scope,
-            refine: keep_as_captured,
+            refine: python_refine,
             doc_is_leading_body_string: true,
             config: OnceLock::new(),
         };
@@ -1709,6 +1763,108 @@ mod tests {
         assert_eq!(kind_of_reference("member"), &ReferenceKind::MethodCall);
     }
 
+    /// A receiver call is one rr cannot resolve without knowing the receiver's
+    /// type. Python used to record it as a plain call and let the index bind it to
+    /// whatever free function shared the name; this is that claim withdrawn.
+    #[test]
+    fn a_python_call_through_a_receiver_is_a_method_reference() {
+        let facts = python("def run(obj):\n    plain()\n    obj.method()\n    a.b.c()\n");
+        let kind_of_reference = |name: &str| {
+            &facts
+                .references()
+                .iter()
+                .find(|reference| reference.name == name)
+                .unwrap()
+                .kind
+        };
+        assert_eq!(kind_of_reference("plain"), &ReferenceKind::Call);
+        assert_eq!(kind_of_reference("method"), &ReferenceKind::MethodCall);
+        assert_eq!(kind_of_reference("c"), &ReferenceKind::MethodCall);
+    }
+
+    #[test]
+    fn a_python_plain_call_stays_a_call() {
+        let facts = python("def run():\n    helper(value)\n");
+        let helper = facts
+            .references()
+            .iter()
+            .find(|reference| reference.name == "helper")
+            .unwrap();
+        assert_eq!(helper.kind, ReferenceKind::Call);
+    }
+
+    #[test]
+    fn a_python_decorator_call_through_a_receiver_is_a_method_reference() {
+        let facts = python("@app.route(\"/x\")\ndef handler():\n    pass\n");
+        let route = facts
+            .references()
+            .iter()
+            .find(|reference| reference.name == "route")
+            .unwrap();
+        assert_eq!(route.kind, ReferenceKind::MethodCall);
+    }
+
+    #[test]
+    fn a_python_receiver_call_records_the_member_not_the_receiver() {
+        let facts = python("def run(obj):\n    obj.method()\n");
+        assert!(facts
+            .references()
+            .iter()
+            .any(|reference| reference.name == "method"));
+        assert!(!facts
+            .references()
+            .iter()
+            .any(|reference| reference.name == "obj"));
+    }
+
+    #[test]
+    fn a_python_property_is_a_property() {
+        let facts = python("class C:\n    @property\n    def size(self):\n        return 0\n");
+        assert_eq!(kind_of(&facts, "size"), "property");
+    }
+
+    #[test]
+    fn a_python_property_accessor_is_a_property() {
+        let facts = python("class C:\n    @size.setter\n    def size(self, v):\n        pass\n");
+        assert_eq!(kind_of(&facts, "size"), "property");
+    }
+
+    #[test]
+    fn a_python_non_property_decorator_leaves_the_kind_alone() {
+        let facts = python("class C:\n    @staticmethod\n    def run():\n        pass\n");
+        assert_eq!(kind_of(&facts, "run"), "function");
+    }
+
+    #[test]
+    fn a_python_class_is_not_refined_into_a_property() {
+        let facts = python("@property\nclass C:\n    pass\n");
+        assert_eq!(kind_of(&facts, "C"), "class");
+    }
+
+    #[test]
+    fn a_module_level_property_is_recorded_as_one_and_that_is_written_down() {
+        let facts = python("@property\ndef size():\n    return 0\n");
+        assert_eq!(kind_of(&facts, "size"), "property");
+    }
+
+    /// `DefKind::Property` was documented as "a TypeScript getter or setter, a
+    /// Python `@property`" long before Python produced one. This is that sentence
+    /// made checkable.
+    #[test]
+    fn every_language_the_property_doc_names_produces_one() {
+        let python_facts =
+            python("class C:\n    @property\n    def size(self):\n        return 0\n");
+        let typescript_facts = typescript("class C {\n    get size(): number { return 0; }\n}\n");
+        assert!(python_facts
+            .defs()
+            .iter()
+            .any(|def| def.kind == DefKind::Property));
+        assert!(typescript_facts
+            .defs()
+            .iter()
+            .any(|def| def.kind == DefKind::Property));
+    }
+
     /// TSX is a second grammar rather than a second file extension, and the
     /// shared query has to compile against both. A `TagsConfiguration` owns the
     /// grammar it was built with, so this is also the test that would fail if
@@ -2004,12 +2160,15 @@ mod tests {
                 ("class", DefKind::Class),
                 ("function", DefKind::Function),
             ],
-            reference_kinds: &[("call", ReferenceKind::Call)],
+            reference_kinds: &[
+                ("call", ReferenceKind::Call),
+                ("method", ReferenceKind::MethodCall),
+            ],
             imports: None,
             visibility: python_visibility,
             test_attribute: python_test_attribute,
             test_scope: python_test_scope,
-            refine: keep_as_captured,
+            refine: python_refine,
             doc_is_leading_body_string: true,
             config: OnceLock::new(),
         };

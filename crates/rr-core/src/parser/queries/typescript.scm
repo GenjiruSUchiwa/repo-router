@@ -24,9 +24,11 @@
 ; - Bindings are the exception, and tag the `variable_declarator`. A
 ;   declaration owns its statement and a binding does not: `export const A = 1,
 ;   B = 2;` is one statement holding two of them, and giving each the whole
-;   statement's span would have them contain each other. The cost is that a
-;   binding's signature does not show `export`, which is a keyword rr reads
-;   nothing from — visibility here is the `#` prefix, not the export list.
+;   statement's span would have them contain each other. The signature
+;   therefore does not show `export`; visibility still does, because the
+;   exported and non-exported patterns are different captures
+;   (`@definition.variable` vs `@definition.local-variable`) rather than a
+;   keyword read off the signature.
 ;
 ; - Anything the query cannot say — `constructor` is not an ordinary method, a
 ;   `get`/`set` accessor is not either, `const f = () => …` is a function
@@ -38,10 +40,10 @@
 ; documentation; TypeScript has no docstring.
 ;
 ; Deliberately not covered, so that nothing claims more than it read:
-; `var` at module scope, enum members, destructured bindings, string- and
-; computed-named members, string-named ambient modules (`declare module "x"`),
-; `export`-as-visibility, JSX component references, and `describe`/`it` as test
-; scopes — those are calls, and file naming already answers the question.
+; destructured bindings, string- and computed-named members, string-named
+; ambient modules (`declare module "x"`), JSX component references, and
+; `describe`/`it` as test scopes — those are calls, and file naming already
+; answers the question.
 
 ; ---------------------------------------------------------------------------
 ; Exported declarations, plain and ambient. First, so they win the tag for
@@ -130,6 +132,8 @@
     declaration: [
       (lexical_declaration
         (variable_declarator name: (identifier) @name) @definition.variable)
+      (variable_declaration
+        (variable_declarator name: (identifier) @name) @definition.variable)
       (ambient_declaration
         (lexical_declaration
           (variable_declarator name: (identifier) @name) @definition.variable))
@@ -202,48 +206,48 @@
     (function_declaration name: (identifier) @name)
     (generator_function_declaration name: (identifier) @name)
     (function_signature name: (identifier) @name)
-  ] @definition.function
+  ] @definition.local-function
   (#strip! @doc "^[/\\*\\s]+|[\\s\\*/]+$")
-  (#select-adjacent! @doc @definition.function))
+  (#select-adjacent! @doc @definition.local-function))
 
 ((comment)* @doc
   .
   [
     (class_declaration name: (type_identifier) @name)
     (abstract_class_declaration name: (type_identifier) @name)
-  ] @definition.class
+  ] @definition.local-class
   (#strip! @doc "^[/\\*\\s]+|[\\s\\*/]+$")
-  (#select-adjacent! @doc @definition.class))
+  (#select-adjacent! @doc @definition.local-class))
 
 ((comment)* @doc
   .
   (interface_declaration
-    name: (type_identifier) @name) @definition.interface
+    name: (type_identifier) @name) @definition.local-interface
   (#strip! @doc "^[/\\*\\s]+|[\\s\\*/]+$")
-  (#select-adjacent! @doc @definition.interface))
+  (#select-adjacent! @doc @definition.local-interface))
 
 ((comment)* @doc
   .
   (enum_declaration
-    name: (identifier) @name) @definition.enum
+    name: (identifier) @name) @definition.local-enum
   (#strip! @doc "^[/\\*\\s]+|[\\s\\*/]+$")
-  (#select-adjacent! @doc @definition.enum))
+  (#select-adjacent! @doc @definition.local-enum))
 
 ((comment)* @doc
   .
   (type_alias_declaration
-    name: (type_identifier) @name) @definition.type
+    name: (type_identifier) @name) @definition.local-type
   (#strip! @doc "^[/\\*\\s]+|[\\s\\*/]+$")
-  (#select-adjacent! @doc @definition.type))
+  (#select-adjacent! @doc @definition.local-type))
 
 ((comment)* @doc
   .
   [
     (internal_module name: (identifier) @name)
     (module name: (identifier) @name)
-  ] @definition.namespace
+  ] @definition.local-namespace
   (#strip! @doc "^[/\\*\\s]+|[\\s\\*/]+$")
-  (#select-adjacent! @doc @definition.namespace))
+  (#select-adjacent! @doc @definition.local-namespace))
 
 ; ---------------------------------------------------------------------------
 ; Members. A class body and an interface body hold nothing else, so these need
@@ -293,6 +297,15 @@
   (optional_parameter "readonly" pattern: (identifier) @name)
 ] @definition.field
 
+; Enum members. A TypeScript enum member is a named constant (`Ceiling.High`),
+; not a constructor, and is a stored member of the enum type.
+(enum_body
+  name: (property_identifier) @name) @definition.field
+
+(enum_body
+  (enum_assignment
+    name: (property_identifier) @name)) @definition.field
+
 ; ---------------------------------------------------------------------------
 ; Bindings that are part of a surface. Anchored on the two scopes a module can
 ; declare into, because `statement_block` is also every function body and a
@@ -310,15 +323,25 @@
 ; ---------------------------------------------------------------------------
 
 (program
-  (lexical_declaration
-    (variable_declarator
-      name: (identifier) @name) @definition.variable))
+  [
+    (lexical_declaration
+      (variable_declarator
+        name: (identifier) @name) @definition.local-variable)
+    (variable_declaration
+      (variable_declarator
+        name: (identifier) @name) @definition.local-variable)
+  ])
 
 (internal_module
   body: (statement_block
-    (lexical_declaration
-      (variable_declarator
-        name: (identifier) @name) @definition.variable)))
+    [
+      (lexical_declaration
+        (variable_declarator
+          name: (identifier) @name) @definition.local-variable)
+      (variable_declaration
+        (variable_declarator
+          name: (identifier) @name) @definition.local-variable)
+    ]))
 
 ; ---------------------------------------------------------------------------
 ; References.

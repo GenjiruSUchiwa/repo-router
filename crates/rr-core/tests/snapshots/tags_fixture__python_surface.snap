@@ -84,14 +84,126 @@ defs:
       - value
     doc_idents: []
     attribute_idents: []
+  - name: Registry
+    local_qualified: ~
+    kind: class
+    visibility: public
+    start_line: 24
+    end_line: 37
+    signature: "class Registry:"
+    signature_idents:
+      - class
+    body_idents: []
+    doc_idents:
+      - Registry
+      - documentation
+      - mentions
+      - store
+      - and
+      - lookup
+    attribute_idents: []
+  - name: __init__
+    local_qualified: Registry.__init__
+    kind: function
+    visibility: public
+    start_line: 27
+    end_line: 28
+    signature: "def __init__(self, store):"
+    signature_idents:
+      - def
+      - self
+      - store
+    body_idents:
+      - self
+      - _store
+      - store
+    doc_idents: []
+    attribute_idents: []
+  - name: size
+    local_qualified: Registry.size
+    kind: property
+    visibility: public
+    start_line: 30
+    end_line: 33
+    signature: "def size(self):"
+    signature_idents:
+      - def
+      - self
+    body_idents:
+      - return
+      - self
+      - _store
+      - count
+    doc_idents:
+      - How
+      - many
+      - entries
+      - the
+      - registry
+      - holds
+    attribute_idents:
+      - property
+  - name: size
+    local_qualified: Registry.size
+    kind: property
+    visibility: public
+    start_line: 35
+    end_line: 37
+    signature: "def size(self, value):"
+    signature_idents:
+      - def
+      - self
+      - value
+    body_idents:
+      - self
+      - _store
+      - resize
+      - value
+    doc_idents: []
+    attribute_idents:
+      - size
+      - setter
+  - name: lookup
+    local_qualified: ~
+    kind: function
+    visibility: public
+    start_line: 40
+    end_line: 41
+    signature: "def lookup(registry, key):"
+    signature_idents:
+      - def
+      - registry
+      - key
+    body_idents:
+      - return
+      - registry
+      - find
+      - key
+    doc_idents: []
+    attribute_idents: []
 references:
   - name: helper
+    kind: call
     line: 12
     owner: run
   - name: hidden
+    kind: call
     line: 15
     owner: nested
   - name: helper
+    kind: call
     line: 21
     owner: top
+  - name: count
+    kind: methodcall
+    line: 33
+    owner: size
+  - name: resize
+    kind: methodcall
+    line: 37
+    owner: size
+  - name: find
+    kind: methodcall
+    line: 41
+    owner: lookup
 imports: []

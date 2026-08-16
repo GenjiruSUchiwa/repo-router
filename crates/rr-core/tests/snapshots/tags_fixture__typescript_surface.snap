@@ -103,15 +103,37 @@ defs:
     signature_idents:
       - export
       - enum
-    body_idents:
-      - Http
-      - Memory
+    body_idents: []
     doc_idents:
       - Retry
       - ceilings
       - by
       - transport
     attribute_idents: []
+  - name: Http
+    local_qualified: Ceiling.Http
+    kind: field
+    visibility: public
+    start_line: 13
+    end_line: 16
+    signature: "Http = 3,"
+    signature_idents: []
+    body_idents:
+      - Memory
+    doc_idents: []
+    attribute_idents: []
+  - name: Memory
+    local_qualified: Ceiling.Memory
+    kind: field
+    visibility: public
+    start_line: 13
+    end_line: 16
+    signature: "Memory = 0,"
+    signature_idents: []
+    body_idents: []
+    doc_idents: []
+    attribute_idents:
+      - Http
   - name: DEFAULT_CEILING
     local_qualified: ~
     kind: variable
@@ -130,12 +152,38 @@ defs:
       - says
       - otherwise
     attribute_idents: []
-  - name: INTERNAL_PREFIX
+  - name: legacy
+    local_qualified: ~
+    kind: variable
+    visibility: private
+    start_line: 21
+    end_line: 21
+    signature: legacy = 1
+    signature_idents: []
+    body_idents: []
+    doc_idents: []
+    attribute_idents: []
+  - name: shared
     local_qualified: ~
     kind: variable
     visibility: public
-    start_line: 23
-    end_line: 23
+    start_line: 24
+    end_line: 24
+    signature: shared = 1
+    signature_idents: []
+    body_idents: []
+    doc_idents:
+      - Shared
+      - across
+      - the
+      - surface
+    attribute_idents: []
+  - name: INTERNAL_PREFIX
+    local_qualified: ~
+    kind: variable
+    visibility: private
+    start_line: 28
+    end_line: 28
     signature: "INTERNAL_PREFIX = \"rr\""
     signature_idents:
       - rr
@@ -146,8 +194,8 @@ defs:
     local_qualified: ~
     kind: function
     visibility: public
-    start_line: 26
-    end_line: 26
+    start_line: 31
+    end_line: 31
     signature: "makeClient = (options: ClientOptions): Client => new Client(options)"
     signature_idents:
       - options
@@ -169,9 +217,9 @@ defs:
   - name: later
     local_qualified: ~
     kind: variable
-    visibility: public
-    start_line: 28
-    end_line: 29
+    visibility: private
+    start_line: 33
+    end_line: 34
     signature: later =
     signature_idents: []
     body_idents:
@@ -186,8 +234,8 @@ defs:
     local_qualified: ~
     kind: class
     visibility: public
-    start_line: 32
-    end_line: 69
+    start_line: 37
+    end_line: 74
     signature: "export class Client implements ClientOptions {"
     signature_idents:
       - export
@@ -221,8 +269,8 @@ defs:
     local_qualified: Client.baseUrl
     kind: field
     visibility: public
-    start_line: 34
-    end_line: 34
+    start_line: 39
+    end_line: 39
     signature: "readonly baseUrl: string"
     signature_idents:
       - readonly
@@ -234,8 +282,8 @@ defs:
     local_qualified: "Client.#attempts"
     kind: field
     visibility: private
-    start_line: 35
-    end_line: 35
+    start_line: 40
+    end_line: 40
     signature: "#attempts = 0"
     signature_idents: []
     body_idents: []
@@ -245,8 +293,8 @@ defs:
     local_qualified: Client.secret
     kind: field
     visibility: private
-    start_line: 36
-    end_line: 36
+    start_line: 41
+    end_line: 41
     signature: "private secret: string"
     signature_idents:
       - private
@@ -258,8 +306,8 @@ defs:
     local_qualified: Client.shared
     kind: field
     visibility: protected
-    start_line: 37
-    end_line: 37
+    start_line: 42
+    end_line: 42
     signature: "protected shared: number"
     signature_idents:
       - protected
@@ -271,8 +319,8 @@ defs:
     local_qualified: Client.registry
     kind: field
     visibility: public
-    start_line: 38
-    end_line: 38
+    start_line: 43
+    end_line: 43
     signature: "static registry = new Map<string, Client>()"
     signature_idents:
       - static
@@ -287,8 +335,8 @@ defs:
     local_qualified: Client.constructor
     kind: constructor
     visibility: public
-    start_line: 41
-    end_line: 45
+    start_line: 46
+    end_line: 50
     signature: "constructor(options: ClientOptions) {"
     signature_idents:
       - options
@@ -315,8 +363,8 @@ defs:
     local_qualified: Client.attempts
     kind: property
     visibility: public
-    start_line: 48
-    end_line: 50
+    start_line: 53
+    end_line: 55
     signature: "get attempts(): number {"
     signature_idents:
       - get
@@ -338,8 +386,8 @@ defs:
     local_qualified: Client.attempts
     kind: property
     visibility: public
-    start_line: 52
-    end_line: 54
+    start_line: 57
+    end_line: 59
     signature: "set attempts(value: number) {"
     signature_idents:
       - set
@@ -355,8 +403,8 @@ defs:
     local_qualified: Client.describe
     kind: method
     visibility: public
-    start_line: 56
-    end_line: 58
+    start_line: 61
+    end_line: 63
     signature: "describe(): string {"
     signature_idents:
       - string
@@ -370,8 +418,8 @@ defs:
     local_qualified: Client.send
     kind: method
     visibility: public
-    start_line: 61
-    end_line: 64
+    start_line: 66
+    end_line: 69
     signature: "async send(path: string): Promise<string> {"
     signature_idents:
       - async
@@ -399,8 +447,8 @@ defs:
     local_qualified: Client.reset
     kind: method
     visibility: private
-    start_line: 66
-    end_line: 68
+    start_line: 71
+    end_line: 73
     signature: "private reset(): void {"
     signature_idents:
       - private
@@ -414,8 +462,8 @@ defs:
     local_qualified: ~
     kind: class
     visibility: public
-    start_line: 72
-    end_line: 74
+    start_line: 77
+    end_line: 79
     signature: "export abstract class Transport {"
     signature_idents:
       - export
@@ -434,8 +482,8 @@ defs:
     local_qualified: Transport.deliver
     kind: method
     visibility: public
-    start_line: 73
-    end_line: 73
+    start_line: 78
+    end_line: 78
     signature: "abstract deliver(body: string): Promise<void>"
     signature_idents:
       - abstract
@@ -450,8 +498,8 @@ defs:
     local_qualified: ~
     kind: function
     visibility: public
-    start_line: 76
-    end_line: 76
+    start_line: 81
+    end_line: 81
     signature: "export declare function configure(options: ClientOptions): void;"
     signature_idents:
       - export
@@ -467,8 +515,8 @@ defs:
     local_qualified: ~
     kind: function
     visibility: public
-    start_line: 79
-    end_line: 81
+    start_line: 84
+    end_line: 86
     signature: "export function* pages(count: number): Generator<number> {"
     signature_idents:
       - export
@@ -492,8 +540,8 @@ defs:
     local_qualified: ~
     kind: namespace
     visibility: public
-    start_line: 84
-    end_line: 93
+    start_line: 89
+    end_line: 98
     signature: "export namespace Reserved {"
     signature_idents:
       - export
@@ -515,8 +563,8 @@ defs:
     local_qualified: Reserved.NAMES
     kind: variable
     visibility: public
-    start_line: 85
-    end_line: 85
+    start_line: 90
+    end_line: 90
     signature: "NAMES = [\"rr\"]"
     signature_idents:
       - rr
@@ -526,9 +574,9 @@ defs:
   - name: CACHE
     local_qualified: Reserved.CACHE
     kind: variable
-    visibility: public
-    start_line: 88
-    end_line: 88
+    visibility: private
+    start_line: 93
+    end_line: 93
     signature: CACHE = new Set<string>()
     signature_idents:
       - new
@@ -541,8 +589,8 @@ defs:
     local_qualified: Reserved.includes
     kind: function
     visibility: public
-    start_line: 90
-    end_line: 92
+    start_line: 95
+    end_line: 97
     signature: "export function includes(name: string): boolean {"
     signature_idents:
       - export
@@ -563,9 +611,9 @@ defs:
   - name: join
     local_qualified: ~
     kind: function
-    visibility: public
-    start_line: 96
-    end_line: 99
+    visibility: private
+    start_line: 101
+    end_line: 104
     signature: "function join(base: string, path: string): string {"
     signature_idents:
       - function
@@ -592,8 +640,8 @@ defs:
     local_qualified: ~
     kind: class
     visibility: public
-    start_line: 102
-    end_line: 114
+    start_line: 107
+    end_line: 119
     signature: "export class Connection {"
     signature_idents:
       - export
@@ -617,8 +665,8 @@ defs:
     local_qualified: Connection.constructor
     kind: constructor
     visibility: public
-    start_line: 103
-    end_line: 109
+    start_line: 108
+    end_line: 114
     signature: constructor(
     signature_idents: []
     body_idents:
@@ -630,8 +678,8 @@ defs:
     local_qualified: Connection.client
     kind: field
     visibility: private
-    start_line: 104
-    end_line: 104
+    start_line: 109
+    end_line: 109
     signature: "private readonly client: Client"
     signature_idents:
       - private
@@ -644,8 +692,8 @@ defs:
     local_qualified: Connection.label
     kind: field
     visibility: public
-    start_line: 105
-    end_line: 105
+    start_line: 110
+    end_line: 110
     signature: "public label: string"
     signature_idents:
       - public
@@ -657,8 +705,8 @@ defs:
     local_qualified: Connection.retries
     kind: field
     visibility: protected
-    start_line: 106
-    end_line: 106
+    start_line: 111
+    end_line: 111
     signature: protected retries = 0
     signature_idents:
       - protected
@@ -669,8 +717,8 @@ defs:
     local_qualified: Connection.opened
     kind: field
     visibility: public
-    start_line: 107
-    end_line: 107
+    start_line: 112
+    end_line: 112
     signature: "readonly opened?: Date"
     signature_idents:
       - readonly
@@ -682,8 +730,8 @@ defs:
     local_qualified: Connection.describe
     kind: method
     visibility: public
-    start_line: 111
-    end_line: 113
+    start_line: 116
+    end_line: 118
     signature: "describe(): string {"
     signature_idents:
       - string
@@ -697,27 +745,35 @@ defs:
     attribute_idents: []
 references:
   - name: Client
-    line: 26
+    kind: call
+    line: 31
     owner: makeClient
   - name: Client
-    line: 29
+    kind: call
+    line: 34
     owner: later
   - name: Map
-    line: 38
+    kind: call
+    line: 43
     owner: registry
   - name: join
-    line: 62
+    kind: call
+    line: 67
     owner: send
   - name: fetchOnce
-    line: 63
+    kind: call
+    line: 68
     owner: send
   - name: Set
-    line: 88
+    kind: call
+    line: 93
     owner: CACHE
   - name: has
-    line: 91
+    kind: methodcall
+    line: 96
     owner: includes
   - name: includes
-    line: 91
+    kind: methodcall
+    line: 96
     owner: includes
 imports: []

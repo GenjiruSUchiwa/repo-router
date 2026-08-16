@@ -48,8 +48,11 @@
     body: (block . (expression_statement (string) @doc)?)) @definition.function)
 
 (call
-  function: [
-    (identifier) @name
-    (attribute
-      attribute: (identifier) @name)
-  ]) @reference.call
+  function: (identifier) @name) @reference.call
+
+; A call through a receiver, which the index leaves unresolved rather than
+; guessing which same-named member was meant. Spelled as TypeScript spells it
+; (`typescript.scm`), because the two languages disagreed and this one was wrong.
+(call
+  function: (attribute
+    attribute: (identifier) @name)) @reference.method

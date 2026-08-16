@@ -143,8 +143,30 @@ defs:
     signature_idents:
       - declare
       - enum
-    body_idents:
+    body_idents: []
+    doc_idents: []
+    attribute_idents: []
+  - name: Loud
+    local_qualified: Level.Loud
+    kind: field
+    visibility: public
+    start_line: 19
+    end_line: 22
+    signature: "Loud,"
+    signature_idents: []
+    body_idents: []
+    doc_idents: []
+    attribute_idents:
       - Quiet
+  - name: Quiet
+    local_qualified: Level.Quiet
+    kind: field
+    visibility: public
+    start_line: 19
+    end_line: 22
+    signature: "Quiet,"
+    signature_idents: []
+    body_idents:
       - Loud
     doc_idents: []
     attribute_idents: []
@@ -181,7 +203,7 @@ defs:
   - name: version
     local_qualified: Runtime.version
     kind: variable
-    visibility: public
+    visibility: private
     start_line: 27
     end_line: 27
     signature: "version: string"
@@ -283,7 +305,7 @@ defs:
   - name: active
     local_qualified: Session.active
     kind: variable
-    visibility: public
+    visibility: private
     start_line: 41
     end_line: 41
     signature: "active: number"

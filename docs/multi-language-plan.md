@@ -194,17 +194,17 @@ Every `DefKind` row #31 added is now produced by something:
 |---|---|---|
 | `Class` | TypeScript, Python | |
 | `Interface` | TypeScript | Kept apart from `Trait`, which stays Rust's |
-| `Field` | TypeScript | Class fields, interface property signatures, and constructor parameter properties |
-| `Property` | TypeScript | Getters and setters only |
+| `Field` | TypeScript | Class fields, interface property signatures, constructor parameter properties, and enum members |
+| `Property` | TypeScript, Python | TypeScript getters/setters; Python `@property` and its accessors |
 | `Constructor` | TypeScript | |
 | `Namespace` | TypeScript | `Module` stays what Rust means by `mod` |
 | `Variable` | TypeScript, Python | `Const`/`Static` keep their Rust meanings |
 
 `Visibility::Protected` is TypeScript's modifier; `Visibility::Internal` is
-Python's `_name`. `Private` is produced by both, by three unrelated
-mechanisms — a `#` in the name, a `private` modifier, and a `__` prefix — and
-that is the point: the vocabulary names the *conclusion*, and each language
-reaches it its own way.
+Python's `_name`. `Private` is produced by both, by four unrelated
+mechanisms — a `#` in the name, a `private` modifier, a `__` prefix, and a
+missing TypeScript `export` — and that is the point: the vocabulary names the
+*conclusion*, and each language reaches it its own way.
 
 The separator held too. `Client.describe` and `Service.run` are stored and
 routable as written, and `Router::route` is stored as Rust writes it, out of
@@ -220,7 +220,8 @@ accessors, `const f = () => …`, and the `private`/`protected` modifiers that
 are anonymous tokens no capture can reach.
 
 That is what the `refine: fn(&mut Def)` hook is, and it is the one structural
-change the second language cost. Python's is a no-op and documented as such.
+change the second language cost. Python's refine produces `DefKind::Property`
+from the four descriptor decorators; it is no longer a no-op.
 It has to run before the definitions are sorted, because `def_key` holds the
 kind and a kind changed afterwards would leave the order it was sorted into.
 
@@ -253,16 +254,28 @@ Recorded here rather than discovered later:
   every tier-2 kind and these imports reach the index as lexical evidence only.
 - **`export` is not visibility.** A non-exported TypeScript declaration reads
   as `Public`, because visibility here is the `#` prefix and the modifier, not
-  the export list.
+  the export list. *(Fixed in #42 (D6). The first answer was to accept this,
+  because a binding's signature does not show `export`. What changed was
+  noticing the query already separates the two cases structurally:
+  non-exported declarations and bindings are captured `@definition.local-<kind>`
+  and come out `Private`.)*
 - **No test signals for TypeScript at all.** `describe`/`it` are calls, and a
   call's meaning depends on what it resolves to. File naming already answers
-  the question through `Lang::path_indicates_test`.
+  the question through `Lang::path_indicates_test`. *(Accepted for V1 (D7).)*
 - **`Property` is never produced for Python.** `@property` is a decorator
   whose meaning depends on what it resolves to, and the tags tier does not
-  resolve.
+  resolve. *(Fixed in #42. `python_refine` produces `DefKind::Property` from
+  the four descriptor decorators; a module-level `@property` is recorded as
+  one, which the function's doc comment states as the accepted limit.)*
 - **Not covered by the TypeScript query**, and stated in its header: `var` at
   module scope, enum members, destructured bindings, computed and string-named
   members, string-named ambient modules, and JSX component references.
+  *(`var` at module scope and enum members fixed in #42. Enum members are
+  `DefKind::Field`; a new `DefKind` was rejected for costing two schema bumps.
+  The other four accepted (D8): destructured bindings are one declarator with
+  many names and no single `@name`; computed and string-named members, and
+  string-named ambient modules, have an expression rather than an identifier
+  as the name; JSX component references name a value the query cannot bind.)*
 
 ### Four imprecisions worth knowing about
 
@@ -274,7 +287,8 @@ Recorded here rather than discovered later:
    comment lies inside the container's span but outside the member's own, so
    the exclusion that removes members from their container misses it. Fixing
    it means backward-lexing in shared code, which is a real change and not
-   this milestone's.
+   this milestone's. *(Deferred to #53 (D9): the fix would bump all four
+   extractor versions in one commit.)*
 
 2. **Non-exported module bindings are indexed but not documented.** Those two
    patterns are anchored on a named parent, and a comment run inside a
@@ -283,11 +297,15 @@ Recorded here rather than discovered later:
    restart the sequence. A documentation rule that holds until something above
    it is commented is worse than no rule, so those patterns read no comments
    at all. Exported bindings go through an anonymous group and have no such
-   limit.
+   limit. *(Accepted for V1: a query-engine limit, tested at
+   `crates/rr-core/tests/tags_fixture.rs`
+   (`typescript_documentation_is_the_comment_run_and_not_the_body`).)*
 
 3. **A multi-line arrow binding stays a `Variable`.** The signature ends at
    the first line break, so `const later =\n    (x) => x;` offers no evidence
-   that it is a function and none is invented.
+   that it is a function and none is invented. *(Accepted for V1: already
+   tested at `tags_fixture.rs`
+   (`a_typescript_binding_is_a_function_only_when_its_initializer_is_one`).)*
 
 4. **Python and TypeScript disagree about receiver calls, and Python is the
    one that is wrong.** `python.scm` maps an `attribute` call to
@@ -295,9 +313,10 @@ Recorded here rather than discovered later:
    goes through the resolver, where it can bind to an unrelated same-named
    free function. TypeScript's equivalent is `ReferenceKind::MethodCall`,
    which `index::build` maps straight to `Resolution::Unresolved` — declining
-   a resolution rr cannot make, which is what Rust does too. Correcting Python
-   means bumping `PYTHON_EXTRACTOR_VERSION`, so it is named here and left for
-   the change that can afford the reparse.
+   a resolution rr cannot make, which is what Rust does too. *(Fixed in #42.
+   The query now splits the alternation: a receiver call is
+   `@reference.method` / `ReferenceKind::MethodCall`, the index leaves it
+   `Unresolved`, and `PYTHON_EXTRACTOR_VERSION` moved 5 → 6.)*
 
 ### What a Rust-only repository sees
 
