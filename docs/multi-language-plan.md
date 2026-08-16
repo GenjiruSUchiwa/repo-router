@@ -81,10 +81,13 @@ nothing else.
 ### What #32 landed
 
 The generic tags tier now ships with `tree-sitter-tags = 0.25.10` and the
-`tree-sitter-python = 0.25.0` harness grammar. `FACT_SCHEMA_VERSION` is 4,
-`SNAPSHOT_SCHEMA_VERSION` is 7, and `EXTRACTOR_VERSION` is 3. The refresh
-report exposes a `tags` counter, while maps publish the `syntax-tags` fidelity
-for files whose definitions came from `tags.scm`.
+`tree-sitter-python = 0.25.0` harness grammar. `FACT_SCHEMA_VERSION` is 4 and
+`SNAPSHOT_SCHEMA_VERSION` is 7. The refresh report exposes a `tags` counter,
+while maps publish the `syntax-tags` fidelity for files whose definitions came
+from `tags.scm`.
+
+There is no longer one `EXTRACTOR_VERSION`: #35 split it per language, so a
+fix scoped to one grammar reparses that language's files and nobody else's.
 
 ---
 
@@ -168,6 +171,142 @@ row three, not after.
 
 Step 4 validates steps 1–3. An abstraction with one implementation has never
 been tested.
+
+---
+
+## 5a. The verdict on step 4
+
+Step 4 shipped as Python (#38) and TypeScript with TSX (#33). Four languages
+are now indexed across two extraction tiers. This section is what they proved,
+written while the evidence is still in front of us, because the point of §5
+step 4 was never the two languages — it was finding out whether #31's
+vocabulary and #30's seam survive contact with a language that disagrees.
+
+### The vocabulary held. The plumbing did not, and had to grow one hook.
+
+Every `DefKind` row #31 added is now produced by something:
+
+| Row | Produced by | Notes |
+|---|---|---|
+| `Class` | TypeScript, Python | |
+| `Interface` | TypeScript | Kept apart from `Trait`, which stays Rust's |
+| `Field` | TypeScript | Class fields and interface property signatures |
+| `Property` | TypeScript | Getters and setters only |
+| `Constructor` | TypeScript | |
+| `Namespace` | TypeScript | `Module` stays what Rust means by `mod` |
+| `Variable` | TypeScript, Python | `Const`/`Static` keep their Rust meanings |
+
+`Visibility::Protected` is TypeScript's modifier; `Visibility::Internal` is
+Python's `_name`. `Private` is produced by both, by three unrelated
+mechanisms — a `#` in the name, a `private` modifier, and a `__` prefix — and
+that is the point: the vocabulary names the *conclusion*, and each language
+reaches it its own way.
+
+The separator held too. `Client.describe` and `Service.run` are stored and
+routable as written, and `Router::route` is stored as Rust writes it, out of
+one `local_qualified` field and one `Lang::qualified_separator`.
+
+What did **not** hold was the assumption underneath `LanguageSpec`: that a
+language's behaviour is fully describable by a tags query plus a few function
+pointers. `tree-sitter-tags` compiles text predicates — `#eq?`, `#match?` —
+and then never evaluates them. So a query cannot say "this `method_definition`
+whose name is `constructor` is a different kind", which is exactly the sort of
+thing TypeScript needs said four times over: `constructor`, `get`/`set`
+accessors, `const f = () => …`, and the `private`/`protected` modifiers that
+are anonymous tokens no capture can reach.
+
+That is what the `refine: fn(&mut Def)` hook is, and it is the one structural
+change the second language cost. Python's is a no-op and documented as such.
+It has to run before the definitions are sorted, because `def_key` holds the
+kind and a kind changed afterwards would leave the order it was sorted into.
+
+### What tier 2 does not claim
+
+Recorded here rather than discovered later:
+
+- **No imports, in either language.** `ImportKind::Import`/`From`/`Require`
+  are still inert, and neither query has an import pattern. `import { X } from
+  "y"` is invisible to rr today. This is the largest remaining gap and the
+  obvious next piece of work.
+- **`export` is not visibility.** A non-exported TypeScript declaration reads
+  as `Public`, because visibility here is the `#` prefix and the modifier, not
+  the export list.
+- **No test signals for TypeScript at all.** `describe`/`it` are calls, and a
+  call's meaning depends on what it resolves to. File naming already answers
+  the question through `Lang::path_indicates_test`.
+- **`Property` is never produced for Python.** `@property` is a decorator
+  whose meaning depends on what it resolves to, and the tags tier does not
+  resolve.
+- **Not covered by the TypeScript query**, and stated in its header: `var` at
+  module scope, enum members, destructured bindings, computed and string-named
+  members, string-named ambient modules, and JSX component references.
+
+### Four imprecisions worth knowing about
+
+1. **A tags-tier span starts at the declaration, not at its documentation.**
+   The span is the definition node's own range, so a decorator — a child of
+   that node — is inside it and a preceding comment is not. Rust's
+   hand-written extractor reaches back over both. The visible consequence is
+   that a container's `body_idents` pick up its members' doc prose: a member's
+   comment lies inside the container's span but outside the member's own, so
+   the exclusion that removes members from their container misses it. Fixing
+   it means backward-lexing in shared code, which is a real change and not
+   this milestone's.
+
+2. **Non-exported module bindings are indexed but not documented.** Those two
+   patterns are anchored on a named parent, and a comment run inside a
+   parent-anchored pattern only ever matches the *first* run under that
+   parent — the query engine walks the parent's children once and does not
+   restart the sequence. A documentation rule that holds until something above
+   it is commented is worse than no rule, so those patterns read no comments
+   at all. Exported bindings go through an anonymous group and have no such
+   limit.
+
+3. **A multi-line arrow binding stays a `Variable`.** The signature ends at
+   the first line break, so `const later =\n    (x) => x;` offers no evidence
+   that it is a function and none is invented.
+
+4. **Python and TypeScript disagree about receiver calls, and Python is the
+   one that is wrong.** `python.scm` maps an `attribute` call to
+   `@reference.call`, so `obj.method()` becomes a `ReferenceKind::Call` and
+   goes through the resolver, where it can bind to an unrelated same-named
+   free function. TypeScript's equivalent is `ReferenceKind::MethodCall`,
+   which `index::build` maps straight to `Resolution::Unresolved` — declining
+   a resolution rr cannot make, which is what Rust does too. Correcting Python
+   means bumping `PYTHON_EXTRACTOR_VERSION`, so it is named here and left for
+   the change that can afford the reparse.
+
+### What a Rust-only repository sees
+
+Nothing, in every way that matters: same defs, same references, same
+`Complete` status, `RUST_EXTRACTOR_VERSION` still 3, `FACT_SCHEMA_VERSION`
+still 4, `SNAPSHOT_SCHEMA_VERSION` still 7. No Rust golden moved.
+
+One thing does change, and it has to. `meta.discovery_digest` mixes in the
+language allowlist and the per-language extractor versions, so growing the
+registry moves the digest and the next `rr map` rebuilds. That is the
+mechanism working: a repository that *already holds* `.ts` files needs to be
+told its snapshot is now missing them, and a digest that ignored the language
+set would leave it serving an incomplete index until some unrelated file
+happened to change. The cost is one rebuild per repository, once.
+
+### The measured cost of the next language
+
+The one-time cost is paid. What a fifth language costs now:
+
+- One `=`-pinned grammar crate and one `LanguageSpec`, roughly 40 lines.
+- A `tags.scm`, if the upstream one is unusable. Python's is 55 lines;
+  TypeScript's is 318, and TypeScript is the bad case — upstream's file is a
+  supplement to `tree-sitter-javascript`'s and carries no function, class,
+  method or field pattern at all, so the whole query had to be written.
+- A `refine` function, between zero lines and TypeScript's 60, depending on
+  how much of the language the query cannot say.
+- Fixtures and a golden.
+
+TypeScript came to 160 lines of extractor code across both specs, a 318-line
+query, and 169 lines of unit tests. The `refine` hook it needed is shared and
+already paid for. A language whose upstream `tags.scm` is usable and whose
+kinds map cleanly should cost a small fraction of that.
 
 ---
 
