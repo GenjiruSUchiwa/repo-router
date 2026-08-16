@@ -38,6 +38,30 @@ pub struct LanguageSpec {
     pub test_attribute: fn(&str) -> bool,
     /// Whether an enclosing definition of this name is a test scope.
     pub test_scope: fn(&str) -> bool,
+    /// Last word on one definition, once its name, kind, signature and
+    /// visibility are all in hand.
+    ///
+    /// `tree-sitter-tags` compiles text predicates and then never evaluates
+    /// them, so `#eq?` and `#match?` cannot route a capture. Anything a
+    /// language decides by reading the name or the declaration text — a
+    /// `constructor` that is not an ordinary method, an accessor that is not
+    /// either, an `= () =>` binding that is a function wearing a variable's
+    /// syntax, a `private` modifier no capture can reach — is decided here
+    /// instead.
+    ///
+    /// Runs before the definitions are sorted, because [`def_key`] holds the
+    /// kind and a kind changed afterwards would leave the order it was sorted
+    /// into.
+    pub refine: fn(&mut Def),
+    /// Whether this language's documentation is the string literal that opens
+    /// a body, as Python's docstring is.
+    ///
+    /// `false` for a language whose documentation is a comment *preceding* the
+    /// definition: the comment already falls outside the span, so nothing has
+    /// to be kept out of the body scan — and excluding a leading body string
+    /// anyway would silently drop a `"use strict"` prologue's identifiers from
+    /// a documented function.
+    pub doc_is_leading_body_string: bool,
     /// The compiled tags query, shared by every worker that speaks this
     /// language. Compiling it costs milliseconds that rayon would otherwise
     /// repeat once per work split; only [`TagsContext`] stays per worker.
@@ -118,7 +142,7 @@ impl TagsExtractor {
                     span,
                     tag.name_range.start,
                     name,
-                    tag.docs.is_some(),
+                    tag.docs.is_some() && spec.doc_is_leading_body_string,
                     source,
                     &lines,
                 )?;
@@ -131,23 +155,22 @@ impl TagsExtractor {
                     inside_cfg_test: false,
                     inside_test_scope: false,
                 };
-                defs.push((
-                    Def {
-                        name: name.to_owned(),
-                        local_qualified: None,
-                        kind,
-                        visibility: (spec.visibility)(name),
-                        span,
-                        signature_span: header.signature_span,
-                        signature: header.signature,
-                        signature_idents: header.signature_idents,
-                        body_idents: Vec::new(),
-                        doc_idents,
-                        attribute_idents: header.attribute_idents,
-                        test_signals,
-                    },
-                    header.exclusions,
-                ));
+                let mut def = Def {
+                    name: name.to_owned(),
+                    local_qualified: None,
+                    kind,
+                    visibility: (spec.visibility)(name),
+                    span,
+                    signature_span: header.signature_span,
+                    signature: header.signature,
+                    signature_idents: header.signature_idents,
+                    body_idents: Vec::new(),
+                    doc_idents,
+                    attribute_idents: header.attribute_idents,
+                    test_signals,
+                };
+                (spec.refine)(&mut def);
+                defs.push((def, header.exclusions));
             } else {
                 let Some(kind) = reference_kind(spec, config, tag.syntax_type_id) else {
                     continue;
@@ -591,6 +614,16 @@ fn python_test_scope(name: &str) -> bool {
     name.starts_with("Test")
 }
 
+/// The definition a language's query already described exactly.
+///
+/// Python needs no second pass: `class`, `def` and a module-level assignment
+/// are three node types, so the query alone tells them apart, and PEP 8
+/// visibility is readable from the name. `@property` stays a decorated
+/// function rather than becoming a [`DefKind::Property`] — the decorator is a
+/// call whose meaning depends on what it resolves to, and the tags tier does
+/// not resolve.
+fn keep_as_captured(_def: &mut Def) {}
+
 pub(crate) static PYTHON: LanguageSpec = LanguageSpec {
     lang: Lang::Python,
     language: tree_sitter_python::LANGUAGE,
@@ -605,6 +638,8 @@ pub(crate) static PYTHON: LanguageSpec = LanguageSpec {
     visibility: python_visibility,
     test_attribute: python_test_attribute,
     test_scope: python_test_scope,
+    refine: keep_as_captured,
+    doc_is_leading_body_string: true,
     config: OnceLock::new(),
 };
 
@@ -656,6 +691,8 @@ mod tests {
             visibility: python_visibility,
             test_attribute: python_test_attribute,
             test_scope: python_test_scope,
+            refine: keep_as_captured,
+            doc_is_leading_body_string: true,
             config: OnceLock::new(),
         };
         static INCOMPLETE: LanguageSpec = LanguageSpec {
@@ -668,6 +705,8 @@ mod tests {
             visibility: python_visibility,
             test_attribute: python_test_attribute,
             test_scope: python_test_scope,
+            refine: keep_as_captured,
+            doc_is_leading_body_string: true,
             config: OnceLock::new(),
         };
         assert!(TagsExtractor::new(&ILLEGAL).is_err());
