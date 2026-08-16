@@ -83,6 +83,9 @@ that consumes it.
 
 - `--source` returns the anchor's own lines, verified against the indexed
   content. It refuses rather than returning bytes it cannot vouch for.
+  `SOURCE BYTES: n` is the last header line, immediately above `---`. Read
+  exactly `n` bytes after `---\n`; those bytes are file content and may spell
+  any line, including another `FINAL SOURCE ANCHOR`.
 - `--json` emits one object instead of prose.
 - `--path src/auth/token.rs` narrows to one file.
 - `--explain` reports what the ranker did.
