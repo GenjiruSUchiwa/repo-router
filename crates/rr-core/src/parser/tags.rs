@@ -384,9 +384,13 @@ fn header_for(
             displayed
         }
     };
+    // Compared against the name as the scanner sees it: a sigil is not part of
+    // an identifier, so a TypeScript `#private` name would otherwise never
+    // match itself and every such definition would carry its own name.
+    let scanned_name = name.trim_start_matches('#');
     let signature_idents = scan_idents(raw)
         .into_iter()
-        .filter(|ident| ident != name)
+        .filter(|ident| ident != scanned_name)
         .collect();
 
     if has_docs {
@@ -696,6 +700,50 @@ fn typescript_visibility(name: &str) -> Visibility {
     }
 }
 
+/// The initializer this binding assigns, or `None` when it assigns nothing.
+///
+/// The `=` that opens it is the first one that is not part of an operator:
+/// `const f: (x: number) => void = …` annotates before it assigns, and
+/// splitting on the `=` of that `=>` would read the *type* as the initializer.
+fn initializer_of(signature: &str) -> Option<&str> {
+    let bytes = signature.as_bytes();
+    let assignment = (0..bytes.len()).find(|index| {
+        if bytes[*index] != b'=' {
+            return false;
+        }
+        let previous = index.checked_sub(1).map(|before| bytes[before]);
+        let next = bytes.get(index + 1).copied();
+        // `=>`, `==`, and the tail of `!=`, `<=`, `>=`, `===`.
+        !matches!(next, Some(b'=' | b'>')) && !matches!(previous, Some(b'=' | b'!' | b'<' | b'>'))
+    })?;
+    signature.get(assignment + 1..)
+}
+
+/// The text after a leading type-parameter list, or `None` when the `<` does
+/// not close before the string ends.
+///
+/// `<` is the one bracket that is not reliably a bracket: it opens a type
+/// parameter list, a JSX element and a comparison alike. Matching it by depth
+/// is what separates `<T extends Map<string, number>,>(a: T) => a`, whose list
+/// closes onto the parameters, from `<Badge onClick={() => go()} />`, which is
+/// a value that happens to contain an arrow.
+fn after_type_parameters(initializer: &str) -> Option<&str> {
+    let mut depth = 0usize;
+    for (offset, character) in initializer.char_indices() {
+        match character {
+            '<' => depth += 1,
+            '>' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    return initializer.get(offset + 1..);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
 /// Whether this binding's initializer is a function rather than a value.
 ///
 /// Judged from the initializer's first token and not from `=>` appearing
@@ -704,7 +752,7 @@ fn typescript_visibility(name: &str) -> Visibility {
 /// judged at all: the signature ends at the first line break outside brackets,
 /// so there is nothing there to read, and it stays a [`DefKind::Variable`].
 fn initializer_is_a_function(signature: &str) -> bool {
-    let Some((_, initializer)) = signature.split_once('=') else {
+    let Some(initializer) = initializer_of(signature) else {
         return false;
     };
     let initializer = initializer.trim_start();
@@ -714,7 +762,12 @@ fn initializer_is_a_function(signature: &str) -> bool {
     if initializer.starts_with("function") {
         return true;
     }
-    (initializer.starts_with('(') || initializer.starts_with('<')) && initializer.contains("=>")
+    let opens_parameters = if initializer.starts_with('<') {
+        after_type_parameters(initializer).is_some_and(|rest| rest.trim_start().starts_with('('))
+    } else {
+        initializer.starts_with('(')
+    };
+    opens_parameters && initializer.contains("=>")
 }
 
 /// What the TypeScript query captured, plus what it structurally could not.
@@ -772,20 +825,32 @@ const TYPESCRIPT_REFERENCE_KINDS: &[(&str, ReferenceKind)] = &[
     ("method", ReferenceKind::MethodCall),
 ];
 
-pub(crate) static TYPESCRIPT: LanguageSpec = LanguageSpec {
-    lang: Lang::TypeScript,
-    language: tree_sitter_typescript::LANGUAGE_TYPESCRIPT,
-    tags_query: include_str!("queries/typescript.scm"),
-    locals_query: "",
-    kinds: TYPESCRIPT_KINDS,
-    reference_kinds: TYPESCRIPT_REFERENCE_KINDS,
-    visibility: typescript_visibility,
-    test_attribute: never_a_test_signal,
-    test_scope: never_a_test_signal,
-    refine: typescript_refine,
-    doc_is_leading_body_string: false,
-    config: OnceLock::new(),
-};
+/// One TypeScript specification, differing from the other only in the grammar
+/// it compiles against.
+///
+/// Spelled once so the two cannot drift: everything below the first two fields
+/// is the language, and the language is the same one.
+const fn typescript_spec(lang: Lang, language: LanguageFn) -> LanguageSpec {
+    LanguageSpec {
+        lang,
+        language,
+        tags_query: include_str!("queries/typescript.scm"),
+        locals_query: "",
+        kinds: TYPESCRIPT_KINDS,
+        reference_kinds: TYPESCRIPT_REFERENCE_KINDS,
+        visibility: typescript_visibility,
+        test_attribute: never_a_test_signal,
+        test_scope: never_a_test_signal,
+        refine: typescript_refine,
+        doc_is_leading_body_string: false,
+        config: OnceLock::new(),
+    }
+}
+
+pub(crate) static TYPESCRIPT: LanguageSpec = typescript_spec(
+    Lang::TypeScript,
+    tree_sitter_typescript::LANGUAGE_TYPESCRIPT,
+);
 
 /// TSX: the same query against a different grammar.
 ///
@@ -794,21 +859,10 @@ pub(crate) static TYPESCRIPT: LanguageSpec = LanguageSpec {
 /// file parsed by the TypeScript grammar is a file full of syntax errors, not
 /// a file that happens to also parse. The separate [`OnceLock`] is what keeps
 /// them apart: a compiled `TagsConfiguration` holds its grammar, so one shared
-/// between these two specs would hand every `.tsx` file the `.ts` parser.
-pub(crate) static TSX: LanguageSpec = LanguageSpec {
-    lang: Lang::Tsx,
-    language: tree_sitter_typescript::LANGUAGE_TSX,
-    tags_query: include_str!("queries/typescript.scm"),
-    locals_query: "",
-    kinds: TYPESCRIPT_KINDS,
-    reference_kinds: TYPESCRIPT_REFERENCE_KINDS,
-    visibility: typescript_visibility,
-    test_attribute: never_a_test_signal,
-    test_scope: never_a_test_signal,
-    refine: typescript_refine,
-    doc_is_leading_body_string: false,
-    config: OnceLock::new(),
-};
+/// between these two specs would hand every `.tsx` file the `.ts` parser —
+/// which is why each of these is its own `static` rather than one built twice.
+pub(crate) static TSX: LanguageSpec =
+    typescript_spec(Lang::Tsx, tree_sitter_typescript::LANGUAGE_TSX);
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
@@ -1076,8 +1130,18 @@ mod tests {
     #[test]
     fn a_typescript_hash_name_is_private_without_a_modifier() {
         let facts = typescript("class C {\n    #hidden = 0;\n    shown = 0;\n}\n");
-        let hidden = facts.defs().iter().find(|def| def.name == "#hidden");
-        assert_eq!(hidden.unwrap().visibility, Visibility::Private);
+        let hidden = facts
+            .defs()
+            .iter()
+            .find(|def| def.name == "#hidden")
+            .unwrap();
+        assert_eq!(hidden.visibility, Visibility::Private);
+        // The sigil is not part of an identifier, so the definition's own name
+        // has to be recognised without it or it lands in its own signature.
+        assert!(!hidden
+            .signature_idents
+            .iter()
+            .any(|ident| ident == "hidden"));
         assert_eq!(
             facts
                 .defs()
@@ -1122,6 +1186,27 @@ mod tests {
         assert_eq!(kind_of(&facts, "value"), "variable");
         assert_eq!(kind_of(&facts, "wrapped"), "variable");
         assert_eq!(kind_of(&facts, "split"), "variable");
+    }
+
+    /// The two shapes the first `=` and the first token get wrong on their own:
+    /// an annotation that spells a function type *before* the assignment, and a
+    /// `<` that opens an element rather than a type parameter list.
+    #[test]
+    fn a_typescript_initializer_is_read_past_its_annotation_and_its_element() {
+        let facts = typescript(
+            "const annotated: (x: number) => void = (x) => {};\nconst asserted = <Foo>bar.map((y) => y);\nconst nested = <T extends Map<string, number>,>(a: T): T => a;\nconst compared = left >= right;\n",
+        );
+        assert_eq!(kind_of(&facts, "annotated"), "function");
+        assert_eq!(kind_of(&facts, "asserted"), "variable");
+        assert_eq!(kind_of(&facts, "nested"), "function");
+        assert_eq!(kind_of(&facts, "compared"), "variable");
+
+        // The same `<`, under the grammar where it really does open an element.
+        let mut tsx = TagsExtractor::new(&TSX).unwrap();
+        let facts = tsx
+            .extract(b"const element = <Badge onClick={() => go()} />;\n")
+            .unwrap();
+        assert_eq!(kind_of(&facts, "element"), "variable");
     }
 
     /// Nesting is spelled with the separator the language uses, which is the

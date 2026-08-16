@@ -237,8 +237,7 @@ defs:
     start_line: 35
     end_line: 35
     signature: "#attempts = 0"
-    signature_idents:
-      - attempts
+    signature_idents: []
     body_idents: []
     doc_idents: []
     attribute_idents: []

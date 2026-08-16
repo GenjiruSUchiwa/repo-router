@@ -40,8 +40,10 @@
 ; Deliberately not covered, so that nothing claims more than it read:
 ; `var` at module scope, enum members, destructured bindings, string- and
 ; computed-named members, string-named ambient modules (`declare module "x"`),
-; `export`-as-visibility, JSX component references, and `describe`/`it` as test
-; scopes — those are calls, and file naming already answers the question.
+; parameter properties (`constructor(private repo: Repo)`, which declares a
+; field in a parameter list), `export`-as-visibility, JSX component references,
+; and `describe`/`it` as test scopes — those are calls, and file naming already
+; answers the question.
 
 ; ---------------------------------------------------------------------------
 ; Exported declarations, plain and ambient. First, so they win the tag for
