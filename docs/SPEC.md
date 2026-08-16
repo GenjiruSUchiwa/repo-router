@@ -936,7 +936,22 @@ radar map
 radar query <query>
 radar status
 radar doctor
+rr init [--root <path>] [--json]
 ```
+
+`rr init` installs the agent navigation contract into `.rr/.gitignore`
+(managed ignore block), `AGENTS.md` and `CLAUDE.md` (managed contract
+block), and `.claude/skills/rr/SKILL.md` (stamped whole file). Idempotent:
+a second run writes nothing when content already matches. Reads no Git
+state; works outside a repository; does not build an index (`next: rr
+map`). A destination rr cannot prove it wrote is refused by name; the
+other three still install. No `--force`, `--dry-run`, `--check`,
+`--target`, or `--map`.
+
+Exit codes:
+- `0`: every target is installed and current (whether this run wrote or not)
+- `1`: a target was refused, or an I/O failure stopped the run
+- `130`: Ctrl-C
 
 Recommended later commands:
 

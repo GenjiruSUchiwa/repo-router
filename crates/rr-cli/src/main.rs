@@ -1,3 +1,4 @@
+mod init;
 mod output;
 mod query;
 mod refresh;
@@ -32,6 +33,8 @@ enum Commands {
     Map(RefreshArgs),
     /// Report how the repository and its snapshot relate, changing neither.
     Status(StatusArgs),
+    /// Install the agent navigation contract. Safe to run again.
+    Init(init::Args),
     Query(query::Args),
 }
 
@@ -57,6 +60,7 @@ fn main() -> ExitCode {
         ),
         Commands::Map(args) => finish("map", refresh::run_refresh(&args, RefreshCommand::Map)),
         Commands::Status(args) => finish("status", refresh::run_status(&args)),
+        Commands::Init(args) => finish("init", init::run(&args)),
         Commands::Query(args) => match query::run(&args) {
             Ok(code) => ExitCode::from(code),
             Err(err) => {

@@ -7,12 +7,18 @@
 //! Issue #12 adds `/ROUTES.md` through this same helper rather than a second
 //! managed block.
 
-use super::{TextError, TextResult};
+use super::{BlockMarkers, TextResult};
 
 /// The first line of the managed region.
 pub const IGNORE_BEGIN_MARKER: &str = "# rr:begin local artifacts";
 /// The last line of the managed region.
 pub const IGNORE_END_MARKER: &str = "# rr:end local artifacts";
+
+/// The markers this module's block is delimited by.
+pub const IGNORE_MARKERS: BlockMarkers = BlockMarkers {
+    begin: IGNORE_BEGIN_MARKER,
+    end: IGNORE_END_MARKER,
+};
 
 /// The patterns this issue owns.
 const OWNED_PATTERNS: [&str; 2] = ["/SYMBOLS.md", "/local/"];
@@ -55,63 +61,7 @@ fn owned_block() -> String {
 /// Returns [`TextError::ManagedIgnore`] for malformed or duplicated markers,
 /// and [`TextError::Newline`] for content this crate cannot write back.
 pub fn apply_managed_block(existing: Option<&str>) -> TextResult<String> {
-    let block = owned_block();
-    let Some(existing) = existing else {
-        return Ok(block);
-    };
-    let existing = super::parse::normalize_newlines_public(existing)?;
-
-    let begins: Vec<usize> = marker_lines(&existing, IGNORE_BEGIN_MARKER);
-    let ends: Vec<usize> = marker_lines(&existing, IGNORE_END_MARKER);
-    if begins.len() > 1 || ends.len() > 1 {
-        return Err(TextError::ManagedIgnore {
-            reason: "the managed block markers appear more than once",
-        });
-    }
-    let lines: Vec<&str> = existing.lines().collect();
-    match (begins.first(), ends.first()) {
-        (None, None) => Ok(append_block(&existing, &block)),
-        (Some(&begin), Some(&end)) if begin < end => {
-            let mut out = String::new();
-            for line in &lines[..begin] {
-                out.push_str(line);
-                out.push('\n');
-            }
-            out.push_str(&block);
-            for line in &lines[end + 1..] {
-                out.push_str(line);
-                out.push('\n');
-            }
-            Ok(out)
-        }
-        _ => Err(TextError::ManagedIgnore {
-            reason: "the managed block is missing a marker or its markers are inverted",
-        }),
-    }
-}
-
-fn marker_lines(text: &str, marker: &str) -> Vec<usize> {
-    text.lines()
-        .enumerate()
-        .filter(|(_, line)| *line == marker)
-        .map(|(index, _)| index)
-        .collect()
-}
-
-/// Appends the block after exactly one blank separator line.
-fn append_block(existing: &str, block: &str) -> String {
-    let mut out = String::with_capacity(existing.len() + block.len() + 2);
-    out.push_str(existing);
-    if !existing.is_empty() {
-        if !existing.ends_with('\n') {
-            out.push('\n');
-        }
-        if !existing.ends_with("\n\n") && !out.ends_with("\n\n") {
-            out.push('\n');
-        }
-    }
-    out.push_str(block);
-    out
+    super::block::apply_block(existing, IGNORE_MARKERS, &owned_block())
 }
 
 #[cfg(test)]

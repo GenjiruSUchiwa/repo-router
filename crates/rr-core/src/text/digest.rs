@@ -23,6 +23,16 @@ const HEX_DIGITS: usize = 64;
 pub struct Digest([u8; 32]);
 
 impl Digest {
+    /// The digest of a byte string, for content that is not a hash stream.
+    ///
+    /// The stream carries length delimiters and a domain separator because it
+    /// hashes *structure*, and a structure hashed without them can collide across
+    /// field boundaries. A whole file has no fields, so it needs neither.
+    #[must_use]
+    pub fn of_bytes(bytes: &[u8]) -> Self {
+        Self(*blake3::hash(bytes).as_bytes())
+    }
+
     /// The digest as `blake3:` plus 64 lowercase hexadecimal digits.
     #[must_use]
     pub fn to_text(self) -> String {
@@ -225,5 +235,12 @@ mod tests {
         right.text("same");
 
         assert_ne!(left.finish(), right.finish());
+    }
+
+    #[test]
+    fn a_byte_digest_is_not_a_stream_digest() {
+        let mut stream = HashStream::new("test");
+        stream.bytes(b"x");
+        assert_ne!(Digest::of_bytes(b"x"), stream.finish());
     }
 }
