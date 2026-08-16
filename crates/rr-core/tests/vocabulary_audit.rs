@@ -55,12 +55,14 @@ const GENERATIVE_DERIVES: &[&str] = &["Subcommand", "Parser", "ValueEnum"];
 /// `(file, item, issue)`.
 ///
 /// Same shape and same discipline as [`RESERVED_VARIANTS`]: a row is a debt
-/// with a creditor, and the audit fails when the site stops existing so the row
-/// cannot outlive what it excuses. A suppression that is simply *correct* does
-/// not belong here — it belongs where it is, carrying a written reason, which
-/// is what the check asks for.
-const SCOPED_SUPPRESSIONS: &[(&str, &str, &str)] =
-    &[("crates/rr-cli/src/output.rs", "print_text", "#45")];
+/// with a creditor, and the audit fails when the site stops existing so the
+/// row cannot outlive what it excuses. A row excuses only the blast-radius
+/// complaint — the site's scope is the filed work — never the written-reason
+/// complaint, which a row cannot fix. A suppression that is simply *correct*
+/// does not belong here: it belongs where it is, carrying a written reason,
+/// which is what the check asks for. Empty, and meant to stay that way until
+/// a genuinely unscoped site has filed work behind it.
+const SCOPED_SUPPRESSIONS: &[(&str, &str, &str)] = &[];
 
 fn workspace_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -109,21 +111,68 @@ fn path_string(path: &syn::Path) -> String {
 }
 
 /// Whether an item is compiled only under `cfg(test)`.
+///
+/// Parsed, not grepped: `test` under `not(…)` is the opposite, a
+/// `feature = "…test…"` predicate is about features, and `cfg_attr` never
+/// removes an item from non-test builds — so only a plain `cfg` whose
+/// predicate holds exactly when testing qualifies. A predicate mentioning a
+/// platform this crate does not name (`unix`, `windows`, …) is judged
+/// conservatively: it also may hold in production, so it is not test-only.
 fn is_cfg_test(attrs: &[syn::Attribute]) -> bool {
     attrs.iter().any(|attribute| {
-        let name = path_string(attribute.path());
-        (name == "cfg" || name == "cfg_attr")
-            && attribute
-                .meta
-                .require_list()
-                .is_ok_and(|list| list.tokens.to_string().contains("test"))
+        path_string(attribute.path()) == "cfg"
+            && attribute.meta.require_list().is_ok_and(|list| {
+                syn::parse2::<syn::Meta>(list.tokens.clone())
+                    .is_ok_and(|meta| cfg_holds(&meta, true) && !cfg_holds(&meta, false))
+            })
     })
+}
+
+/// Whether a `cfg` predicate holds for the given build: `test` active or not.
+///
+/// Every other leaf — features, platforms — is unknown to this file, so a
+/// predicate asking about one resolves to `false` under both builds, which
+/// keeps the conservative bias: only a predicate that is *exactly* `test` (or
+/// a boolean combination of it) counts as test-only.
+fn cfg_holds(meta: &syn::Meta, testing: bool) -> bool {
+    match meta {
+        syn::Meta::Path(path) => path.is_ident("test") && testing,
+        syn::Meta::List(list) => {
+            let name = list
+                .path
+                .get_ident()
+                .map(ToString::to_string)
+                .unwrap_or_default();
+            let nested = list
+                .parse_args_with(
+                    syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated,
+                )
+                .unwrap_or_default();
+            match name.as_str() {
+                "all" => nested.iter().all(|meta| cfg_holds(meta, testing)),
+                "any" => nested.iter().any(|meta| cfg_holds(meta, testing)),
+                "not" => !nested.iter().all(|meta| cfg_holds(meta, testing)),
+                _ => false,
+            }
+        }
+        syn::Meta::NameValue(_) => false,
+    }
 }
 
 /// One enum as declared, with what the audit already knows about how it is
 /// built.
 struct DeclaredEnum {
+    /// The crate the declaration lives in, e.g. `rr-core`. Producers are
+    /// attributed per crate, so a bare `Owner::Variant` construction clears a
+    /// variant only for the crate that declares `Owner`.
+    krate: String,
+    /// Relative path of the declaring file, e.g. `crates/rr-core/src/lib.rs`.
     file: String,
+    /// Path of the enclosing non-test modules within the file, `a::b::`-style
+    /// with a trailing separator; empty at the top level.
+    path: String,
+    /// Bare enum name — the `Owner` in `Owner::Variant` constructions.
+    name: String,
     variants: Vec<String>,
     /// Derive names, last path segment only.
     derives: BTreeSet<String>,
@@ -131,16 +180,36 @@ struct DeclaredEnum {
     from_variants: BTreeSet<String>,
 }
 
+impl DeclaredEnum {
+    /// The qualified key — file, in-file module path and name — that makes a
+    /// declaration unambiguous across the workspace. Two crates may both
+    /// declare `Error`; their keys differ.
+    fn key(&self) -> String {
+        format!("{}::{}{}", self.file, self.path, self.name)
+    }
+}
+
 struct DeclVisitor<'a> {
     declared: &'a mut BTreeMap<String, DeclaredEnum>,
+    /// First qualified key seen per `(crate, bare name)`. A second
+    /// same-crate homonym would make bare `Owner::Variant` constructions
+    /// unanswerable, so it is a hard failure instead of a silent overwrite.
+    /// Cross-crate homonyms are distinguished by the crate component.
+    first_key: &'a mut BTreeMap<(String, String), String>,
+    /// Non-test modules enclosing the current item, for the qualified key.
+    mod_path: Vec<String>,
+    krate: String,
     file: String,
 }
 
 impl<'ast> Visit<'ast> for DeclVisitor<'_> {
     fn visit_item_mod(&mut self, node: &'ast syn::ItemMod) {
-        if !is_cfg_test(&node.attrs) {
-            syn::visit::visit_item_mod(self, node);
+        if is_cfg_test(&node.attrs) {
+            return;
         }
+        self.mod_path.push(node.ident.to_string());
+        syn::visit::visit_item_mod(self, node);
+        self.mod_path.pop();
     }
 
     fn visit_item_enum(&mut self, node: &'ast syn::ItemEnum) {
@@ -174,24 +243,57 @@ impl<'ast> Visit<'ast> for DeclVisitor<'_> {
             variants.push(name);
         }
 
-        self.declared.insert(
-            node.ident.to_string(),
-            DeclaredEnum {
-                file: self.file.clone(),
-                variants,
-                derives,
-                from_variants,
-            },
-        );
+        let name = node.ident.to_string();
+        let path = if self.mod_path.is_empty() {
+            String::new()
+        } else {
+            format!("{}::", self.mod_path.join("::"))
+        };
+        let declaration = DeclaredEnum {
+            krate: self.krate.clone(),
+            file: self.file.clone(),
+            path,
+            name: name.clone(),
+            variants,
+            derives,
+            from_variants,
+        };
+        let key = declaration.key();
+        match self
+            .first_key
+            .insert((self.krate.clone(), name.clone()), key.clone())
+        {
+            Some(existing) if existing == key => {
+                self.declared.insert(key, declaration);
+            }
+            Some(existing) => panic!(
+                "crate {} declares two enums named `{name}`: `{existing}` and `{key}`. \
+                 Bare `{name}::Variant` constructions cannot be attributed to either; \
+                 qualify one of them.",
+                self.krate
+            ),
+            None => {
+                self.declared.insert(key, declaration);
+            }
+        }
     }
 }
 
 #[derive(Default)]
 struct Uses {
-    /// `Enum::Variant` built in non-test `crates/*/src`. The only column that
-    /// clears a variant.
+    /// `Enum::Variant` built in non-test code. The only column that clears a
+    /// variant, once attributed to the declaring crate.
     produced: BTreeMap<String, usize>,
-    /// Built under `cfg(test)`, or in `tests/` and `benches/`.
+    /// `Enum::Variant` → crate → count of constructions in that crate's
+    /// non-test code. Attribution is strict only when it must be: a name
+    /// declared by exactly one crate in the workspace is cleared by
+    /// constructions from anywhere (`ContentPathState` lives in rr-core and
+    /// rr-git builds it), while a genuine homonym is cleared only by
+    /// constructions in its own crate. A same-crate homonym is impossible —
+    /// `collect` refuses it.
+    produced_by_crate: BTreeMap<String, BTreeMap<String, usize>>,
+    /// Built under `cfg(test)`, in test-only files, or in `tests/` and
+    /// `benches/`.
     produced_in_tests: BTreeMap<String, usize>,
     /// Matched on, anywhere. Never clears; reported so a failure says whether
     /// the variant is read but never written.
@@ -205,10 +307,14 @@ struct UseVisitor<'a> {
     uses: &'a mut Uses,
     /// Self types of the enclosing `impl` blocks, so `Self::V` resolves.
     self_ty: Vec<String>,
-    /// Whether the current position is test-only code.
+    /// Whether the current position is test-only code. Starts per file and is
+    /// widened by `#[cfg(test)]` fn, impl and mod items.
     in_test: bool,
     /// Pattern nesting depth. See `visit_pat`.
     in_pattern: usize,
+    /// Crate of the current file, so producers credit the crate's own
+    /// declarations.
+    krate: String,
 }
 
 impl UseVisitor<'_> {
@@ -241,12 +347,18 @@ impl UseVisitor<'_> {
     }
 
     fn record_construction(&mut self, key: String) {
-        let column = if self.in_test {
-            &mut self.uses.produced_in_tests
+        if self.in_test {
+            *self.uses.produced_in_tests.entry(key).or_default() += 1;
         } else {
-            &mut self.uses.produced
-        };
-        *column.entry(key).or_default() += 1;
+            *self.uses.produced.entry(key.clone()).or_default() += 1;
+            *self
+                .uses
+                .produced_by_crate
+                .entry(key)
+                .or_default()
+                .entry(self.krate.clone())
+                .or_default() += 1;
+        }
     }
 }
 
@@ -258,13 +370,23 @@ impl<'ast> Visit<'ast> for UseVisitor<'_> {
         self.in_test = outer;
     }
 
+    fn visit_item_fn(&mut self, node: &'ast syn::ItemFn) {
+        let outer = self.in_test;
+        self.in_test = outer || is_cfg_test(&node.attrs);
+        syn::visit::visit_item_fn(self, node);
+        self.in_test = outer;
+    }
+
     fn visit_item_impl(&mut self, node: &'ast syn::ItemImpl) {
         let name = match &*node.self_ty {
             syn::Type::Path(path) => path.path.segments.last().map(|s| s.ident.to_string()),
             _ => None,
         };
         self.self_ty.push(name.unwrap_or_default());
+        let outer = self.in_test;
+        self.in_test = outer || is_cfg_test(&node.attrs);
         syn::visit::visit_item_impl(self, node);
+        self.in_test = outer;
         self.self_ty.pop();
     }
 
@@ -348,10 +470,108 @@ impl<'ast> Visit<'ast> for UseVisitor<'_> {
     }
 }
 
+/// The crate a relative path belongs to: `rr-core` for
+/// `crates/rr-core/src/lib.rs`.
+fn crate_of(relative: &str) -> String {
+    let mut parts = relative.split('/');
+    let _crates = parts.next();
+    parts.next().unwrap_or("???").to_owned()
+}
+
+/// External `mod` declarations (the `mod name;` form) found in one file.
+///
+/// `dir` is the directory the declared file would live in: the declaring
+/// file's directory plus the in-file module path, because
+/// `mod a { mod b; }` points at `…/a/b.rs` while a top-level `mod b;` points
+/// at `…/b.rs`.
+struct ModDeclVisitor<'a> {
+    base_dir: &'a str,
+    /// Inline (braced) modules enclosing the current declaration.
+    mod_path: Vec<String>,
+    /// `(target directory, module name, declared under cfg(test))`.
+    found: &'a mut Vec<(String, String, bool)>,
+}
+
+impl<'ast> Visit<'ast> for ModDeclVisitor<'_> {
+    fn visit_item_mod(&mut self, node: &'ast syn::ItemMod) {
+        if node.content.is_none() {
+            let dir = if self.mod_path.is_empty() {
+                self.base_dir.to_owned()
+            } else {
+                std::path::Path::new(self.base_dir)
+                    .join(self.mod_path.join("/"))
+                    .to_string_lossy()
+                    .replace('\\', "/")
+            };
+            self.found
+                .push((dir, node.ident.to_string(), is_cfg_test(&node.attrs)));
+        }
+        self.mod_path.push(node.ident.to_string());
+        syn::visit::visit_item_mod(self, node);
+        self.mod_path.pop();
+    }
+}
+
+/// Files every route into which is `#[cfg(test)]`.
+///
+/// A semicolon-form `#[cfg(test)] mod tests;` makes the file it points at
+/// test-only wherever it lives — `src/refresh/tests.rs` sits under `src/` but
+/// never ships — and a file that guards itself with `#![cfg(test)]` is in the
+/// same boat. A file also reachable from a non-test `mod` declaration is
+/// production, not test-only. Constructing a variant in one of these files is
+/// not a producer.
+fn test_only_files(root: &Path, sources: &[PathBuf]) -> BTreeSet<String> {
+    let mut decls: Vec<(String, String, bool)> = Vec::new();
+    let mut self_guarded = BTreeSet::new();
+    for path in sources {
+        let relative = path
+            .strip_prefix(root)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .replace('\\', "/");
+        let text = std::fs::read_to_string(path)
+            .unwrap_or_else(|error| panic!("read {relative}: {error}"));
+        let file =
+            syn::parse_file(&text).unwrap_or_else(|error| panic!("parse {relative}: {error}"));
+        if is_cfg_test(&file.attrs) {
+            self_guarded.insert(relative.clone());
+        }
+        let base_dir = relative
+            .rsplit_once('/')
+            .map_or("", |(dir, _)| dir)
+            .to_owned();
+        ModDeclVisitor {
+            base_dir: &base_dir,
+            mod_path: Vec::new(),
+            found: &mut decls,
+        }
+        .visit_file(&file);
+    }
+
+    let mut test_only = self_guarded;
+    let mut targeted: BTreeMap<String, bool> = BTreeMap::new();
+    for (dir, name, is_test) in decls {
+        for candidate in [format!("{dir}/{name}.rs"), format!("{dir}/{name}/mod.rs")] {
+            let any_non_test = targeted.entry(candidate).or_insert(false);
+            *any_non_test |= !is_test;
+        }
+    }
+    for (candidate, any_non_test) in targeted {
+        if !any_non_test {
+            test_only.insert(candidate);
+        }
+    }
+    test_only
+}
+
 fn collect(root: &Path) -> (BTreeMap<String, DeclaredEnum>, Uses) {
+    let sources = rust_sources(root);
+    let test_only = test_only_files(root, &sources);
+
     let mut declared = BTreeMap::new();
+    let mut first_key = BTreeMap::new();
     let mut uses = Uses::default();
-    for path in rust_sources(root) {
+    for path in sources {
         let relative = path
             .strip_prefix(root)
             .unwrap_or(&path)
@@ -363,9 +583,12 @@ fn collect(root: &Path) -> (BTreeMap<String, DeclaredEnum>, Uses) {
             syn::parse_file(&text).unwrap_or_else(|error| panic!("parse {relative}: {error}"));
 
         let in_src = relative.contains("/src/");
-        if in_src {
+        if in_src && !test_only.contains(&relative) {
             DeclVisitor {
                 declared: &mut declared,
+                first_key: &mut first_key,
+                mod_path: Vec::new(),
+                krate: crate_of(&relative),
                 file: relative.clone(),
             }
             .visit_file(&file);
@@ -373,8 +596,9 @@ fn collect(root: &Path) -> (BTreeMap<String, DeclaredEnum>, Uses) {
         UseVisitor {
             uses: &mut uses,
             self_ty: Vec::new(),
-            in_test: !in_src,
+            in_test: !in_src || test_only.contains(&relative),
             in_pattern: 0,
+            krate: crate_of(&relative),
         }
         .visit_file(&file);
     }
@@ -396,7 +620,10 @@ fn every_shipped_enum_variant_has_a_producer() {
     let (declared, uses) = collect(&root);
     assert!(
         declared.len() > 50,
-        "the audit found only {} enums; the source walk is broken, not the workspace",
+        "the audit found only {} enums; the source walk is broken, not the \
+         workspace: crates/*/src really declares about sixty enums, so a walk \
+         that returns fewer than fifty of them saw a wrong root, a truncated \
+         file set, or a swallowed error",
         declared.len()
     );
 
@@ -405,24 +632,45 @@ fn every_shipped_enum_variant_has_a_producer() {
         .iter()
         .map(|(enum_name, variant, issue)| ((*enum_name, *variant), *issue))
         .collect();
+    let by_name: BTreeMap<&str, Vec<&DeclaredEnum>> = {
+        let mut map: BTreeMap<&str, Vec<&DeclaredEnum>> = BTreeMap::new();
+        for declaration in declared.values() {
+            map.entry(&declaration.name).or_default().push(declaration);
+        }
+        map
+    };
 
     let mut orphans = String::new();
     let mut paid = String::new();
 
-    for (enum_name, declaration) in &declared {
-        if exempt.contains(enum_name.as_str()) {
+    for declaration in declared.values() {
+        if exempt.contains(declaration.name.as_str()) {
             continue;
         }
         for variant in &declaration.variants {
-            let key = format!("{enum_name}::{variant}");
-            let produced = uses.produced.get(&key).copied().unwrap_or(0);
-            let held = reserved.get(&(enum_name.as_str(), variant.as_str()));
+            let bare_key = format!("{}::{variant}", declaration.name);
+            let produced = if by_name
+                .get(declaration.name.as_str())
+                .is_some_and(|d| d.len() == 1)
+            {
+                uses.produced_by_crate
+                    .get(&bare_key)
+                    .map_or(0, |by_crate| by_crate.values().sum())
+            } else {
+                uses.produced_by_crate
+                    .get(&bare_key)
+                    .and_then(|by_crate| by_crate.get(&declaration.krate))
+                    .copied()
+                    .unwrap_or(0)
+            };
+            let held = reserved.get(&(declaration.name.as_str(), variant.as_str()));
 
             if produced > 0 {
                 if let Some(issue) = held {
                     let _ = writeln!(
                         paid,
-                        "  {key} is now produced; drop its RESERVED_VARIANTS row ({issue})"
+                        "  {}::{variant} is now produced; drop its RESERVED_VARIANTS row ({issue})",
+                        declaration.key()
                     );
                 }
                 continue;
@@ -432,19 +680,19 @@ fn every_shipped_enum_variant_has_a_producer() {
             }
             let _ = writeln!(
                 orphans,
-                "  {:<44} {:<40} tests={} matched={} macro={}",
-                key,
+                "  {:<48} {:<36} tests={} matched={} macro={}",
+                format!("{}::{variant}", declaration.key()),
                 declaration.file,
-                uses.produced_in_tests.get(&key).copied().unwrap_or(0),
-                uses.matched.get(&key).copied().unwrap_or(0),
-                uses.in_macro.get(&key).copied().unwrap_or(0),
+                uses.produced_in_tests.get(&bare_key).copied().unwrap_or(0),
+                uses.matched.get(&bare_key).copied().unwrap_or(0),
+                uses.in_macro.get(&bare_key).copied().unwrap_or(0),
             );
         }
     }
 
     let mut stale = String::new();
     for (name, _) in EXEMPT_ENUMS {
-        if !declared.contains_key(*name) {
+        if !by_name.contains_key(*name) {
             let _ = writeln!(
                 stale,
                 "  EXEMPT_ENUMS names `{name}`, which no longer exists"
@@ -452,9 +700,11 @@ fn every_shipped_enum_variant_has_a_producer() {
         }
     }
     for (enum_name, variant, issue) in RESERVED_VARIANTS {
-        let exists = declared
-            .get(*enum_name)
-            .is_some_and(|d| d.variants.iter().any(|v| v == variant));
+        let exists = by_name.get(*enum_name).is_some_and(|declarations| {
+            declarations
+                .iter()
+                .any(|d| d.variants.iter().any(|v| v == variant))
+        });
         if !exists {
             let _ = writeln!(
                 stale,
@@ -500,9 +750,13 @@ fn every_shipped_enum_variant_has_a_producer() {
 fn audit_source(source: &str) -> (BTreeMap<String, DeclaredEnum>, Uses) {
     let file = syn::parse_file(source).expect("test sources must parse");
     let mut declared = BTreeMap::new();
+    let mut first_key = BTreeMap::new();
     let mut uses = Uses::default();
     DeclVisitor {
         declared: &mut declared,
+        first_key: &mut first_key,
+        mod_path: Vec::new(),
+        krate: "<source>".to_owned(),
         file: "<source>".to_owned(),
     }
     .visit_file(&file);
@@ -511,6 +765,7 @@ fn audit_source(source: &str) -> (BTreeMap<String, DeclaredEnum>, Uses) {
         self_ty: Vec::new(),
         in_test: false,
         in_pattern: 0,
+        krate: "<source>".to_owned(),
     }
     .visit_file(&file);
     (declared, uses)
@@ -568,13 +823,26 @@ struct Suppression {
     documented: bool,
 }
 
-/// Whether a doc comment or an adjacent `//` comment gives a reason.
+/// Whether a doc comment (`///` or `#[doc = "…"]`) gives a reason.
 ///
-/// Deliberately shallow: it asks whether *something* was written, not whether
-/// the reason is good. A reviewer judges the sentence; the audit only makes
-/// sure there is one to judge.
+/// Only doc comments count, and that is the whole story: an inline `//`
+/// note is stripped by the lexer and never reaches syn's AST, so the audit
+/// cannot see it, and a maintainer who follows a promise that it counts
+/// would fail here without knowing why. Deliberately shallow otherwise: it
+/// asks whether *something* was written, not whether the reason is good. A
+/// reviewer judges the sentence; the audit only makes sure there is one to
+/// judge.
 fn has_written_reason(attrs: &[syn::Attribute]) -> bool {
     attrs.iter().any(|attr| attr.path().is_ident("doc"))
+}
+
+/// Whether a token stream contains the identifier `dead_code` — as a whole
+/// identifier, so a sibling lint like `dead_code_x` can never match.
+fn tokens_mention_dead_code(tokens: &proc_macro2::TokenStream) -> bool {
+    tokens
+        .clone()
+        .into_iter()
+        .any(|tree| matches!(tree, proc_macro2::TokenTree::Ident(ident) if ident == "dead_code"))
 }
 
 /// Whether an attribute list carries `#[allow(dead_code)]`.
@@ -584,7 +852,7 @@ fn has_dead_code_allow(attrs: &[syn::Attribute]) -> bool {
             && attribute
                 .meta
                 .require_list()
-                .is_ok_and(|list| list.tokens.to_string().contains("dead_code"))
+                .is_ok_and(|list| tokens_mention_dead_code(&list.tokens))
     })
 }
 
@@ -625,7 +893,7 @@ fn scan_macro_tokens(tokens: &proc_macro2::TokenStream, file: &str, found: &mut 
         if !is_allow {
             continue;
         }
-        let mentions_dead_code = group.stream().to_string().contains("dead_code");
+        let mentions_dead_code = tokens_mention_dead_code(&group.stream());
         if !mentions_dead_code {
             continue;
         }
@@ -742,6 +1010,20 @@ struct SuppressionVisitor<'a> {
 }
 
 impl<'ast> Visit<'ast> for SuppressionVisitor<'_> {
+    /// The file's own `#![allow(dead_code)]` — the widest blast radius there
+    /// is, and the one form the item walk could never see.
+    fn visit_file(&mut self, node: &'ast syn::File) {
+        if has_dead_code_allow(&node.attrs) && !is_cfg_test(&node.attrs) {
+            self.found.push(Suppression {
+                file: self.file.to_owned(),
+                item: "<file>".to_owned(),
+                scoped: false,
+                documented: has_written_reason(&node.attrs),
+            });
+        }
+        syn::visit::visit_file(self, node);
+    }
+
     fn visit_item_mod(&mut self, node: &'ast syn::ItemMod) {
         if !is_cfg_test(&node.attrs) {
             syn::visit::visit_item_mod(self, node);
@@ -777,6 +1059,8 @@ impl<'ast> Visit<'ast> for SuppressionVisitor<'_> {
         if has_dead_code_allow(attrs) && !is_cfg_test(attrs) {
             let (scoped, item) = match node {
                 syn::ImplItem::Fn(fun) => (true, fun.sig.ident.to_string()),
+                syn::ImplItem::Const(c) => (true, c.ident.to_string()),
+                syn::ImplItem::Type(alias) => (true, alias.ident.to_string()),
                 _ => (false, "<impl-item>".to_owned()),
             };
             self.found.push(Suppression {
@@ -817,33 +1101,29 @@ fn suppressions_in(source: &str) -> Vec<Suppression> {
     found
 }
 
-#[test]
-fn every_dead_code_suppression_is_scoped_and_explained() {
-    let root = workspace_root();
-    let mut found: Vec<Suppression> = Vec::new();
-    for path in rust_sources(&root) {
-        let text = std::fs::read_to_string(&path).unwrap();
-        let file = syn::parse_file(&text).unwrap();
-        let relative = path
-            .strip_prefix(&root)
-            .unwrap()
-            .to_string_lossy()
-            .replace('\\', "/");
-        let mut visitor = SuppressionVisitor {
-            file: &relative,
-            found: &mut found,
-        };
-        visitor.visit_file(&file);
-    }
+/// Whether a file belongs to the perimeter this check polices: shipped
+/// code. Test, bench and example trees ship no code, and a `src/` file
+/// reached only through `#[cfg(test)]` module declarations never ships
+/// either — an unused helper in a shared `tests/common` is ordinary, and
+/// ordinary is not what this check exists to catch.
+fn in_shipped_scope(relative: &str, test_only_files: &BTreeSet<String>) -> bool {
+    relative.contains("/src/") && !test_only_files.contains(relative)
+}
 
-    let filed: BTreeSet<(&str, &str)> = SCOPED_SUPPRESSIONS
-        .iter()
-        .map(|(file, item, _)| (*file, *item))
-        .collect();
-
+/// Complaints against the found suppressions, and filed-work rows that no
+/// longer excuse anything.
+///
+/// A `SCOPED_SUPPRESSIONS` row excuses only the blast-radius complaint — the
+/// filed work is the site's scope — so the written-reason complaint still
+/// applies to it, and it cannot widen to a struct or module allow without
+/// being caught.
+fn check_suppressions(found: &[Suppression], filed: &BTreeSet<(&str, &str)>) -> (String, String) {
     let mut bad = String::new();
-    for site in &found {
+    for site in found {
         if filed.contains(&(site.file.as_str(), site.item.as_str())) {
+            if !site.documented {
+                let _ = writeln!(bad, "  {}: `{}` — no written reason", site.file, site.item);
+            }
             continue;
         }
         if !site.scoped {
@@ -866,6 +1146,38 @@ fn every_dead_code_suppression_is_scoped_and_explained() {
             );
         }
     }
+    (bad, stale)
+}
+
+#[test]
+fn every_dead_code_suppression_is_scoped_and_explained() {
+    let root = workspace_root();
+    let sources = rust_sources(&root);
+    let test_only = test_only_files(&root, &sources);
+    let mut found: Vec<Suppression> = Vec::new();
+    for path in sources {
+        let relative = path
+            .strip_prefix(&root)
+            .unwrap()
+            .to_string_lossy()
+            .replace('\\', "/");
+        if !in_shipped_scope(&relative, &test_only) {
+            continue;
+        }
+        let text = std::fs::read_to_string(&path).unwrap();
+        let file = syn::parse_file(&text).unwrap();
+        let mut visitor = SuppressionVisitor {
+            file: &relative,
+            found: &mut found,
+        };
+        visitor.visit_file(&file);
+    }
+
+    let filed: BTreeSet<(&str, &str)> = SCOPED_SUPPRESSIONS
+        .iter()
+        .map(|(file, item, _)| (*file, *item))
+        .collect();
+    let (bad, stale) = check_suppressions(&found, &filed);
 
     assert!(
         bad.is_empty() && stale.is_empty(),
@@ -875,9 +1187,63 @@ fn every_dead_code_suppression_is_scoped_and_explained() {
          function that needs it, never on the struct or module around them, and\n\
          write why above it. rr shipped a dead field behind a struct-wide allow\n\
          that hid it from every `-D warnings` run CI has ever done, and a second\n\
-         allow whose reason had expired without anyone noticing. If removal is\n\
-         filed work, add a row to\n\
+         allow whose reason had expired without anyone noticing. The perimeter\n\
+         checked is shipped code only — crates/*/src minus files reachable\n\
+         only from `#[cfg(test)]` — so tests/, benches/ and examples/ helpers\n\
+         do not fail it. If removal is filed work, add a row to\n\
          SCOPED_SUPPRESSIONS naming the issue.\n"
+    );
+}
+
+/// A filed-work row excuses the site's scope, never the absence of a reason:
+/// a row cannot write one.
+#[test]
+fn a_filed_suppression_still_needs_a_written_reason() {
+    let found = vec![Suppression {
+        file: "crates/rr-cli/src/x.rs".to_owned(),
+        item: "wide".to_owned(),
+        scoped: false,
+        documented: false,
+    }];
+    let filed: BTreeSet<(&str, &str)> = [("crates/rr-cli/src/x.rs", "wide")].into();
+    let (bad, _) = check_suppressions(&found, &filed);
+    assert!(
+        bad.contains("no written reason"),
+        "a row must not excuse an unexplained suppression; got:\n{bad}"
+    );
+    let (bad, _) = check_suppressions(&found[0..0], &filed);
+    assert!(bad.is_empty(), "the excused complaint is the scope one");
+}
+
+/// Shared test helpers are used by whatever subset each binary needs, so the
+/// audit does not police their dead code: `#![allow(dead_code)]` in a shared
+/// tests/common stays green, and so does a src file reached only through a
+/// `#[cfg(test)]` module declaration.
+#[test]
+fn a_test_helper_tree_is_out_of_the_shipped_scope() {
+    let root = workspace_root();
+    let sources = rust_sources(&root);
+    let test_only = test_only_files(&root, &sources);
+    let shipped: Vec<String> = sources
+        .iter()
+        .filter_map(|path| {
+            let relative = path
+                .strip_prefix(&root)
+                .unwrap()
+                .to_string_lossy()
+                .replace('\\', "/");
+            in_shipped_scope(&relative, &test_only).then_some(relative)
+        })
+        .collect();
+    assert!(
+        !shipped.iter().any(|file| file.contains("/tests/")),
+        "a tests/ tree must be out of the shipped perimeter"
+    );
+    assert!(
+        !shipped
+            .iter()
+            .any(|file| file.contains("src/refresh/tests.rs")),
+        "a src file reachable only from a cfg(test) mod must be out of the shipped perimeter"
     );
 }
 
@@ -979,4 +1345,260 @@ fn every_required_capture_is_routed() {
              the query must declare a capture nothing reads"
         );
     }
+}
+
+/// A same-crate homonym makes bare `Owner::Variant` constructions impossible
+/// to attribute: the audit must refuse to guess, not silently keep whichever
+/// file sorts last.
+#[test]
+fn two_enums_with_one_name_in_a_crate_fail_the_audit() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("crates/alpha/src")).unwrap();
+    std::fs::write(
+        dir.path().join("crates/alpha/src/aa.rs"),
+        "enum Error { DeadOne }\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("crates/alpha/src/bb.rs"),
+        "enum Error { LiveOne }\nfn f() -> Error { Error::LiveOne }\n",
+    )
+    .unwrap();
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _ = collect(dir.path());
+    }));
+    assert!(
+        result.is_err(),
+        "a crate with two enums named `Error` must fail the audit, not keep the \
+         last file by sort order"
+    );
+}
+
+/// Cross-crate homonyms are legitimate — `Error` lives in both rr-core and
+/// rr-git — and both declarations must survive the walk, keyed by their own
+/// files instead of a bare name.
+#[test]
+fn two_crates_may_each_declare_the_same_enum_name() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("crates/alpha/src")).unwrap();
+    std::fs::create_dir_all(dir.path().join("crates/beta/src")).unwrap();
+    std::fs::write(
+        dir.path().join("crates/alpha/src/aa.rs"),
+        "enum Error { DeadOne }\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("crates/beta/src/bb.rs"),
+        "enum Error { LiveOne }\nfn f() -> Error { Error::LiveOne }\n",
+    )
+    .unwrap();
+    let (declared, _) = collect(dir.path());
+    assert!(
+        declared
+            .values()
+            .any(|d| d.file == "crates/alpha/src/aa.rs"),
+        "the first crate's `Error` must survive; the later file must not mask it"
+    );
+    assert!(declared.values().any(|d| d.file == "crates/beta/src/bb.rs"));
+}
+
+/// `#[cfg(test)] fn` at file level — as in rr-core/src/verify.rs — is test
+/// code however its file is laid out, and must not clear a variant.
+#[test]
+fn a_cfg_test_fn_construction_is_not_a_producer() {
+    let (_, uses) = audit_source("enum K { A }\n#[cfg(test)] fn t() -> K { K::A }");
+    assert!(
+        uses.produced.is_empty(),
+        "a cfg(test) fn must not clear a variant"
+    );
+    assert_eq!(uses.produced_in_tests.get("K::A"), Some(&1));
+}
+
+#[test]
+fn a_cfg_test_impl_construction_is_not_a_producer() {
+    let (_, uses) =
+        audit_source("enum K { A }\n#[cfg(test)] impl K { fn t() -> Self { Self::A } }");
+    assert!(
+        uses.produced.is_empty(),
+        "a cfg(test) impl must not clear a variant"
+    );
+    assert_eq!(uses.produced_in_tests.get("K::A"), Some(&1));
+}
+
+/// `#[cfg(test)] mod tests;` makes the file it points at test-only wherever
+/// it lives: crates/rr-core/src/refresh/tests.rs sits under src/ but never
+/// ships, so a construction that only exists there must not clear a variant.
+#[test]
+fn a_src_file_reached_only_through_a_cfg_test_mod_is_test_code() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("crates/alpha/src/x")).unwrap();
+    std::fs::write(
+        dir.path().join("crates/alpha/src/x/mod.rs"),
+        "#[cfg(test)]\nmod tests;\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("crates/alpha/src/x/tests.rs"),
+        "enum K { A }\nfn t() -> K { K::A }\n",
+    )
+    .unwrap();
+    let (_, uses) = collect(dir.path());
+    assert!(uses.produced.is_empty());
+    assert_eq!(uses.produced_in_tests.get("K::A"), Some(&1));
+}
+
+/// `#![allow(dead_code)]` is the widest blast radius there is; the file's
+/// own inner attributes must be read, not skipped.
+#[test]
+fn a_file_level_allow_is_a_finding() {
+    let found = suppressions_in("#![allow(dead_code)]\nfn f() {}");
+    assert!(!found.is_empty(), "a file-level allow must be reported");
+    assert!(!found[0].scoped, "a file-level allow is not scoped");
+    assert!(
+        !found[0].documented,
+        "a bare file-level allow has no reason"
+    );
+}
+
+/// `cfg(not(test))` is built in production; reading it as test-only would
+/// remove the item from the audit entirely.
+#[test]
+fn a_cfg_not_test_enum_is_still_declared() {
+    let (declared, _) = audit_source("#[cfg(not(test))]\nmod m { enum K { A } }");
+    assert!(
+        !declared.is_empty(),
+        "an enum under cfg(not(test)) must be declared"
+    );
+}
+
+/// `cfg(feature = "integration-test")` is a feature gate, not a test gate.
+#[test]
+fn a_feature_flag_named_test_is_not_a_test_cfg() {
+    let (declared, _) =
+        audit_source("#[cfg(feature = \"integration-test\")]\nmod m { enum K { A } }");
+    assert!(
+        !declared.is_empty(),
+        "an enum under a `test`-named feature must be declared"
+    );
+}
+
+/// `cfg_attr` never removes an item from non-test builds, so it cannot exempt
+/// a declaration from the audit.
+#[test]
+fn a_cfg_attr_is_not_a_test_exemption_for_a_declaration() {
+    let (declared, _) = audit_source("#[cfg_attr(test, allow(dead_code))]\nenum K { A }\n");
+    assert!(
+        !declared.is_empty(),
+        "an enum carrying cfg_attr must still be declared"
+    );
+}
+
+/// `dead_code` must match on identifier boundaries: `dead_code_x` is a
+/// different lint, and a future lint sharing the prefix must not be mistaken
+/// for this one.
+#[test]
+fn an_allow_naming_a_different_lint_is_not_an_allow_of_dead_code() {
+    let found = suppressions_in("#[allow(dead_code_x)]\nfn f() {}");
+    assert!(found.is_empty(), "dead_code_x is not dead_code");
+    let found = suppressions_in("#[allow(dead_code)]\nfn f() {}");
+    assert!(!found.is_empty(), "dead_code itself must still be found");
+}
+
+/// `//` comments are stripped by the lexer and never reach syn's AST, so the
+/// doc must not tell a maintainer they count as a written reason — a
+/// maintainer following that promise gets an inexplicable failure.
+#[test]
+fn the_written_reason_doc_makes_no_promise_about_slash_comments() {
+    let source = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/vocabulary_audit.rs"
+    ))
+    .unwrap();
+    let file = syn::parse_file(&source).unwrap();
+    let mut doc = String::new();
+    for item in file.items {
+        let syn::Item::Fn(fun) = item else {
+            continue;
+        };
+        if fun.sig.ident == "has_written_reason" {
+            for attr in fun.attrs {
+                if attr.path().is_ident("doc") {
+                    if let syn::Meta::NameValue(nv) = &attr.meta {
+                        if let syn::Expr::Lit(lit) = &nv.value {
+                            if let syn::Lit::Str(text) = &lit.lit {
+                                doc.push_str(&text.value());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    assert!(
+        !doc.contains("adjacent `//` comment"),
+        "has_written_reason's doc promises that `//` comments count as reasons, \
+         but they never reach the AST"
+    );
+}
+
+/// `a_plan_can_only_fail_by_contradiction` replayed `a_self_rename_is_rejected`
+/// with an irrefutable `let`, ignored the `reason` field, and pins nothing
+/// the stronger test does not already pin. Keeping it means the audit depends
+/// on a duplicate whose invariant dies at compile time (E0005) far from the
+/// enum instead of failing where it lives.
+#[test]
+fn refresh_tests_keep_only_the_stronger_self_rename_test() {
+    let source =
+        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/refresh/tests.rs"))
+            .unwrap();
+    let file = syn::parse_file(&source).unwrap();
+    let mut tests = Vec::new();
+    for item in file.items {
+        let syn::Item::Fn(fun) = item else {
+            continue;
+        };
+        if fun.attrs.iter().any(|a| a.path().is_ident("test")) {
+            tests.push(fun.sig.ident.to_string());
+        }
+    }
+    assert!(
+        tests.iter().any(|name| name == "a_self_rename_is_rejected"),
+        "the stronger self-rename test must stay"
+    );
+    assert!(
+        !tests
+            .iter()
+            .any(|name| name == "a_plan_can_only_fail_by_contradiction"),
+        "the weaker duplicate self-rename test must go: it pins nothing \
+         a_self_rename_is_rejected does not"
+    );
+}
+
+/// Deserialize would exempt every serde enum in the workspace; it was tested
+/// off this list, not assumed, and a re-add has to answer to this pin. The
+/// list is deliberately narrow and changed only with intent.
+#[test]
+fn generative_derives_are_pinned_to_the_deliberate_list() {
+    assert_eq!(GENERATIVE_DERIVES, &["Subcommand", "Parser", "ValueEnum"]);
+}
+
+/// A `Deserialize` impl only builds a variant when some input names it — a
+/// producer in the same sense that a comment is documentation — so it must
+/// never clear one.
+#[test]
+fn a_deserialize_only_enum_is_never_generatively_built() {
+    let (declared, _) =
+        audit_source("use serde::Deserialize;\n#[derive(Deserialize)]\nenum K { A }");
+    let declaration = declared.values().next().expect("the enum must be declared");
+    assert!(
+        !built_by_generated_code(declaration, "A"),
+        "a Deserialize-only enum must not be cleared by generated code"
+    );
+}
+
+#[test]
+fn a_subcommand_enum_is_generatively_built() {
+    let (declared, _) = audit_source("use clap::Subcommand;\n#[derive(Subcommand)]\nenum K { A }");
+    let declaration = declared.values().next().expect("the enum must be declared");
+    assert!(built_by_generated_code(declaration, "A"));
 }

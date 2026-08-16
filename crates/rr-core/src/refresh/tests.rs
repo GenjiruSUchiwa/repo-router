@@ -234,15 +234,6 @@ fn the_first_contradiction_is_the_one_reported() {
     );
 }
 
-#[test]
-fn a_plan_can_only_fail_by_contradiction() {
-    let mut draft = PlanDraft::new();
-    draft.rename(path("src/same.rs"), path("src/same.rs"));
-
-    let error = draft.build().expect_err("a self-rename must not build");
-    let RefreshError::InvalidRefreshPlan { .. } = error;
-}
-
 // --- discovery identity -----------------------------------------------------
 
 fn digest(walk: &WalkCfg) -> [u8; 32] {

@@ -106,8 +106,10 @@ impl FullReason {
 /// One variant, and that is the module boundary showing through rather than an
 /// omission. This module owns no I/O, so the only way it can fail is that the
 /// status items it was handed contradict each other. A lock it cannot take, a
-/// repository it cannot observe and a cancellation it has no point to check
-/// are `rr_git::Error`'s to report, and it does.
+/// state it cannot observe, a repository that moved under it, and a
+/// cancellation it has no point to check are all `rr_git::Error`'s to report —
+/// `PublicationLocked`, `GitState`, `RepositoryChanged` and `Cancelled` — and
+/// it does.
 #[derive(Debug, thiserror::Error)]
 pub enum RefreshError {
     /// Two status items claimed contradictory things about one path.
