@@ -146,28 +146,26 @@ defs:
     body_idents: []
     doc_idents: []
     attribute_idents: []
-  - name: Loud
-    local_qualified: Level.Loud
-    kind: field
-    visibility: public
-    start_line: 19
-    end_line: 22
-    signature: "Loud,"
-    signature_idents: []
-    body_idents: []
-    doc_idents: []
-    attribute_idents:
-      - Quiet
   - name: Quiet
     local_qualified: Level.Quiet
     kind: field
     visibility: public
-    start_line: 19
-    end_line: 22
-    signature: "Quiet,"
+    start_line: 20
+    end_line: 20
+    signature: Quiet
     signature_idents: []
-    body_idents:
-      - Loud
+    body_idents: []
+    doc_idents: []
+    attribute_idents: []
+  - name: Loud
+    local_qualified: Level.Loud
+    kind: field
+    visibility: public
+    start_line: 21
+    end_line: 21
+    signature: Loud
+    signature_idents: []
+    body_idents: []
     doc_idents: []
     attribute_idents: []
   - name: Handler

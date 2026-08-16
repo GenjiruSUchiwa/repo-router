@@ -1007,6 +1007,14 @@ fn python_refine(def: &mut Def) {
 /// — so the accessor forms are recognised by their trailing word. A decorator
 /// called `deleter` that is not an accessor is a name collision this tier
 /// cannot see through, and [`python_refine`] says so.
+///
+/// The list is wider than the decorator *names*: [`header_for`] scans every
+/// identifier the decorator block holds, arguments and string contents
+/// included. So `@register(getter=make)` and `@app.route("/property")` read as
+/// descriptors and their functions are recorded as [`DefKind::Property`].
+/// Narrowing that needs the decorator names themselves, which this tier does
+/// not carry down to `refine`; it is the same class of collision as a
+/// non-accessor `deleter`, and it is written down rather than papered over.
 fn declares_a_descriptor(attributes: &[String]) -> bool {
     attributes
         .iter()

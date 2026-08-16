@@ -258,7 +258,12 @@ Recorded here rather than discovered later:
   because a binding's signature does not show `export`. What changed was
   noticing the query already separates the two cases structurally:
   non-exported declarations and bindings are captured `@definition.local-<kind>`
-  and come out `Private`.)*
+  and come out `Private`. Two shapes stay wrong and are recorded in the query
+  header: a declaration exported by a later `export { … }` or `export default`
+  reads `Private`, because binding an export list to a declaration is
+  resolution; and a member of a `declare namespace` reads `Private`, though
+  TypeScript exports every ambient member whether or not the keyword is
+  written.)*
 - **No test signals for TypeScript at all.** `describe`/`it` are calls, and a
   call's meaning depends on what it resolves to. File naming already answers
   the question through `Lang::path_indicates_test`. *(Accepted for V1 (D7).)*

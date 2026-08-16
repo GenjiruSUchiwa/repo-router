@@ -44,6 +44,19 @@
 ; ambient modules (`declare module "x"`), JSX component references, and
 ; `describe`/`it` as test scopes — those are calls, and file naming already
 ; answers the question.
+;
+; The `local-` captures read one thing only: no `export` keyword sits on this
+; declaration. Two shapes make that a weaker claim than it sounds, and both are
+; recorded rather than guessed at:
+;
+; - A declaration exported from somewhere else in the file — `function join() {}`
+;   followed by `export { join };`, or `export default join;` — is `Private`
+;   here. Binding an export list to the declaration it names is resolution, and
+;   this tier does not resolve.
+;
+; - A member of an ambient namespace — `export declare namespace S { const x; }`
+;   — is `Private` here, though TypeScript exports every ambient member whether
+;   or not the keyword is written.
 
 ; ---------------------------------------------------------------------------
 ; Exported declarations, plain and ambient. First, so they win the tag for
@@ -136,6 +149,9 @@
         (variable_declarator name: (identifier) @name) @definition.variable)
       (ambient_declaration
         (lexical_declaration
+          (variable_declarator name: (identifier) @name) @definition.variable))
+      (ambient_declaration
+        (variable_declaration
           (variable_declarator name: (identifier) @name) @definition.variable))
     ])
   (#strip! @doc "^[/\\*\\s]+|[\\s\\*/]+$")
@@ -299,12 +315,18 @@
 
 ; Enum members. A TypeScript enum member is a named constant (`Ceiling.High`),
 ; not a constructor, and is a stored member of the enum type.
+;
+; The definition is the member, not the `enum_body` holding it: tagging the body
+; would give every member the same span — the whole `{ … }` — so each member
+; would read its siblings as its own body text and land on the opening brace
+; when navigated to. A valueless member is a bare `property_identifier`, so
+; there the name node and the definition node are the same node.
 (enum_body
-  name: (property_identifier) @name) @definition.field
+  name: (property_identifier) @name @definition.field)
 
 (enum_body
   (enum_assignment
-    name: (property_identifier) @name)) @definition.field
+    name: (property_identifier) @name) @definition.field)
 
 ; ---------------------------------------------------------------------------
 ; Bindings that are part of a surface. Anchored on the two scopes a module can

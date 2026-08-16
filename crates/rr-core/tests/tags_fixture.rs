@@ -395,6 +395,16 @@ fn an_exported_var_binding_is_documented() {
     assert!(shared.doc_idents.iter().any(|ident| ident == "Shared"));
 }
 
+/// `export declare const` was already indexed, so `export declare var` has to
+/// be: the ambient branch of the exported-binding pattern reaches both
+/// declaration nodes or the two spellings disagree for no reason.
+#[test]
+fn an_exported_ambient_var_binding_is_indexed() {
+    let facts = extract(Lang::TypeScript, b"export declare var handle: number;\n");
+    assert_eq!(def(&facts, "handle").kind.to_string(), "variable");
+    assert_eq!(def(&facts, "handle").visibility, Visibility::Public);
+}
+
 #[test]
 fn an_enum_member_is_a_field() {
     let (_, facts) = facts_for(Lang::TypeScript, "typescript", "surface.ts");
@@ -408,6 +418,24 @@ fn an_enum_member_without_a_value_is_still_a_field() {
     assert_eq!(def(&facts, "Plain").kind.to_string(), "enum");
     assert_eq!(def(&facts, "A").kind.to_string(), "field");
     assert_eq!(def(&facts, "B").kind.to_string(), "field");
+}
+
+/// An enum member spans the member, not the body holding it. Tagging the
+/// `enum_body` gave every member the same span — so navigating to one landed on
+/// the opening brace, and each member read its siblings as its own body text.
+#[test]
+fn an_enum_member_spans_itself_and_not_the_whole_body() {
+    let facts = extract(Lang::TypeScript, b"enum E {\n  A = 1,\n  B,\n}\n");
+    let first = def(&facts, "A");
+    let second = def(&facts, "B");
+    assert_eq!((first.span.start_line(), first.span.end_line()), (2, 2));
+    assert_eq!((second.span.start_line(), second.span.end_line()), (3, 3));
+    assert!(first.body_idents.is_empty(), "{:?}", first.body_idents);
+    assert!(
+        second.attribute_idents.is_empty(),
+        "{:?}",
+        second.attribute_idents
+    );
 }
 
 #[test]
