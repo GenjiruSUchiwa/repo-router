@@ -264,8 +264,6 @@ pub fn prepare(
                 .collect();
             let indexed: BTreeSet<&RelPath> = owned.iter().collect();
             next.meta = context.meta_for(&indexed, &[], observed.as_ref())?;
-            drop(indexed);
-            drop(owned);
             let envelope = store.encode(&next)?;
 
             confirm_unchanged(&context, observed.as_ref(), digest, cancel)?;

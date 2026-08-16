@@ -594,13 +594,6 @@ impl<'a> BodySizer<'a> {
         self.bytes
     }
 
-    /// Whether pushing `index` keeps the page within `capacity`.
-    pub(crate) fn would_fit(&self, index: usize, capacity: usize) -> bool {
-        let mut next = self.clone();
-        next.push(index);
-        next.bytes <= capacity
-    }
-
     /// Adds a record to the page.
     pub(crate) fn push(&mut self, index: usize) {
         self.bytes += self.cost_of(index);

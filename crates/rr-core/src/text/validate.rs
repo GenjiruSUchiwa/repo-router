@@ -184,7 +184,7 @@ impl TextValidation {
         &self.conflicts
     }
 
-    /// Scopes whose first record of some section cannot fit the page.
+    /// Scopes no page of which fits the budget.
     #[must_use]
     pub fn over_budget(&self) -> &[String] {
         &self.over_budget
@@ -457,9 +457,10 @@ fn classify(
 /// succeeds under the wrong name — which is the whole failure. Only the
 /// directory listing knows how a file is really spelled.
 ///
-/// Asks nothing about the filesystem's type. On a case-sensitive volume the
-/// planned path does not exist and the answer is `None` before any directory is
-/// read; on a case-insensitive one it resolves and the listing names it. ASCII
+/// Asks nothing about the filesystem's type, and does not have to: the listing
+/// finds the candidate, and one call under the planned name settles whether the
+/// volume folds. On a case-sensitive one the two spellings are two files, the
+/// planned one is simply absent, and there is no collision to report. ASCII
 /// folding is exact because every name this module plans is ASCII.
 fn case_collisions<'a>(
     root: &Path,
@@ -495,6 +496,14 @@ fn case_collisions<'a>(
                 .iter()
                 .find(|entry| entry.eq_ignore_ascii_case(name))
             {
+                // Folding is what makes this a collision rather than two files.
+                // The planned name is not in the listing, so on a
+                // case-sensitive volume nothing resolves under it and rr is
+                // free to create it beside `found`. Only a filesystem that
+                // folds case answers this call, and that answer is `found`.
+                if absolute.join(name).symlink_metadata().is_err() {
+                    continue;
+                }
                 collisions.insert(join(directory, name), join(directory, found));
             }
         }

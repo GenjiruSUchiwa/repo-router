@@ -62,6 +62,34 @@ pub use validate::{
 /// existing scan can unlink them.
 pub const TEXT_FORMAT_VERSION: u32 = 2;
 
+/// Older formats this build still reads, listed by [`LEGACY_FORMATS_FOR`].
+///
+/// Membership is a claim about the *current* grammar, not a courtesy owed to
+/// old files. v1 belongs here at v2 because v2 only added the omission line,
+/// which no v1 file contains: read under the v2 grammar, a v1 page still says
+/// exactly what v1 meant, which is what lets the scan unlink stale overflow
+/// pages instead of failing the run on them.
+///
+/// Nothing about that survives the next bump on its own. A v3 that re-spelled
+/// a record would parse every v1 file into the wrong records while still
+/// calling the format supported — a silent misreading, the failure the version
+/// exists to prevent. So the list is pinned to the version it was decided for
+/// and the assertion below stops the build until someone answers the question
+/// again for the new grammar. Emptying it is a legitimate answer.
+const LEGACY_READABLE_FORMATS: &[u32] = &[1];
+
+/// The [`TEXT_FORMAT_VERSION`] that [`LEGACY_READABLE_FORMATS`] was decided
+/// for.
+const LEGACY_FORMATS_FOR: u32 = 2;
+
+const _: () = assert!(
+    LEGACY_FORMATS_FOR == TEXT_FORMAT_VERSION,
+    "TEXT_FORMAT_VERSION moved. State which older formats the new grammar still \
+     reads correctly in LEGACY_READABLE_FORMATS, then set LEGACY_FORMATS_FOR to \
+     match — accepting the old list by default is how a v1 file gets misread \
+     under a grammar that was never checked against it."
+);
+
 /// The default `tokens` ceiling for one rendered `MAP.md` body.
 ///
 /// A scope is one file at any budget. What does not fit is stated on that

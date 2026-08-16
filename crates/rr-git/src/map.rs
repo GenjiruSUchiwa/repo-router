@@ -258,7 +258,6 @@ impl BuildContext {
     ) -> Result<BuildReport> {
         let indexed: BTreeSet<&RelPath> = built.inputs.iter().map(|input| &input.path).collect();
         let meta = self.meta_for(&indexed, &built.vanished, observed)?;
-        drop(indexed);
 
         let (snapshot, counts) = SnapshotBuilder::new(meta).build(built.inputs)?;
         let worker = built.stats;

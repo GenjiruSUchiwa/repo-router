@@ -445,10 +445,12 @@ impl TextProjection {
         self.fidelity
     }
 
-    /// Scopes whose first record of some section cannot fit the page.
+    /// Scopes no page of which fits the budget.
     ///
-    /// Reported rather than fixed: the record is omitted and the remainder
-    /// line covers it. Ordinary truncation — a record that fits the page but
+    /// Either a section's first record is too large for the whole page, or the
+    /// budget is too small to hold even the lines stating what was dropped.
+    /// Reported rather than fixed: the records are omitted and the remainder
+    /// lines cover them. Ordinary truncation — a record that fits the page but
     /// not its section's share — is not this.
     pub fn over_budget_scopes(&self) -> impl Iterator<Item = &str> {
         self.over_budget.iter().map(String::as_str)

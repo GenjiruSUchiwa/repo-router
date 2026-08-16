@@ -13,7 +13,7 @@ use crate::path::RelPath;
 use super::digest::Digest;
 use super::model::Fidelity;
 use super::render;
-use super::{encode, TextError, TextResult, TEXT_FORMAT_VERSION};
+use super::{encode, TextError, TextResult, LEGACY_READABLE_FORMATS, TEXT_FORMAT_VERSION};
 
 /// A Git conflict marker, checked before anything else.
 ///
@@ -586,9 +586,14 @@ fn number_field(fields: &Fields, key: &str) -> TextResult<u64> {
     }
 }
 
+/// Whether this build can read a file that declares `found`.
+///
+/// The older formats are named by [`LEGACY_READABLE_FORMATS`] rather than
+/// spelled out here, so that the answer lives next to the version it is an
+/// answer about and cannot outlive it.
 fn check_format(found: u64) -> TextResult<()> {
     let found = u32::try_from(found).unwrap_or(u32::MAX);
-    if found == 1 || found == TEXT_FORMAT_VERSION {
+    if found == TEXT_FORMAT_VERSION || LEGACY_READABLE_FORMATS.contains(&found) {
         Ok(())
     } else {
         Err(TextError::UnsupportedFormat { found })

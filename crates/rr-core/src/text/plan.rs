@@ -46,6 +46,17 @@ enum Section {
     Tests,
 }
 
+/// The sections in page order, which is the order every `[_; 3]` here is in.
+const SECTIONS: [Section; 3] = [Section::Children, Section::Api, Section::Tests];
+
+/// Who gets capacity nobody else needed: public symbols, then tests, then
+/// navigation.
+const LEFTOVER_ORDER: [usize; 3] = [1, 2, 0];
+
+/// Who gives a record back when the page still does not fit: the same order
+/// read backwards, so what was handed out last is taken away first.
+const SHED_ORDER: [usize; 3] = [0, 2, 1];
+
 impl Records<'_> {
     pub(crate) fn len(&self) -> usize {
         self.children.len() + self.api.len() + self.tests.len()
@@ -112,6 +123,10 @@ impl ScopePlan {
     /// Never fails. A record too large to fit the page is omitted and sets
     /// [`Self::is_over_budget`]; refusing instead would make one oversize
     /// signature block the whole repository's map from ever being written.
+    ///
+    /// The body it plans stays within `byte_budget` whenever any body can:
+    /// the only overrun left is the one no plan avoids, and it is flagged
+    /// rather than written in silence.
     pub(crate) fn build(scope: &ScopePath, records: Records<'_>, byte_budget: usize) -> Self {
         let capacity = byte_budget.saturating_sub(render::router_overhead(scope));
         if fits_whole(records, capacity) {
@@ -120,12 +135,16 @@ impl ScopePlan {
         Self::truncate(records, capacity)
     }
 
-    /// True when some record alone exceeds the whole page.
+    /// True when no plan of this scope fits the budget.
     ///
     /// Distinct from ordinary truncation: a record that fits the page but not
-    /// its section's share is omitted and stated, and the scope is fine. A
-    /// record that cannot fit anywhere still has to be named, so the remainder
-    /// line covers it and the report says so.
+    /// its section's share is omitted and stated, and the scope is fine. Two
+    /// things land here instead. A record too large for the whole page still
+    /// has to be named, so the remainder line covers it. And a budget too
+    /// small for the remainder lines themselves has no plan at all — stating
+    /// what was dropped is not free, and a page that says nothing about its
+    /// own gaps is the one outcome this module will not produce. Both mean the
+    /// same thing to a reader, and the report says so.
     pub(crate) const fn is_over_budget(&self) -> bool {
         self.over_budget
     }
@@ -165,39 +184,52 @@ impl ScopePlan {
     /// `## Children` and `## Tests` sit empty. The leftover order is the
     /// content order Radar names — public symbols, then tests, then
     /// navigation.
+    ///
+    /// The split is only a proposal. What has to fit is the page, so the three
+    /// sections are measured together afterwards and shrunk until they do.
     fn truncate(records: Records<'_>, capacity: usize) -> Self {
-        let sections = [Section::Children, Section::Api, Section::Tests];
-        let needed: [usize; 3] = sections
+        let needed: [usize; 3] = SECTIONS
             .map(|section| section_bytes(records, section, records.section_len(section), 0));
         let equal = capacity / 3;
-        let mut alloc = [0_usize; 3];
-        for (index, need) in needed.iter().enumerate() {
-            alloc[index] = (*need).min(equal);
-        }
+        let mut alloc = needed.map(|need| need.min(equal));
         let mut leftover = capacity.saturating_sub(alloc.iter().sum());
-        for index in [1, 2, 0] {
+        for index in LEFTOVER_ORDER {
             let extra = needed[index].saturating_sub(alloc[index]);
             let give = extra.min(leftover);
             alloc[index] += give;
             leftover -= give;
         }
 
-        let (children, omitted_children, over_children) =
-            keep_prefix(records, Section::Children, alloc[0], capacity);
-        let (api, omitted_api, over_api) = keep_prefix(records, Section::Api, alloc[1], capacity);
-        let (tests, omitted_tests, over_tests) =
-            keep_prefix(records, Section::Tests, alloc[2], capacity);
+        let mut plans =
+            [0, 1, 2].map(|index| keep_prefix(records, SECTIONS[index], alloc[index], capacity));
+        let mut over_budget = plans.iter().any(|plan| plan.over_budget);
+
+        // A section that could not afford one record still spends a remainder
+        // line, and that line was never charged against the share that bought
+        // nothing — three sections in that position can outrun a capacity that
+        // fit none of them. The shares are what went wrong, so the page is
+        // what fixes it: give records back, least valuable section first,
+        // until the measured total fits.
+        while plans.iter().map(|plan| plan.bytes).sum::<usize>() > capacity {
+            let Some(index) = SHED_ORDER.into_iter().find(|&index| plans[index].kept > 0) else {
+                // Nothing left to give back. The remainder lines alone are the
+                // page and they do not fit, so no plan of this scope does.
+                over_budget = true;
+                break;
+            };
+            plans[index].shrink(records, SECTIONS[index]);
+        }
 
         Self {
             router: PageContent {
-                children: 0..children,
-                api: 0..api,
-                tests: 0..tests,
-                omitted_children,
-                omitted_api,
-                omitted_tests,
+                children: 0..plans[0].kept,
+                api: 0..plans[1].kept,
+                tests: 0..plans[2].kept,
+                omitted_children: plans[0].omitted,
+                omitted_api: plans[1].omitted,
+                omitted_tests: plans[2].omitted,
             },
-            over_budget: over_children || over_api || over_tests,
+            over_budget,
         }
     }
 }
@@ -215,40 +247,89 @@ fn write_content_hash(content: &PageContent, stream: &mut HashStream) {
 }
 
 /// Whether every record fits in one page with nothing omitted.
+///
+/// A record never costs negative bytes, so the running total is highest once
+/// every record is on the page: one comparison at the end answers the same
+/// question as one per record.
 fn fits_whole(records: Records<'_>, capacity: usize) -> bool {
     let mut sizer = render::BodySizer::new(records);
     for index in 0..records.len() {
-        if !sizer.would_fit(index, capacity) {
-            return false;
-        }
         sizer.push(index);
     }
-    true
+    sizer.bytes() <= capacity
 }
 
-/// The longest prefix of `section` that fits in `budget`, plus whether its
-/// first record exceeds the whole page.
+/// What one section's share of the capacity bought.
+///
+/// Carries its own measured size, because the share is only a proposal: the
+/// page is checked, and shrunk, against the sum of the three.
+struct SectionPlan {
+    kept: usize,
+    omitted: usize,
+    /// Body bytes this section costs, remainder line included.
+    bytes: usize,
+    /// Whether this section's first record alone exceeds the whole page.
+    over_budget: bool,
+}
+
+impl SectionPlan {
+    /// Gives the last kept record back.
+    ///
+    /// Always cheaper than keeping it: counting one more omission grows the
+    /// remainder line by at most a digit, and no rendered record line is one
+    /// byte long. Dropping the last one drops the line entirely, since a
+    /// section that keeps nothing states its remainder in place of `_None._`.
+    fn shrink(&mut self, records: Records<'_>, section: Section) {
+        self.kept -= 1;
+        self.omitted += 1;
+        self.bytes = section_bytes(records, section, self.kept, self.omitted);
+    }
+}
+
+/// The longest prefix of `section` that fits in `budget`, and what it costs.
+///
+/// The sizer carries the prefix it has already measured from one candidate to
+/// the next, so this costs one rendered line per record rather than one per
+/// record *per candidate*. Only the remainder line has to be re-priced each
+/// time, because its digit count shrinks as the prefix grows.
 fn keep_prefix(
     records: Records<'_>,
     section: Section,
     budget: usize,
     page_capacity: usize,
-) -> (usize, usize, bool) {
+) -> SectionPlan {
     let total = records.section_len(section);
     if total == 0 {
-        return (0, 0, false);
+        return SectionPlan {
+            kept: 0,
+            omitted: 0,
+            bytes: 0,
+            over_budget: false,
+        };
     }
-    let over_budget = section_bytes(records, section, 1, 0) > page_capacity;
+    let start = records.section_start(section);
+    let mut sizer = render::BodySizer::new(records);
+
+    let mut first = sizer.clone();
+    first.push(start);
+    let over_budget = first.bytes() > page_capacity;
+
     let mut kept = 0;
     while kept < total {
-        let next = kept + 1;
-        let omitted = total - next;
-        if section_bytes(records, section, next, omitted) > budget {
+        let mut next = sizer.clone();
+        next.push(start + kept);
+        if next.bytes() + omission_cost(section, kept + 1, total - kept - 1) > budget {
             break;
         }
-        kept = next;
+        sizer = next;
+        kept += 1;
     }
-    (kept, total - kept, over_budget)
+    SectionPlan {
+        kept,
+        omitted: total - kept,
+        bytes: sizer.bytes() + omission_cost(section, kept, total - kept),
+        over_budget,
+    }
 }
 
 /// Body bytes `kept` records of this section add, including an omission line
@@ -301,6 +382,34 @@ mod tests {
         }
     }
 
+    fn test(name: &str) -> TestRecord {
+        TestRecord {
+            path: format!("tests/{name}.rs"),
+            file_name: format!("{name}.rs"),
+            name: None,
+            anchor_name: None,
+            kind: None,
+            signature: None,
+            start_line: 1,
+        }
+    }
+
+    /// What the plan's own sizer says the rendered body costs.
+    fn planned_bytes(records: Records<'_>, content: &PageContent) -> usize {
+        section_bytes(
+            records,
+            Section::Children,
+            content.children.len(),
+            content.omitted_children,
+        ) + section_bytes(records, Section::Api, content.api.len(), content.omitted_api)
+            + section_bytes(
+                records,
+                Section::Tests,
+                content.tests.len(),
+                content.omitted_tests,
+            )
+    }
+
     #[test]
     fn a_flattened_range_resolves_into_its_section() {
         let children = [child("a"), child("b")];
@@ -336,5 +445,49 @@ mod tests {
         );
         assert!(plan.router().api.is_empty());
         assert!(plan.router().tests.is_empty());
+    }
+
+    /// A page either fits the budget it was planned against or says it could
+    /// not. Nothing in between: a body that quietly overran would make the
+    /// `budget` in its own frontmatter a claim the file disproves.
+    ///
+    /// Swept rather than sampled, because the failure lives at the budgets
+    /// where a section affords its remainder line but not one record — a
+    /// narrow band no hand-picked number reliably lands in.
+    #[test]
+    fn a_page_that_cannot_fit_its_budget_says_so() {
+        let children: Vec<ChildRecord> = (0..8)
+            .map(|index| child(&format!("child{index:02}")))
+            .collect();
+        let tests: Vec<TestRecord> = (0..8)
+            .map(|index| test(&format!("suite{index:02}")))
+            .collect();
+        let all = Records {
+            children: &children,
+            api: &[],
+            tests: &tests,
+        };
+
+        let overhead = render::router_overhead(&ScopePath::Root);
+        for budget in overhead..overhead + 512 {
+            let plan = ScopePlan::build(&ScopePath::Root, all, budget);
+            let capacity = budget - overhead;
+            let bytes = planned_bytes(all, plan.router());
+            assert!(
+                bytes <= capacity || plan.is_over_budget(),
+                "budget {budget}: a body of {bytes} bytes overran a capacity of \
+                 {capacity} without reporting it"
+            );
+            assert_eq!(
+                plan.router().children.end + plan.router().omitted_children,
+                children.len(),
+                "budget {budget}: children went unaccounted for"
+            );
+            assert_eq!(
+                plan.router().tests.end + plan.router().omitted_tests,
+                tests.len(),
+                "budget {budget}: tests went unaccounted for"
+            );
+        }
     }
 }
