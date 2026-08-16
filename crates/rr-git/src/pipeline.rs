@@ -32,17 +32,6 @@ enum Acquired {
     Vanished,
 }
 
-/// Whether facts are worth keeping for a later run.
-///
-/// Not a `DegradedReason`: that enum's `ParserReturnedNone` already means a
-/// real parse failure, which *is* worth caching. Separating the two is a
-/// serialized-schema change owned by #31.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Reusable {
-    Yes,
-    No,
-}
-
 /// One worker's share of the per-file work.
 ///
 /// The repository handle is built once per worker rather than once per file.
@@ -97,11 +86,11 @@ impl Worker {
             Acquired::Pending(content) => content,
         };
 
-        let (facts, reusable) = self.extract(source.lang, &content)?;
+        let facts = self.extract(source.lang, &content)?;
         stats.parses += 1;
         record_status(&mut stats, facts.status());
 
-        if reusable == Reusable::Yes
+        if facts.status().is_cacheable()
             && cache
                 .put(&CacheKey::new(content.oid, source.lang), &facts)
                 .is_err()
@@ -228,17 +217,14 @@ impl Worker {
         known_or_pending(source, content, cache, stats)
     }
 
-    fn extract(&mut self, lang: Lang, content: &AcquiredContent) -> Result<(Facts, Reusable)> {
+    fn extract(&mut self, lang: Lang, content: &AcquiredContent) -> Result<Facts> {
         match self.registry.for_lang(lang) {
-            Some(Ok(extractor)) => extractor
-                .extract(&content.bytes)
-                .map(|facts| (facts, Reusable::Yes))
-                .map_err(Error::Core),
+            Some(Ok(extractor)) => extractor.extract(&content.bytes).map_err(Error::Core),
             Some(Err(message)) => Err(Error::Content(message)),
-            None => Ok((
-                degraded_facts(&content.bytes, DegradedReason::ParserReturnedNone),
-                Reusable::No,
-            )),
+            // Not `ParserReturnedNone`: no parser was asked. The distinction is
+            // what keeps these facts out of the cache, and it now lives in the
+            // status rather than in a flag beside it.
+            None => Ok(degraded_facts(&content.bytes, DegradedReason::NoExtractor)),
         }
     }
 }

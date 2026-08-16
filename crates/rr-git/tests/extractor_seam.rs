@@ -2,6 +2,7 @@ mod common;
 
 use common::write;
 use rr_core::cache::FactCache;
+use rr_core::facts::{DegradedReason, ParseStatus};
 use rr_core::lang::Lang;
 use rr_core::parser::Registry;
 use rr_core::walk::SourceFile;
@@ -52,6 +53,11 @@ fn the_walk_allowlist_is_exactly_what_the_registry_supports() {
 
 /// Facts made without an extractor describe rr's support, not the file, so a
 /// later run that gained the extractor must not be handed them.
+///
+/// Since #31 the facts say so themselves. `NoExtractor` is a reason a reader
+/// can act on, and the pipeline decides whether to cache by asking the status
+/// rather than by remembering which branch it came from — so the two degrades
+/// that used to share `ParserReturnedNone` can no longer be confused.
 #[test]
 fn an_unsupported_language_degrades_without_being_cached() {
     let root = tempfile::tempdir().unwrap();
@@ -65,8 +71,12 @@ fn an_unsupported_language_degrades_without_being_cached() {
     let facts = input.unwrap().facts;
     assert!(matches!(
         facts.status(),
-        rr_core::facts::ParseStatus::Degraded { .. }
+        ParseStatus::Degraded {
+            reason: DegradedReason::NoExtractor,
+            ..
+        }
     ));
+    assert!(!facts.status().is_cacheable());
     assert!(facts.defs().is_empty());
 
     worker.process(&script, &cache).unwrap();
@@ -74,5 +84,40 @@ fn an_unsupported_language_degrades_without_being_cached() {
         cache.stats().hits(),
         0,
         "the degrade was stored and served back"
+    );
+}
+
+/// A parse that failed is still a fact about the file, and is still cached.
+///
+/// The companion to the test above: separating the two reasons is only worth
+/// anything if they now lead to different behaviour. Rust has an extractor, so
+/// a file it cannot parse takes the other branch.
+#[test]
+fn a_file_its_own_parser_could_not_read_is_still_cached() {
+    let root = tempfile::tempdir().unwrap();
+    // Invalid UTF-8 is the degrade the Rust extractor reaches without needing a
+    // pathological source: it is reproducible from these exact bytes.
+    std::fs::write(root.path().join("broken.rs"), [0xFF, 0xFE, b'f', b'n']).unwrap();
+
+    let cache = FactCache::open(root.path()).unwrap();
+    let mut worker = Worker::new(root.path());
+    let broken = source("broken.rs", Lang::Rust);
+
+    let (input, _) = worker.process(&broken, &cache).unwrap();
+    let status = input.unwrap().facts.status();
+    assert!(matches!(
+        status,
+        ParseStatus::Degraded {
+            reason: DegradedReason::InvalidUtf8,
+            ..
+        }
+    ));
+    assert!(status.is_cacheable());
+
+    worker.process(&broken, &cache).unwrap();
+    assert_eq!(
+        cache.stats().hits(),
+        1,
+        "a degrade that describes the file was not reused"
     );
 }

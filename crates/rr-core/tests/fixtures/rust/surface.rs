@@ -1,4 +1,4 @@
-//! Surface fixture covering every DefKind and reference form.
+//! Surface fixture covering every Rust-producible DefKind and reference form.
 
 /// Docs for a free function.
 #[inline]

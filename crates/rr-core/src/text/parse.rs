@@ -922,9 +922,14 @@ fn parse_symbol_record(line: &str) -> TextResult<ParsedSymbolRecord> {
     let visibility = visibility.to_owned();
     let anchor = anchor.to_owned();
     let api_hash = Digest::parse(hash)?;
-    if !matches!(visibility.as_str(), "public" | "crate" | "restricted") {
+    // The same closed set `VisibilityLabel` writes. A label that renders but
+    // does not parse would make rr refuse the file it had just produced.
+    if !matches!(
+        visibility.as_str(),
+        "public" | "protected" | "internal" | "crate" | "restricted"
+    ) {
         return Err(TextError::Record {
-            reason: "a symbol record's visibility is not public, crate, or restricted",
+            reason: "a symbol record's visibility is not a recognized visibility label",
         });
     }
     let line = line_number.parse::<u32>().map_err(|_| TextError::Record {

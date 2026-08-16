@@ -859,6 +859,11 @@ fn test_signals(node: Node<'_>, source: &str) -> TestSignals {
     TestSignals {
         explicit_attribute,
         inside_cfg_test,
+        // Rust states its test scopes with `cfg(test)`, which the field above
+        // already carries. Nothing here is a second, neutral signal, and
+        // setting one anyway would make a Rust definition report a scope it
+        // does not have.
+        inside_test_scope: false,
     }
 }
 

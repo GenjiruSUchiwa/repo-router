@@ -105,6 +105,8 @@ fn visibility_label(vis: &rr_core::Visibility) -> String {
     match vis {
         rr_core::Visibility::Private => "private".into(),
         rr_core::Visibility::Public => "public".into(),
+        rr_core::Visibility::Protected => "protected".into(),
+        rr_core::Visibility::Internal => "internal".into(),
         rr_core::Visibility::Crate => "crate".into(),
         rr_core::Visibility::Restricted(path) => format!("restricted({path})"),
     }
@@ -405,8 +407,88 @@ fn invalid_utf8_fixture_degrades() {
     assert!(facts.lexical_idents().iter().any(|i| i == "gamma"));
 }
 
+/// The vocabulary widened; Rust's use of it did not.
+///
+/// Half the claim is here and half is in the `insta` goldens above. The goldens
+/// pin the exact kind, visibility, and import kind of every definition in the
+/// fixtures, and they were not regenerated for #31 — a changed value would fail
+/// them. This test states the other half, which a golden cannot: that none of
+/// the variants #31 added is reachable from Rust source at all, so no future
+/// edit to `rust.rs` can quietly start emitting one.
+#[test]
+fn a_rust_repository_indexes_identically_across_the_schema_bump() {
+    // Everything `DefKind` held before #31 widened it.
+    const RUST_KINDS: [DefKind; 13] = [
+        DefKind::Function,
+        DefKind::Method,
+        DefKind::TraitMethod,
+        DefKind::Struct,
+        DefKind::Enum,
+        DefKind::Union,
+        DefKind::Trait,
+        DefKind::TypeAlias,
+        DefKind::AssociatedType,
+        DefKind::Const,
+        DefKind::Static,
+        DefKind::Module,
+        DefKind::Macro,
+    ];
+
+    let root = workspace_root().join("fixtures/rust-basic");
+    let mut paths = collect_rust_files(&root);
+    paths.push(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/rust/surface.rs"));
+    paths.push(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/rust/imports.rs"));
+
+    let mut extractor = RustExtractor::new().unwrap();
+    let mut seen_defs = 0_usize;
+    for path in &paths {
+        let bytes = fs::read(path).unwrap();
+        let facts = extractor.extract(&bytes).unwrap();
+
+        for def in facts.defs() {
+            seen_defs += 1;
+            assert!(
+                RUST_KINDS.contains(&def.kind),
+                "{path:?} produced {:?}, which Rust had no way to spell before #31",
+                def.kind
+            );
+            assert!(
+                matches!(
+                    def.visibility,
+                    rr_core::Visibility::Private
+                        | rr_core::Visibility::Public
+                        | rr_core::Visibility::Crate
+                        | rr_core::Visibility::Restricted(_)
+                ),
+                "{path:?} produced {:?}, a visibility Rust does not have",
+                def.visibility
+            );
+            // `inside_cfg_test` keeps meaning `#[cfg(test)]`; the neutral field
+            // beside it belongs to languages that state test scope some other
+            // way, and Rust must never set it.
+            assert!(
+                !def.test_signals.inside_test_scope,
+                "{path:?} set the language-neutral test signal on `{}`",
+                def.name
+            );
+        }
+
+        for import in facts.imports() {
+            assert!(
+                matches!(
+                    import.kind,
+                    rr_core::ImportKind::Use | rr_core::ImportKind::ExternCrate
+                ),
+                "{path:?} produced {:?}, an import kind Rust does not have",
+                import.kind
+            );
+        }
+    }
+    assert!(seen_defs > 0, "the fixtures produced no definitions");
+}
+
 #[test]
 fn versions_are_pinned() {
     assert_eq!(EXTRACTOR_VERSION, 2);
-    assert_eq!(FACT_SCHEMA_VERSION, 2);
+    assert_eq!(FACT_SCHEMA_VERSION, 3);
 }

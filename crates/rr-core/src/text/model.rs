@@ -132,10 +132,14 @@ impl ScopePath {
 
 /// How a definition's visibility is spelled.
 ///
-/// Two spellings, on purpose. The label is what a reader sees and is one of
-/// exactly three words. The key is what [`ApiHash`] consumes and keeps the
-/// restriction path, so that `pub(in a)` becoming `pub(in b)` invalidates a
+/// Two spellings, on purpose. The label is what a reader sees and is one of a
+/// closed set of single words. The key is what [`ApiHash`] consumes and keeps
+/// the restriction path, so that `pub(in a)` becoming `pub(in b)` invalidates a
 /// route even in the unlikely case that the display signature did not change.
+///
+/// Every label here is also a label [`super::parse`] accepts when it reads
+/// `.rr/SYMBOLS.md` back; a word written by one and refused by the other is a
+/// file rr cannot read after writing it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct VisibilityLabel {
     label: &'static str,
@@ -144,12 +148,25 @@ pub(crate) struct VisibilityLabel {
 
 impl VisibilityLabel {
     /// The map-visible label, or `None` for a definition text never shows.
+    ///
+    /// Only [`Visibility::Private`] is withheld. `protected` and `internal`
+    /// are both reachable from outside the declaring definition — a subclass
+    /// overrides one, a sibling module calls the other — so a reader looking
+    /// for either in a map has to find it.
     fn of(visibility: &Visibility) -> Option<Self> {
         match visibility {
             Visibility::Private => None,
             Visibility::Public => Some(Self {
                 label: "public",
                 key: "public".to_owned(),
+            }),
+            Visibility::Protected => Some(Self {
+                label: "protected",
+                key: "protected".to_owned(),
+            }),
+            Visibility::Internal => Some(Self {
+                label: "internal",
+                key: "internal".to_owned(),
             }),
             Visibility::Crate => Some(Self {
                 label: "crate",

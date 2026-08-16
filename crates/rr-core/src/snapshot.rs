@@ -18,7 +18,13 @@ use crate::index::Snapshot;
 /// classification, both of which sit inside their arenas: an older payload
 /// decodes its successor's fields out of alignment, so the envelope has to
 /// refuse it before postcard is asked to try.
-pub const SNAPSHOT_SCHEMA_VERSION: u32 = 5;
+/// Version 6 widened the fact vocabulary (`FACT_SCHEMA_VERSION` 3). Every
+/// symbol carries a `DefKind`, a `Visibility`, and a `TestSignals`, all three of
+/// which postcard writes positionally — a new enum variant shifts no existing
+/// discriminant, but the third `TestSignals` field shifts everything after it,
+/// and a version-5 file read as a version-6 one would report a symbol as a test
+/// because the byte that used to end the struct is now read as its new field.
+pub const SNAPSHOT_SCHEMA_VERSION: u32 = 6;
 pub const SNAPSHOT_MAGIC: [u8; 8] = *b"RRIDX\0\0\0";
 const HEADER_LEN: usize = 8 + 4 + 8 + 32;
 
@@ -347,6 +353,47 @@ mod tests {
             LoadOutcome::NeedsRebuild(RebuildReason::RankingProfileMismatch { .. })
         ));
     }
+    /// The version-5 file #31 obsoleted is rejected by the envelope, before
+    /// postcard is ever asked to decode it.
+    ///
+    /// This is the half of the format break that is not free. A stale *cache*
+    /// entry is at a path nobody looks at, so it simply is not found; a stale
+    /// *snapshot* is at the one path the loader always opens, and a payload
+    /// whose `TestSignals` gained a third field decodes into a snapshot that
+    /// looks structurally fine and reports the wrong symbols as tests. Only the
+    /// version check standing ahead of the decode prevents that.
+    #[test]
+    fn a_snapshot_from_the_previous_schema_is_refused_not_misread() {
+        const PREVIOUS: u32 = SNAPSHOT_SCHEMA_VERSION - 1;
+
+        let (snapshot, _) = crate::index::SnapshotBuilder::new(crate::index::SnapshotMeta::new(
+            None, true, [0; 32],
+        ))
+        .build(Vec::new())
+        .unwrap();
+        let payload = postcard::to_allocvec(&snapshot).unwrap();
+        let mut bytes = encode(&payload).unwrap();
+        // Only the version is stamped back; the checksum still matches the
+        // payload it covers, so nothing but the version can refuse this file.
+        bytes[8..12].copy_from_slice(&PREVIOUS.to_le_bytes());
+        assert!(matches!(
+            decode(&bytes),
+            LoadOutcome::NeedsRebuild(RebuildReason::UnsupportedVersion { found: PREVIOUS })
+        ));
+
+        // And the refusal happens before the payload is read at all: this one
+        // could not decode into anything, yet the reported reason is still the
+        // version rather than whatever postcard would have made of it.
+        let mut shredded = bytes.clone();
+        for byte in &mut shredded[HEADER_LEN..] {
+            *byte = 0xFF;
+        }
+        assert!(matches!(
+            decode(&shredded),
+            LoadOutcome::NeedsRebuild(RebuildReason::UnsupportedVersion { found: PREVIOUS })
+        ));
+    }
+
     #[test]
     fn store_round_trips_empty_snapshot() {
         let directory = tempfile::tempdir().unwrap();

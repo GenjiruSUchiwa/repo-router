@@ -53,6 +53,31 @@ whose version does not match. Bump both, and every stale cache invalidates
 itself into a full rebuild. The machinery for this migration was built before
 anyone needed it.
 
+### What #31 landed, and the two rows it did not
+
+The versions are now 3 and 6. Every `DefKind` row above landed, along with
+`Protected` and `Internal`, `Import` / `From` / `Require`, and a
+`TestSignals::inside_test_scope` sitting beside `inside_cfg_test` rather than
+replacing it. `DegradedReason::NoExtractor` landed too, which is not in the
+table: it separates *rr has no extractor for this language* from *the parser was
+asked and returned nothing*, so the first can be kept out of the fact cache by
+the facts themselves instead of by a flag carried alongside them.
+
+The new import kinds are inert on purpose. `ImportKind::resolves_by_path` answers
+`false` for `Import`, `From`, and `Require`, because the resolver in
+`index::build` splits a path on `::` and rejoins it onto the importing file's
+module path — so `react` imported from `app` would be looked up as `app::react`
+and could *find* an unrelated local symbol. Step 3 below flips those rows on as
+it teaches the resolver each language's separators, one line and one test each.
+Until then an unresolved import is a true statement; a wrong one would not be.
+
+Two entries did not land. `Visibility::Package` names Java's package-private and
+Go's lowercase; `ImportKind::Include` names C's `#include`. Neither is reachable
+from TypeScript or Python, and #31's rule was that a variant no extractor can
+produce does not land. They are one additive bump away whenever a language that
+has them arrives — the same bump this section just showed costs a rebuild and
+nothing else.
+
 ---
 
 ## 3. Graduated degradation is what makes it affordable

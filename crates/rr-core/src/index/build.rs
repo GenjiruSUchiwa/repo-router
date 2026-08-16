@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 
-use crate::facts::{Facts, ImportKind, ParseStatus, ReferenceKind};
+use crate::facts::{Facts, ParseStatus, ReferenceKind};
 use crate::lang::Lang;
 use crate::lex::{append_source_terms, FieldTerm, InputKind, LexicalField, Lexicon};
 use crate::oid::Oid;
@@ -418,7 +418,7 @@ impl SnapshotBuilder {
 
         for index in 0..self.imports.len() {
             let import = &self.imports[index];
-            let resolution = if import.is_glob || import.kind == ImportKind::ExternCrate {
+            let resolution = if import.is_glob || !import.kind.resolves_by_path() {
                 Resolution::Unresolved
             } else {
                 let path = self.strings.values[import.path.index()].clone();
@@ -475,7 +475,7 @@ impl SnapshotBuilder {
         let end = start + file_record.import_count as usize;
         let mut candidates = Vec::new();
         for import in &self.imports[start..end] {
-            if import.is_glob || import.kind == ImportKind::ExternCrate {
+            if import.is_glob || !import.kind.resolves_by_path() {
                 continue;
             }
             let path = &self.strings.values[import.path.index()];
