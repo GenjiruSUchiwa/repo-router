@@ -39,20 +39,37 @@ struct SnapshotRef {
     owner: Option<String>,
 }
 
-fn fixture(name: &str) -> PathBuf {
+fn fixture(language: &str, name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/python")
+        .join("tests/fixtures")
+        .join(language)
         .join(name)
 }
 
-fn extract_python(content: &[u8]) -> Facts {
+fn extract(lang: Lang, content: &[u8]) -> Facts {
     let mut registry = Registry::new();
     registry
-        .for_lang(Lang::Python)
+        .for_lang(lang)
         .unwrap()
         .unwrap()
         .extract(content)
         .unwrap()
+}
+
+/// Reads one fixture and extracts it, so a test names a file and a language
+/// rather than repeating the two steps between them.
+fn facts_for(lang: Lang, language: &str, name: &str) -> (Vec<u8>, Facts) {
+    let content = fs::read(fixture(language, name)).unwrap();
+    let facts = extract(lang, &content);
+    (content, facts)
+}
+
+fn def<'a>(facts: &'a Facts, name: &str) -> &'a rr_core::facts::Def {
+    facts
+        .defs()
+        .iter()
+        .find(|def| def.name == name)
+        .unwrap_or_else(|| panic!("no definition named {name}"))
 }
 
 fn status_label(status: ParseStatus) -> String {
@@ -110,12 +127,12 @@ fn to_snapshot(path: &str, facts: &Facts) -> SnapshotFile {
 
 #[test]
 fn a_tags_extractor_produces_the_same_facts_on_every_run() {
-    let content = fs::read(fixture("surface.py")).unwrap();
+    let content = fs::read(fixture("python", "surface.py")).unwrap();
     let mut reusable = Registry::new();
     let extractor = reusable.for_lang(Lang::Python).unwrap().unwrap();
     let first = extractor.extract(&content).unwrap();
     let second = extractor.extract(&content).unwrap();
-    let fresh = extract_python(&content);
+    let fresh = extract(Lang::Python, &content);
     assert_eq!(first, second);
     assert_eq!(first, fresh);
 
@@ -126,8 +143,8 @@ fn a_tags_extractor_produces_the_same_facts_on_every_run() {
 
 #[test]
 fn a_tags_based_file_is_reported_at_its_real_fidelity() {
-    let content = fs::read(fixture("surface.py")).unwrap();
-    let facts = extract_python(&content);
+    let content = fs::read(fixture("python", "surface.py")).unwrap();
+    let facts = extract(Lang::Python, &content);
     assert!(matches!(facts.status(), ParseStatus::Tags { .. }));
     assert!(!matches!(facts.status(), ParseStatus::Complete));
 
@@ -142,15 +159,15 @@ fn a_tags_based_file_is_reported_at_its_real_fidelity() {
 
 #[test]
 fn a_tags_fixture_has_a_readable_golden_projection() {
-    let content = fs::read(fixture("surface.py")).unwrap();
-    let facts = extract_python(&content);
+    let content = fs::read(fixture("python", "surface.py")).unwrap();
+    let facts = extract(Lang::Python, &content);
     insta::assert_yaml_snapshot!("python_surface", to_snapshot("surface.py", &facts));
 }
 
 #[test]
 fn a_recovered_tags_fixture_records_parse_errors() {
-    let content = fs::read(fixture("recovered.py")).unwrap();
-    let facts = extract_python(&content);
+    let content = fs::read(fixture("python", "recovered.py")).unwrap();
+    let facts = extract(Lang::Python, &content);
     assert!(matches!(
         facts.status(),
         ParseStatus::Tags { parse_errors: true }
@@ -162,9 +179,9 @@ fn a_recovered_tags_fixture_records_parse_errors() {
 
 #[test]
 fn signature_text_is_sliced_from_the_span_not_reconstructed() {
-    let content = fs::read(fixture("surface.py")).unwrap();
+    let content = fs::read(fixture("python", "surface.py")).unwrap();
     let source = std::str::from_utf8(&content).unwrap();
-    let facts = extract_python(&content);
+    let facts = extract(Lang::Python, &content);
     for def in facts.defs() {
         let raw = &source
             [def.signature_span.start_byte() as usize..def.signature_span.end_byte() as usize];
@@ -174,8 +191,8 @@ fn signature_text_is_sliced_from_the_span_not_reconstructed() {
 
 #[test]
 fn tags_fixture_carries_nesting_and_body_identifier_invariants() {
-    let content = fs::read(fixture("surface.py")).unwrap();
-    let facts = extract_python(&content);
+    let content = fs::read(fixture("python", "surface.py")).unwrap();
+    let facts = extract(Lang::Python, &content);
     let method = facts.defs().iter().find(|def| def.name == "run").unwrap();
     assert_eq!(method.local_qualified.as_deref(), Some("Service.run"));
     assert!(method.body_idents.iter().any(|ident| ident == "helper"));
@@ -184,4 +201,49 @@ fn tags_fixture_carries_nesting_and_body_identifier_invariants() {
         .references()
         .iter()
         .any(|reference| reference.name == "helper" && reference.owner.is_some()));
+}
+
+/// A dedent the grammar has to recover from, which is a different failure to
+/// `recovered.py`'s unclosed parenthesis: one breaks the token stream, the
+/// other breaks the block structure an indentation-sensitive grammar builds
+/// its tree out of. Neither may cost the definitions on the far side.
+///
+/// The two are not reported alike, and this is the test that says so. An
+/// unclosed parenthesis reaches the tree as an error node and `recovered.py`
+/// is labelled `parse_errors: true`. Broken indentation never does: Python's
+/// grammar resolves columns into indent and dedent tokens in its external
+/// scanner, so a dedent that fits no open block is *consumed* there and the
+/// tree that comes back is well formed and differently shaped. Nothing
+/// downstream can tell it apart from a file that meant what it said, which is
+/// why the assertions below are about the definitions rather than the status.
+#[test]
+fn a_broken_python_indent_recovers_rather_than_truncating() {
+    let (_, facts) = facts_for(Lang::Python, "python", "indent.py");
+    assert!(matches!(
+        facts.status(),
+        ParseStatus::Tags {
+            parse_errors: false
+        }
+    ));
+
+    // Every definition survives, on both sides of the break and inside it.
+    assert_eq!(def(&facts, "before").kind.to_string(), "function");
+    assert_eq!(def(&facts, "Service").kind.to_string(), "class");
+    assert_eq!(
+        def(&facts, "run").local_qualified.as_deref(),
+        Some("Service.run")
+    );
+    assert_eq!(def(&facts, "after").kind.to_string(), "function");
+
+    // And the reshaping is visible rather than papered over. The dedented
+    // `return result` leaves the method the file wrote it inside and lands on
+    // the class the grammar hung it on; what the method keeps is the line
+    // above it, which was indented correctly.
+    let method = def(&facts, "run");
+    let class = def(&facts, "Service");
+    assert!(method.body_idents.iter().any(|ident| ident == "helper"));
+    assert!(!method.body_idents.iter().any(|ident| ident == "return"));
+    assert!(class.body_idents.iter().any(|ident| ident == "return"));
+
+    insta::assert_yaml_snapshot!("python_indent", to_snapshot("indent.py", &facts));
 }
