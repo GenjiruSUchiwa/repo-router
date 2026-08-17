@@ -2,7 +2,7 @@
 
 **`rr`** — a repository navigator for coding agents (Claude Code, etc.), inspired by the publicly documented behavior of [Radar](https://radar.dev). It indexes a repository (Tree-sitter + lexical fingerprints), then answers navigation questions ("where is X defined?", "who calls Y?") with **minimal context**: a precise route to the source, not a file dump.
 
-> An open, cross-platform reimplementation written from Radar's publicly documented and observed behavior — not from its source code, which remains private. See [`docs/SPEC.md`](docs/SPEC.md) and [`docs/OBSERVATIONS.md`](docs/OBSERVATIONS.md).
+> An open, cross-platform reimplementation written from Radar's publicly documented and observed behavior — not from its source code, which remains private. See the [Specification](https://github.com/GenjiruSUchiwa/repo-router/wiki/Specification) and the [Observations](https://github.com/GenjiruSUchiwa/repo-router/wiki/Observations) it is built from.
 
 ## Why
 
