@@ -290,10 +290,14 @@ Recorded here rather than discovered later:
    hand-written extractor reaches back over both. The visible consequence is
    that a container's `body_idents` pick up its members' doc prose: a member's
    comment lies inside the container's span but outside the member's own, so
-   the exclusion that removes members from their container misses it. Fixing
-   it means backward-lexing in shared code, which is a real change and not
-   this milestone's. *(Deferred to #53 (D9): the fix would bump all four
-   extractor versions in one commit.)*
+   the exclusion that removes members from their container misses it. *(Fixed
+   in #53. Shared `preceding_comment_run_start` folds the adjacent comment run
+   into every tags-tier span; the child-exclusion rule then keeps member doc
+   prose out of the container's `body_idents`. Rust is unchanged: its
+   hand-written extractor already reached back over docs and attributes via
+   the AST, and the two tiers are allowed to disagree about *how* a span grows
+   so long as both keep attached documentation inside the definition. Only
+   the tags-language extractor versions moved.)*
 
 2. **Non-exported module bindings are indexed but not documented.** Those two
    patterns are anchored on a named parent, and a comment run inside a
