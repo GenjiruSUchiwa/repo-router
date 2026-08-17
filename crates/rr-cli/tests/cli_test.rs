@@ -34,8 +34,8 @@ fn version_languages_lists_every_recognised_language() {
         .iter()
         .find(|line| line.starts_with("csharp"))
         .expect("csharp missing");
-    assert!(csharp.contains("lexical"), "{csharp}");
-    assert!(csharp.ends_with(" 0"), "{csharp}");
+    assert!(csharp.contains("tags"), "{csharp}");
+    assert!(csharp.ends_with(" 1"), "{csharp}");
 }
 
 #[test]

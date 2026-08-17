@@ -59,16 +59,19 @@ this table for the binary you have.
 | Ruby | `tags` | 2.1 MB |
 | PHP | `tags` | 1.1 MB |
 | Swift | `tags` | 3.8 MB |
+| C# | `tags` | 6.0 MB |
 | Lua | `tags` | 0.05 MB |
-| C#, Kotlin, Scala, Zig, Shell, SQL, Proto | `lexical` | — |
+| Kotlin, Scala, Zig, Shell, SQL, Proto | `lexical` | — |
 | TOML, JSON, YAML, Markdown, HTML, CSS | not indexed | — |
 
-The seven `lexical` languages are not an oversight. C#'s published `tags.scm`
-uses a capture `tree-sitter-tags` rejects; Kotlin's maintained crate pins a
-Tree-sitter runtime this workspace cannot link, and its successor ships no tags
-query; Scala, Zig and Bash ship none either, and Scala's grammar additionally
-gives an import path no query can reconstruct; SQL has no canonical crate, only
-dialect forks; the proto crate's tags query is commented out upstream.
+The six `lexical` languages are not an oversight. Kotlin's maintained crate
+pins a Tree-sitter runtime this workspace cannot link, and its successor ships
+no tags query; Scala, Zig and Bash ship none either, and Scala's grammar
+additionally gives an import path no query can reconstruct; SQL has no
+canonical crate, only dialect forks; the proto crate's tags query is commented
+out upstream. C# stayed lexical until its extractor landed: the published
+`tags.scm` ends in a bare `@module` capture `tree-sitter-tags` rejects, so `rr`
+ships its own query instead of the grammar's.
 
 Every grammar is compiled in. There is no feature switch. Prebuilt per-platform
 release archives are how binary size stays off the user's machine.

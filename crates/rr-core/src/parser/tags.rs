@@ -1748,7 +1748,7 @@ const CSHARP_KINDS: &[(&str, DefKind)] = &[
     ("struct", DefKind::Struct),
     ("record", DefKind::Class),
     ("enum", DefKind::Enum),
-    ("delegate", DefKind::TypeAlias),
+    ("type", DefKind::TypeAlias),
     ("method", DefKind::Method),
     ("function", DefKind::Function),
     ("constructor", DefKind::Constructor),
@@ -1757,6 +1757,11 @@ const CSHARP_KINDS: &[(&str, DefKind)] = &[
     ("module", DefKind::Module),
 ];
 
+/// A C# `record` maps to `Class` where Java's maps to `Struct`, deliberately:
+/// a C# record is a reference type the compiler shapes, and both spellings
+/// `record` and `record struct` parse to the same node — the value-type form
+/// is a modifier the grammar does not distinguish, so `Struct` would be a
+/// guess on the wrong half of them.
 const CSHARP_REFERENCE_KINDS: &[(&str, ReferenceKind)] = &[
     ("call", ReferenceKind::Call),
     ("method-call", ReferenceKind::MethodCall),
@@ -1877,7 +1882,7 @@ pub(crate) static CSHARP: LanguageSpec = LanguageSpec {
     test_scope: never_a_test_signal,
     refine: csharp_refine,
     doc_is_leading_body_string: false,
-    line_comment_prefixes: &["//", "///"],
+    line_comment_prefixes: &["//"],
     config: OnceLock::new(),
 };
 

@@ -10,6 +10,9 @@
 (record_declaration
   name: (identifier) @name) @definition.record
 
+(delegate_declaration
+  name: (identifier) @name) @definition.type
+
 (enum_declaration
   name: (identifier) @name) @definition.enum
 
@@ -57,5 +60,17 @@
 (object_creation_expression
   type: (identifier) @name) @reference.class
 
+(object_creation_expression
+  type: (qualified_name) @name) @reference.class
+
+(object_creation_expression
+  type: (generic_name) @name) @reference.class
+
 (base_list
   (identifier) @name) @reference.implementation
+
+(base_list
+  (qualified_name) @name) @reference.implementation
+
+(base_list
+  (generic_name) @name) @reference.implementation

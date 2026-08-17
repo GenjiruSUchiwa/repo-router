@@ -255,12 +255,11 @@ fn a_polyglot_repository_indexes_deterministically() {
     assert!(
         matches!(
             csharp.parse_status,
-            ParseStatus::Degraded {
-                reason: rr_core::DegradedReason::NoExtractor,
-                ..
+            ParseStatus::Tags {
+                parse_errors: false
             }
         ),
-        "C# must be walked and degraded, not skipped"
+        "C# must be walked and extracted, not skipped"
     );
 
     let path = SnapshotStore::new(temp.path()).path().to_path_buf();
