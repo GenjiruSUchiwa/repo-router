@@ -99,7 +99,7 @@ fn facts_made_without_an_extractor_are_never_cached() {
     let cache = FactCache::open(root.path()).unwrap();
     let mut worker = Worker::new(root.path());
     let (unsupported, _) = worker
-        .process(&source("service.py", Lang::CSharp), &cache)
+        .process(&source("service.py", Lang::Kotlin), &cache)
         .unwrap();
     let unsupported = unsupported.unwrap().facts;
     assert!(matches!(
@@ -144,11 +144,11 @@ fn the_walk_allowlist_is_every_indexable_language() {
 #[test]
 fn an_unsupported_language_degrades_without_being_cached() {
     let root = tempfile::tempdir().unwrap();
-    write(root.path(), "script.cs", "class Greeter {}\n");
+    write(root.path(), "script.kt", "class Greeter {}\n");
 
     let cache = FactCache::open(root.path()).unwrap();
     let mut worker = Worker::new(root.path());
-    let script = source("script.cs", Lang::CSharp);
+    let script = source("script.kt", Lang::Kotlin);
     let (input, _) = worker.process(&script, &cache).unwrap();
     let facts = input.unwrap().facts;
     assert!(matches!(

@@ -19,6 +19,22 @@ defs:
     body_idents: []
     doc_idents: []
     attribute_idents: []
+  - name: Converter
+    local_qualified: ~
+    kind: type-alias
+    visibility: public
+    start_line: 8
+    end_line: 8
+    signature: public delegate int Converter(string input);
+    signature_idents:
+      - public
+      - delegate
+      - int
+      - string
+      - input
+    body_idents: []
+    doc_idents: []
+    attribute_idents: []
   - name: Service
     local_qualified: ~
     kind: class
