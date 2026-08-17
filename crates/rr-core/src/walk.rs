@@ -163,7 +163,7 @@ pub fn is_generated(rel_path: &str, full_path: Option<&Path>) -> bool {
 #[must_use]
 pub fn collected_lang(path: impl AsRef<Path>, cfg: &WalkCfg) -> Option<Lang> {
     let path = path.as_ref();
-    // Not offered to configuration: a map rr wrote must never be a file rr indexes.
+
     if path
         .file_name()
         .and_then(|name| name.to_str())
@@ -231,9 +231,6 @@ fn is_excluded_dir(entry: &DirEntry, cfg: &WalkCfg) -> bool {
 
     let file_name = entry.file_name().to_str().unwrap_or("");
 
-    // rr's own work root, on every configuration: walking it means indexing the
-    // snapshot this walk is building. The rest of DEFAULT_EXCLUDES is convention
-    // a caller may turn off.
     if file_name == crate::workspace::STATE_DIR {
         return true;
     }

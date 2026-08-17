@@ -417,9 +417,6 @@ mod tests {
                 .unwrap_or_else(|| panic!("{lang} is supported but has no extractor"))
                 .unwrap_or_else(|message| panic!("{lang} failed to build: {message}"));
 
-            // Not `is_some`: a builder filed under the wrong language answers
-            // every call, so asking whether something replied proves nothing.
-            // Only asking *what* replied catches a mismatched table row.
             assert_eq!(
                 extractor.lang(),
                 lang,

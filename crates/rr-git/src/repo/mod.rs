@@ -111,12 +111,6 @@ impl GitRepo {
             return Ok(None);
         };
 
-        // An intent-to-add entry records the *empty blob* as a placeholder: Git
-        // has never stored this file's content. Returning that OID would name
-        // the wrong bytes, and every such file in the repository would collide
-        // on one cache key. A skip-worktree entry's stat is equally meaningless,
-        // because Git deliberately stopped tracking what is on disk. Neither is
-        // an identity, so both fall through to hashing the real content.
         if entry
             .flags
             .intersects(Flags::INTENT_TO_ADD | Flags::SKIP_WORKTREE)
@@ -176,8 +170,7 @@ impl GitRepo {
         let file = std::fs::File::open(full_path).map_err(Error::Io)?;
         match self.convert_to_git(file, rel) {
             Ok(content) => Ok(Some(hash_blob(&content, self.algo))),
-            // An unavailable pipeline or a failing filter is not fatal here:
-            // the caller hashes the raw bytes instead. Read failures still are.
+
             Err(Error::Content(_)) => Ok(None),
             Err(other) => Err(other),
         }

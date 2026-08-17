@@ -95,8 +95,7 @@ fn status_before_any_refresh_reports_a_missing_snapshot() {
 
     assert_eq!(report.snapshot, SnapshotLabel::Missing);
     assert_eq!(report.git, GitLabel::Clean);
-    // Counting what a first build would touch costs the walk the whole design
-    // exists to avoid, so the honest answer is that nobody has counted.
+
     assert_eq!(report.stale_paths, None);
     assert_eq!(report.unresolved, 0);
 }
@@ -128,8 +127,6 @@ fn a_dirty_tree_that_was_indexed_dirty_is_still_fresh() {
 
     let report = agrees_with_refresh(temp.path());
 
-    // The two labels answer different questions and are meant to disagree: the
-    // tree differs from `HEAD`, and the snapshot describes the tree.
     assert_eq!(report.git, GitLabel::Dirty);
     assert_eq!(report.snapshot, SnapshotLabel::Fresh);
 }
@@ -141,8 +138,6 @@ fn a_reverted_file_is_reported_stale_even_though_git_says_nothing() {
     write(temp.path(), "src/lib.rs", "pub fn edited() {}\n");
     published(temp.path());
 
-    // Undoing the edit restores agreement with `HEAD`, so the delta is empty —
-    // and the snapshot still holds content that no longer exists anywhere.
     write(temp.path(), "src/lib.rs", "pub fn one() {}\n");
 
     let report = agrees_with_refresh(temp.path());
@@ -203,8 +198,6 @@ fn a_conflicted_path_outranks_the_modifications_that_accompany_it() {
 
     let report = look(temp.path());
 
-    // A conflict is always accompanied by a modification. Reporting `dirty`
-    // would be true and would bury the fact the user has to act on.
     assert_eq!(report.git, GitLabel::Conflicted);
 }
 
@@ -218,9 +211,7 @@ fn a_root_outside_git_can_be_described_but_not_compared() {
 
     assert_eq!(report.git, GitLabel::NoGit);
     assert_eq!(report.head, None);
-    // The snapshot may well be perfectly current. Saying `stale` would tell
-    // every user outside Git that it is permanently out of date, forever, no
-    // matter what they do — which is a claim with no evidence behind it.
+
     assert_eq!(report.snapshot, SnapshotLabel::Unknown);
     assert_eq!(report.stale_paths, None);
 }
@@ -266,10 +257,6 @@ fn an_uncommitted_ignore_rule_stops_forcing_a_rebuild_once_it_is_absorbed() {
 
     let report = agrees_with_refresh(temp.path());
 
-    // The first refresh must rebuild — the rule decides what discovery collects,
-    // and no delta can report the paths it adds or drops. Every refresh after it
-    // must not: an uncommitted `.gitignore` is an ordinary state to sit in, and
-    // a full rebuild on every run is the cost the whole design exists to avoid.
     assert_eq!(report.snapshot, SnapshotLabel::Stale);
 }
 
@@ -312,8 +299,6 @@ fn status_creates_no_state_directory_in_a_repository_it_has_never_built() {
 
     let _ = look(temp.path());
 
-    // A read-only question must not leave a `.rr` behind. The fact cache would
-    // create one on open, which is exactly why status never opens it.
     assert!(
         !temp.path().join(".rr").exists(),
         "status created the state directory"
@@ -431,8 +416,6 @@ fn an_edit_to_a_tracked_file_inside_an_ignored_directory_settles() {
         "pub fn hidden(x: u8) {}\n",
     );
 
-    // The first refresh cannot know: nothing it has recorded says whether the
-    // path was skipped or simply new. The second must, and every one after it.
     let first = agrees_with_refresh(temp.path());
     let settled = agrees_with_refresh(temp.path());
 
@@ -493,7 +476,6 @@ fn a_symlink_that_becomes_a_source_file_is_indexed() {
     git_add_and_commit(temp.path(), "add a symlink named like a source file");
     published(temp.path());
 
-    // Dirty, so the build that follows records it as a path it declined.
     fs::remove_file(temp.path().join("src/alias.rs")).expect("failed to drop the symlink");
     std::os::unix::fs::symlink("../src/lib.rs", temp.path().join("src/alias.rs"))
         .expect("failed to repoint the symlink");
@@ -543,7 +525,7 @@ fn a_delta_that_contradicts_itself_is_not_reported_as_an_unreadable_repository()
     let mut observed = repo
         .observe_state(&CancelToken::new())
         .expect("observation failed");
-    // One file claiming to have moved to two places at once.
+
     let moved = |target: &str| WorktreeChange {
         kind: ChangeKind::Renamed,
         path: RelPath::try_from(target).expect("bad path"),

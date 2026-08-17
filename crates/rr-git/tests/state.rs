@@ -54,8 +54,6 @@ fn seeded() -> tempfile::TempDir {
     temp
 }
 
-// --- baseline ----------------------------------------------------------------
-
 #[test]
 fn a_committed_tree_with_nothing_touched_is_clean() {
     let temp = seeded();
@@ -99,8 +97,7 @@ fn a_racily_clean_tree_reports_its_reads_without_inventing_changes() {
 #[test]
 fn a_tree_older_than_its_index_is_certified_without_reading_anything() {
     let temp = seeded();
-    // Comfortably after every entry, and a fixed instant rather than "now", so
-    // the margin cannot shrink to nothing on a slow machine.
+
     set_index_mtime(temp.path(), 2_000_000_000, 0);
 
     let state = observe(temp.path());
@@ -132,8 +129,6 @@ fn the_index_checksum_changes_only_when_the_index_does() {
     git(temp.path(), &["add", "src/new.rs"]);
     assert_ne!(observe(temp.path()).index_checksum, before);
 }
-
-// --- the HEAD↔index↔worktree matrix -----------------------------------------
 
 #[test]
 fn a_staged_edit_is_a_modification() {
@@ -368,8 +363,6 @@ fn a_merge_conflict_is_reported_as_conflicted() {
     write(temp.path(), "src/lib.rs", "pub fn main_line() {}\n");
     git_add_and_commit(temp.path(), "main edit");
 
-    // A failing merge is the point of the fixture, so its exit status is not
-    // asserted the way `git()` would.
     let merge = std::process::Command::new("git")
         .args(["merge", "side"])
         .current_dir(temp.path())
@@ -391,8 +384,6 @@ fn a_merge_conflict_is_reported_as_conflicted() {
     );
     assert!(kinds_for(&state, "src/lib.rs").contains(&ChangeKind::Conflicted));
 }
-
-// --- boundaries --------------------------------------------------------------
 
 /// A nested repository belongs to another corpus. Walking into it would put its
 /// symbols in this project's index and its churn in this project's delta.

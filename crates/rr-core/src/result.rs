@@ -161,10 +161,7 @@ impl QueryResult {
                     reason: "direct result is missing confidence",
                 })
             }
-            // Checked here rather than in one renderer so text and JSON refuse
-            // the same value: an untagged refusal would otherwise serialize as
-            // `{"status":"verified"}`, which no arm of the published schema
-            // accepts, while the text renderer already errors on it.
+
             Self::Direct {
                 source:
                     Some(SourceResult::Refused {

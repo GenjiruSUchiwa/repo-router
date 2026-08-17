@@ -314,8 +314,6 @@ fn the_routes_file_is_ignored_by_git() {
         "some other rule hid the file, so this proves nothing: {matched}"
     );
 
-    // And it stays out of a commit: an artifact that is machine-local is only
-    // machine-local if `git add -A` cannot pick it up.
     git(root, &["add", "-A"]);
     let staged = Command::new("git")
         .args(["diff", "--cached", "--name-only"])
@@ -451,7 +449,7 @@ fn a_corrupt_cache_is_reset_and_says_why() {
     ask(root, "verify token");
 
     write(root, ROUTES, "something else wrote this file\n");
-    // A publication is what reconciles routes, so the refresh needs real work.
+
     let source = read(root, "src/store/entry.rs");
     write(
         root,

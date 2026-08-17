@@ -219,8 +219,7 @@ impl SnapshotStore {
 
     /// The one atomic replacement: same-directory unique temp, then rename.
     fn write_envelope(&self, envelope: &[u8]) -> Result<(), SnapshotIoError> {
-        // The ignore mark goes down before the snapshot does, so a snapshot
-        // written without a fact cache alongside it is hidden just the same.
+
         crate::workspace::ensure_private(&self.root).map_err(|source| SnapshotIoError::Io {
             path: crate::workspace::state_dir(&self.root),
             source,
@@ -428,17 +427,13 @@ mod tests {
         .unwrap();
         let payload = postcard::to_allocvec(&snapshot).unwrap();
         let mut bytes = encode(&payload).unwrap();
-        // Only the version is stamped back; the checksum still matches the
-        // payload it covers, so nothing but the version can refuse this file.
+
         bytes[8..12].copy_from_slice(&PREVIOUS.to_le_bytes());
         assert!(matches!(
             decode(&bytes),
             LoadOutcome::NeedsRebuild(RebuildReason::UnsupportedVersion { found: PREVIOUS })
         ));
 
-        // And the refusal happens before the payload is read at all: this one
-        // could not decode into anything, yet the reported reason is still the
-        // version rather than whatever postcard would have made of it.
         let mut shredded = bytes.clone();
         for byte in &mut shredded[HEADER_LEN..] {
             *byte = 0xFF;

@@ -135,15 +135,8 @@ pub fn run(args: &Args) -> anyhow::Result<u8> {
         None => std::env::current_dir().context("resolve current directory")?,
     };
 
-    // Sampled before `ensure_private` stamps the file, because that write is the
-    // only reason a `.rr/.gitignore` this run created reads back as pre-existing
-    // — and reporting `updated` for a file rr made moments ago is a report of
-    // somebody else's edit that never happened.
     let ignore_existed = root.join(IGNORE_PATH).exists();
 
-    // First, and before anything else is written: the state directory has to be
-    // marked private before it holds anything, which is the same order
-    // `RepositoryWriteGuard::acquire` uses (`rr-git/src/guard.rs:38-58`).
     workspace::ensure_private(&root).context("create .rr")?;
 
     let mut targets = Vec::with_capacity(agent::AGENT_FILES.len() + 2);
@@ -185,9 +178,7 @@ pub fn run(args: &Args) -> anyhow::Result<u8> {
 /// so the report names a file the reader can open.
 fn apply_region<F>(root: &Path, name: &str, wanted: F) -> (String, Outcome)
 where
-    // Spelled out, not `TextResult`: that alias is private to `rr-core`
-    // (`text/mod.rs:181` has no `pub`), while `TextError` at `text/mod.rs:152`
-    // is exported. Same type, one of the two names.
+
     F: FnOnce(Option<&str>) -> Result<String, rr_core::text::TextError>,
 {
     let path = resolve_existing_name(root, name);
@@ -205,10 +196,7 @@ where
 
     let content = match wanted(existing.as_deref()) {
         Ok(content) => content,
-        // Compared by identity, not by substring: `TextError`'s own
-        // documentation avoids free-form strings "so that a message change can
-        // never become a behavior change", and a `contains` here would put that
-        // guarantee back at the mercy of the wording.
+
         Err(rr_core::text::TextError::ManagedIgnore { reason })
             if reason == DUPLICATE_MARKERS_REASON =>
         {
@@ -222,9 +210,6 @@ where
         Err(_) => return refused(Refusal::Unreadable),
     };
 
-    // D9: bytes, not mtime. A second run must leave every file untouched, and
-    // "untouched" has to mean the write did not happen, not that it happened to
-    // produce the same content.
     if existing.as_deref() == Some(content.as_str()) {
         return (reported, Outcome::Unchanged);
     }
@@ -426,9 +411,7 @@ fn render_text(report: &Report) -> String {
         }
     }
     out.push_str("\n  next: rr map");
-    // Advice about committing the contract is advice about files that exist. A
-    // run that refused every target installed nothing, and telling that user to
-    // commit the contract points them at a file rr declined to write.
+
     if refused < report.targets.len() {
         out.push_str(
             "\n  note: AGENTS.md, CLAUDE.md and .claude/ carry the agent contract; commit them\n        if your team should share it.",

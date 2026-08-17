@@ -471,10 +471,7 @@ fn parse_field(line: &str) -> TextResult<(String, RawValue)> {
     if value.starts_with('"') {
         return Ok((key.to_owned(), RawValue::Text(unquote(value)?)));
     }
-    // Everything that is not a quoted string must be an unsigned base-10
-    // integer. That rules out YAML's implicit booleans, nulls, floats,
-    // octal-looking numbers, aliases, anchors, and tags in one test rather
-    // than thirteen.
+
     if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
         return Err(TextError::Frontmatter {
             reason: "frontmatter value is neither a quoted string nor an unsigned integer",
@@ -523,10 +520,7 @@ fn unquote(value: &str) -> TextResult<String> {
             Some('r') => out.push('\r'),
             Some('t') => out.push('\t'),
             Some('u') => {
-                // Exactly four hexadecimal digits, checked before parsing:
-                // `from_str_radix` would otherwise accept a truncated escape at
-                // the end of the value, and a leading sign, as second spellings
-                // of a value this crate writes only one way.
+
                 let digits: String = characters.by_ref().take(4).collect();
                 if digits.len() != 4 || !digits.bytes().all(|byte| byte.is_ascii_hexdigit()) {
                     return Err(TextError::Frontmatter {
@@ -642,8 +636,7 @@ fn verify_generated_hash(
     purpose: Option<&str>,
     stored: Digest,
 ) -> bool {
-    // Every field, unfiltered: excluding is the hash function's job, and doing
-    // it in two places is how the two ended up excluding different sets.
+
     let carried: Vec<(&str, render::Value)> = fields
         .iter()
         .map(|(key, value)| {
@@ -692,8 +685,7 @@ struct Body<'a> {
 
 impl<'a> Body<'a> {
     fn new(body: &'a str) -> Self {
-        // A body always ends with exactly one LF, so the split leaves one
-        // trailing empty piece that is structure rather than content.
+
         let mut lines: Vec<&str> = body.split('\n').collect();
         if lines.last() == Some(&"") {
             lines.pop();
@@ -895,10 +887,7 @@ fn parse_api_line(file: &str, line: &str) -> TextResult<ParsedApiRecord> {
         });
     }
     let (path, symbol) = encode::decode_destination(&destination)?;
-    // A record displays a possibly-qualified name and anchors the bare one, so
-    // the two are not required to be equal — only to describe one symbol. That
-    // is the single relationship between them, and a record whose link points
-    // somewhere else is a record no reader should trust.
+
     if symbol.as_deref() != Some(trailing_identifier(&name)) {
         return Err(TextError::Record {
             reason: "an API record links to a symbol other than the one it names",
@@ -979,9 +968,7 @@ fn parse_symbol_record(line: &str) -> TextResult<ParsedSymbolRecord> {
     let visibility = visibility.to_owned();
     let anchor = anchor.to_owned();
     let api_hash = Digest::parse(hash)?;
-    // The same closed set `VisibilityLabel` writes, asked as one question so
-    // the two cannot drift: a label that renders but does not parse would make
-    // rr refuse the file it had just produced.
+
     if !VisibilityLabel::is_known(&visibility) {
         return Err(TextError::Record {
             reason: "a symbol record's visibility is not a recognized visibility label",
@@ -995,12 +982,10 @@ fn parse_symbol_record(line: &str) -> TextResult<ParsedSymbolRecord> {
             reason: "a symbol record's line is not positive",
         });
     }
-    // Decoded rather than merely inspected: a destination that does not decode
-    // is a record pointing at a file nobody can open.
+
     let (map, _) = encode::decode_destination(map)?;
     let map = map.as_str().to_owned();
-    // A symbol is one component, not a destination: decoding it as a path would
-    // hand `RelPath` a name it was never asked to judge.
+
     let symbol = encode::decode_destination_component(symbol)?;
     Ok(ParsedSymbolRecord {
         symbol,

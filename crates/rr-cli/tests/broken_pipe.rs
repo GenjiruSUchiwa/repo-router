@@ -204,7 +204,7 @@ fn a_clean_filter_that_stops_reading_does_not_kill_the_run() {
     common::write(repo.path(), ".gitattributes", "*.rs filter=trunc\n");
     common::write(repo.path(), "src/token.rs", &wider_than_a_pipe(1));
     common::commit_all(repo.path(), "add token behind a truncating filter");
-    // Dirty the worktree copy: a clean file never reaches the filter at all.
+
     common::write(repo.path(), "src/token.rs", &wider_than_a_pipe(2));
 
     let mapped = common::run(repo.path(), &["map"]);
@@ -243,9 +243,7 @@ fn a_clean_filter_does_not_kill_a_run_over_an_unmodified_worktree() {
     common::write(repo.path(), ".gitattributes", "*.rs filter=trunc\n");
     common::write(repo.path(), "src/token.rs", &wider_than_a_pipe(1));
     common::commit_all(repo.path(), "add token behind a truncating filter");
-    // The same bytes again: the content is unchanged, but the fresh mtime means
-    // `stat` alone can no longer settle the entry, which is what sends the scan
-    // through the filter. Without it the run only sometimes takes that path.
+
     common::write(repo.path(), "src/token.rs", &wider_than_a_pipe(1));
 
     let mapped = common::run(repo.path(), &["map"]);

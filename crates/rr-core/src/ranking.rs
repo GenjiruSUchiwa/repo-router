@@ -53,10 +53,6 @@ const MAX_EXACT_INTEGER_F64: f64 = 9_007_199_254_740_992.0;
 /// Sentinel for "this (query term, field) pair has no posting list".
 const NO_STREAM: u32 = u32::MAX;
 
-// ---------------------------------------------------------------------------
-// Fixed-point score and margin
-// ---------------------------------------------------------------------------
-
 /// A quantized BM25 score in millionths of one score unit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct Score(u64);
@@ -166,10 +162,6 @@ impl MarginPpm {
         })
     }
 }
-
-// ---------------------------------------------------------------------------
-// Profile, corpus statistics, and the snapshot stamp
-// ---------------------------------------------------------------------------
 
 /// BM25 parameters of one lexical field.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -419,10 +411,6 @@ impl RankingStamp {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Errors
-// ---------------------------------------------------------------------------
-
 /// Why a lexical route could not be computed.
 ///
 /// Every variant is an execution error, never a silent `none`: index corruption
@@ -448,10 +436,6 @@ pub enum RankingError {
     #[error("ranking arithmetic failed: {reason}")]
     Arithmetic { reason: &'static str },
 }
-
-// ---------------------------------------------------------------------------
-// Public results
-// ---------------------------------------------------------------------------
 
 /// Bounded work counters for one lexical route; diagnostics only.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
@@ -490,10 +474,6 @@ pub struct RankedSymbol {
     /// Its quantized score.
     pub score: Score,
 }
-
-// ---------------------------------------------------------------------------
-// Reusable scratch space
-// ---------------------------------------------------------------------------
 
 /// One `(query term, field)` posting cursor.
 #[derive(Debug, Clone, Copy)]
@@ -613,10 +593,6 @@ fn clear_and_reserve<T>(buffer: &mut Vec<T>, capacity: usize) {
     buffer.clear();
     buffer.reserve(capacity);
 }
-
-// ---------------------------------------------------------------------------
-// Ranking
-// ---------------------------------------------------------------------------
 
 /// Generates, scores, and orders the lexical candidates of one query.
 ///
@@ -1089,10 +1065,6 @@ impl CompensatedSum {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Snapshot accessors
-// ---------------------------------------------------------------------------
-
 fn term_text(snapshot: &Snapshot, term: TermId) -> Result<&str, RankingError> {
     let record = snapshot
         .terms
@@ -1197,10 +1169,6 @@ fn list_index(index: usize) -> Result<u32, RankingError> {
         reason: "index exceeds the addressable range",
     })
 }
-
-// ---------------------------------------------------------------------------
-// Numeric conversions
-// ---------------------------------------------------------------------------
 
 /// Widens an exact-range `u64` to `f64`.
 fn widen_to_f64(value: u64) -> Result<f64, RankingError> {

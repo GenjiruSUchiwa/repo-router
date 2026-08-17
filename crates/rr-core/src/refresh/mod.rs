@@ -145,8 +145,6 @@ pub enum RefreshError {
     },
 }
 
-// --- discovery identity -----------------------------------------------------
-
 /// A digest over everything that decides *which* files are indexed and *how*
 /// their bytes are read.
 ///
@@ -191,9 +189,7 @@ impl DiscoveryIdentity {
         identity.number("max-files", walk.max_files.map_or(u64::MAX, as_u64));
 
         identity.number("build-version", u64::from(crate::index::BUILD_VERSION));
-        // One field per supported language rather than one global number, so a
-        // bump scoped to one language re-keys freshness exactly like it re-keys
-        // the fact cache.
+
         let extractor_versions = crate::parser::Registry::supported()
             .into_iter()
             .map(|lang| {
@@ -280,8 +276,6 @@ fn languages_key(languages: Option<&[Lang]>) -> String {
     names.join(",")
 }
 
-// --- plan -------------------------------------------------------------------
-
 /// What a refresh must do with one path whose state the delta reported.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Disposition {
@@ -312,10 +306,7 @@ impl PlanDraft {
 
     /// Records that `path` must be evaluated against its current worktree entry.
     pub fn recheck(&mut self, path: RelPath) {
-        // Recheck outranks Remove on purpose. Two status items can legitimately
-        // disagree — a staged deletion whose path was then recreated as an
-        // untracked file reports both — and in that pair the worktree entry is
-        // the one that still exists, so it decides.
+
         self.dispositions.insert(path, Disposition::Recheck);
     }
 
@@ -369,8 +360,6 @@ impl PlanDraft {
             return Err(failure);
         }
 
-        // A `BTreeMap` iterates in key order, which is exactly the sorted,
-        // duplicate-free order both output vectors promise.
         let mut recheck = Vec::new();
         let mut remove = Vec::new();
         for (path, disposition) in self.dispositions {
@@ -387,10 +376,6 @@ impl PlanDraft {
             .collect();
         renames.sort();
 
-        // A source that ends up rechecked is not a contradiction: `git mv a b`
-        // followed by a new untracked `a` reports both a move away from `a` and
-        // a worktree entry at `a`, and both are true. One file moving to two
-        // places is the claim that cannot be true.
         if let Some(window) = renames.windows(2).find(|pair| pair[0].0 == pair[1].0) {
             return Err(RefreshError::InvalidRefreshPlan {
                 path: window[0].0.clone(),

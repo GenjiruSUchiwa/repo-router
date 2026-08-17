@@ -126,8 +126,6 @@ impl From<ContentPathState> for SourceStatus {
     }
 }
 
-// Serialized through `as_str` so the JSON contract and the text contract can
-// never drift apart into two spellings of the same status.
 impl Serialize for SourceStatus {
     fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
         serializer.serialize_str(self.as_str())
@@ -367,12 +365,6 @@ pub fn verify_source(
         return Ok(PendingSource::Refused(SourceStatus::TooLarge));
     }
 
-    // Reached only once the identity matched, so these bytes are provably the
-    // bytes `rr map` indexed. That makes "not text" a fact about the file, not
-    // corruption in the snapshot: the snapshot recorded it faithfully. Refusing
-    // keeps the caller on the recoverable path, where a status says why nothing
-    // was served; erroring would make `--source` a permanent hard failure for
-    // that anchor, which no refresh could clear.
     let Ok(text) = std::str::from_utf8(&current.bytes) else {
         return Ok(PendingSource::Refused(SourceStatus::NotText));
     };
@@ -519,9 +511,6 @@ fn select_window(text: &str, span: Span) -> Option<SourceWindow> {
         }
     }
 
-    // A truncated anchor never got as far as asking for context, so the window
-    // it asked for is the anchor itself; reporting the wider ideal would make
-    // `context_clipped` true for context that was never in play.
     let requested_lines = if omitted_anchor_lines == 0 {
         (
             span.start_line() - SOURCE_CONTEXT_BEFORE.min(span.start_line() - 1),
@@ -636,7 +625,7 @@ mod tests {
     #[test]
     fn serves_the_definition_and_three_lines_of_context() {
         let text = "a\nb\nc\nd\nDEF\ne\nf\ng\nh\n";
-        // "DEF" is line 5, bytes 8..11.
+
         let source = indexed(Some(Span::new(8, 11, 5, 5).unwrap()));
         let result = serve(&source, &acquired(text));
         let packet = served_packet(&result);
@@ -672,7 +661,7 @@ mod tests {
         let source = indexed(Some(Span::new(0, 1, 1, 1).unwrap()));
         let mut content = acquired("x\n");
         content.oid = oid(2);
-        // Invalid UTF-8 is never reached: staleness wins over format diagnosis.
+
         content.bytes = vec![0xff, 0xfe, 0x00];
         assert_eq!(
             serve(&source, &content),
@@ -714,10 +703,6 @@ mod tests {
         assert!(matches!(error, Error::SpanLineMismatch));
     }
 
-    // `rr map` indexes a file with a NUL byte or a Latin-1 line without
-    // complaint, so `--source` meets that content with a matching identity and
-    // must stay on the refusal path. Erroring here would leave the anchor
-    // permanently unserviceable through no fault the caller could repair.
     #[test]
     fn matching_identity_that_is_not_text_is_refused_not_an_error() {
         let mut content = acquired("");
@@ -773,7 +758,7 @@ mod tests {
 
     #[test]
     fn exactly_sixty_four_kib_is_complete_and_one_byte_more_truncates() {
-        // Two lines of 32 KiB each, newline included.
+
         let line = format!("{}\n", "y".repeat(32 * 1024 - 1));
         let text = line.repeat(2);
         let end = u32::try_from(text.len()).unwrap();
@@ -810,7 +795,7 @@ mod tests {
 
     #[test]
     fn context_clipping_does_not_make_a_served_anchor_incomplete() {
-        // One 64 KiB anchor line leaves no room for any context line.
+
         let anchor = "v".repeat(MAX_SOURCE_BYTES - 1);
         let text = format!("before\n{anchor}\nafter\n");
         let start = u32::try_from("before\n".len()).unwrap();
@@ -966,7 +951,7 @@ mod tests {
 
     #[test]
     fn oid_algorithms_are_compared_as_whole_identities() {
-        // Same 20 leading bytes cannot make a SHA-256 identity equal a SHA-1 one.
+
         let sha256 = Oid::from_raw(&[1_u8; 32]).unwrap();
         assert_eq!(sha256.algo(), HashAlgo::Sha256);
         let source = indexed(Some(Span::new(0, 2, 1, 1).unwrap()));

@@ -183,11 +183,7 @@ impl GitRepo {
     /// Acquires canonical content for source verification from an already-opened
     /// handle, preferring the object database when the index proves it safe.
     fn acquire_source(&self, path: &RelPath, opened: &OpenedFile) -> Result<AcquireOutcome> {
-        // A stat-clean, unconflicted, non-racy index entry means the worktree
-        // file already equals its blob, so the blob *is* the canonical content.
-        // `index_oid` returns `None` for racy timestamps, which keeps a
-        // same-second modification on the content path rather than trusting the
-        // recorded identity.
+
         if let Some(oid) = self.index_oid(path)? {
             if self.blob_size(oid)? > MAX_VERIFIED_CONTENT_BYTES {
                 return Ok(AcquireOutcome::Refused(ContentPathState::TooLarge));
@@ -199,8 +195,7 @@ impl GitRepo {
             return Ok(AcquireOutcome::Refused(ContentPathState::TooLarge));
         };
         let canonical = self.convert_to_git(worktree.as_slice(), path)?;
-        // A clean filter may expand what it was given, so the cap is enforced
-        // again on its result rather than assumed from the input length.
+
         if byte_len(&canonical) > MAX_VERIFIED_CONTENT_BYTES {
             return Ok(AcquireOutcome::Refused(ContentPathState::TooLarge));
         }
@@ -409,8 +404,6 @@ mod tests {
         assert_eq!(acquired.representation, ContentRepresentation::RawNoGit);
     }
 
-    // --- verification-grade acquisition -------------------------------------
-
     use std::path::PathBuf;
     use std::process::Command;
     use tempfile::TempDir;
@@ -508,9 +501,7 @@ mod tests {
     #[test]
     fn a_stale_index_timestamp_never_serves_the_recorded_identity() {
         let (temp, repo) = committed_repo();
-        // Forcing every entry to look racy is what a same-second write would do
-        // naturally; the safe answer is to read content rather than trust the
-        // index entry's OID.
+
         let index = std::fs::OpenOptions::new()
             .write(true)
             .open(temp.path().join(".git/index"))
@@ -619,8 +610,6 @@ mod tests {
             "the final check reacquires rather than trusting recorded metadata"
         );
 
-        // Rewriting the same bytes through a temporary file and a rename is a
-        // different inode with the same content: still the indexed source.
         write(temp.path(), "src/copy.rs", &content.bytes);
         std::fs::rename(temp.path().join("src/copy.rs"), temp.path().join(SOURCE)).unwrap();
         assert_eq!(revalidate(&repo), Revalidation::Fresh);
@@ -682,8 +671,7 @@ mod tests {
     impl SigpipeDisposition {
         #[allow(unsafe_code)]
         fn install(handler: libc::sighandler_t) -> Self {
-            // SAFETY: test-only. `SIGPIPE` is catchable, so `signal` cannot
-            // fail, and the previous disposition goes back on drop.
+
             Self(unsafe { libc::signal(libc::SIGPIPE, handler) })
         }
     }
@@ -692,7 +680,7 @@ mod tests {
     impl Drop for SigpipeDisposition {
         #[allow(unsafe_code)]
         fn drop(&mut self) {
-            // SAFETY: restoring the disposition captured in `install`.
+
             unsafe {
                 libc::signal(libc::SIGPIPE, self.0);
             }

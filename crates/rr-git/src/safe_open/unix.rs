@@ -96,14 +96,11 @@ fn split_parents(path: &str) -> (impl Iterator<Item = &str>, &str) {
 fn refuse(directory: &OwnedFd, component: &str, errno: Errno) -> Result<OpenOutcome> {
     let state = match errno {
         Errno::NOENT => ContentPathState::Missing,
-        // A symlink met with `O_NOFOLLOW`: `ELOOP` on Linux, `EMLINK` on some
-        // BSDs, and `ENOTDIR` on macOS when a directory was also required.
+
         Errno::LOOP | Errno::MLINK => ContentPathState::Symlink,
-        // A socket has no reader to open.
+
         Errno::NXIO => ContentPathState::NotRegular,
-        // Ambiguous: the component may be a symlink refused by `O_NOFOLLOW`, or
-        // simply the wrong kind of entry. Only naming it needs a second look,
-        // and the entry is refused either way.
+
         Errno::NOTDIR | Errno::ISDIR => kind_of(directory, component, errno)?,
         other => return Err(io_error(other)),
     };
@@ -118,7 +115,7 @@ fn kind_of(directory: &OwnedFd, component: &str, errno: Errno) -> Result<Content
         }
         Ok(_) => Ok(ContentPathState::NotRegular),
         Err(Errno::NOENT) => Ok(ContentPathState::Missing),
-        // The component could not be named; report why the open failed.
+
         Err(_) => Err(io_error(errno)),
     }
 }

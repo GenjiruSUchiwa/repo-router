@@ -1,4 +1,4 @@
-// Shared by several test binaries, each of which uses a different subset.
+
 #![allow(dead_code)]
 
 use std::path::Path;

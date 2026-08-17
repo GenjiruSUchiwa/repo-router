@@ -68,14 +68,9 @@ fn reconcile_routes(
     let Ok(catalog) = rr_core::text::projected_map_catalog(snapshot, budget) else {
         return (0, None);
     };
-    // The same corpus-wide test `rr query` applies, spelled once here so the two
-    // cannot disagree about which routes this generation still believes.
+
     let identity = catalog.api_identity();
-    // Filed here because this run projected the snapshot anyway, and because it
-    // is the only moment in a publication where the snapshot on disk and the one
-    // in hand are the same bytes by construction: the guard is held and
-    // `publish` has already landed. Without it the first query after every
-    // refresh re-projects to learn a digest this function had in a local.
+
     if let Some(stamp) = rr_core::snapshot::SnapshotStore::new(root).published_identity() {
         catalog.remember(root, &stamp);
     }
@@ -90,10 +85,7 @@ fn reconcile_routes(
             live
         })
     });
-    // A count of routes the new file no longer holds. `update_routes` swallows
-    // its write failures, so a report that counted the closure's decisions
-    // would tell a user "eleven routes retired" about a file that still holds
-    // all eleven — the one claim this counter exists to make, made falsely.
+
     (if update.wrote { retired } else { 0 }, update.fault)
 }
 
@@ -105,14 +97,8 @@ fn write_generation(staged: &StagedText, root: &Path) -> anyhow::Result<TextRepo
         ..TextReport::default()
     };
 
-    // One membership set rather than a scan per file: the two lists are the
-    // same length, so asking the question linearly costs a comparison per pair
-    // of artifacts in the repository.
     let fresh: BTreeSet<&str> = validation.fresh().iter().map(String::as_str).collect();
 
-    // `files()` is already in publication order: the local index first, then
-    // maps deepest-first with the root last. A crash therefore leaves the root
-    // map — the generation marker — either wholly old or wholly new.
     for file in staged.rendered().files() {
         let fresh = fresh.contains(file.path());
         let symbols = file.kind() == ArtifactKind::Symbols;
@@ -139,8 +125,6 @@ fn write_generation(staged: &StagedText, root: &Path) -> anyhow::Result<TextRepo
         report.written_paths.push(file.path().to_owned());
     }
 
-    // Removals last: a page is only unlinked once the generation that replaces
-    // it is fully on disk.
     for path in validation.removable() {
         std::fs::remove_file(root.join(path))
             .with_context(|| format!("remove stale page {path}"))?;

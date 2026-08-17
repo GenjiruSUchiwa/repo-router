@@ -245,14 +245,6 @@ fn permission_denied_propagates_as_error() {
     assert!(matches!(res.unwrap_err(), rr_git::Error::Io(_)));
 }
 
-// --- stat certification ------------------------------------------------------
-//
-// Whether a clean file can be certified from its index entry comes down to a
-// timestamp comparison, and Git makes that comparison two different ways
-// depending on whether the entry recorded a nanosecond at all. Both ways are
-// exercised here with the times set deliberately, because a fixture that lets
-// the clock choose is choosing differently on every machine.
-
 /// A second chosen far from the present so nothing in the fixture can drift
 /// into it, and stable across runs so the tests are the same test every time.
 const FIXED_SECOND: i64 = 1_700_000_000;
@@ -306,8 +298,6 @@ fn committed_at_nanos(nanos: i64, change_time: ChangeTime) -> (TempDir, GitRepo,
 fn an_entry_that_recorded_no_nanosecond_certifies_across_a_nanosecond_change() {
     let (repo_dir, repo, rel) = committed_at_nanos(0, ChangeTime::Ignored);
 
-    // Same second, same size, same content, different nanosecond: everything
-    // the entry actually recorded still matches.
     set_mtime(&repo_dir.path().join("lib.rs"), FIXED_SECOND, 750_000_000);
 
     assert!(

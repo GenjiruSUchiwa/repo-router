@@ -94,9 +94,6 @@ fn test_stale_snapshot() {
         .unwrap();
     assert!(map_output.status.success());
 
-    // An indexed file, actually changed. A commit alone is not what makes an
-    // index stale — see `test_a_commit_that_changed_no_indexed_file_still_answers`
-    // below, which is the other half of this pair.
     fs::write(
         repo.path().join("src").join("auth").join("token.rs"),
         b"pub fn verify_token() -> bool { false }\npub fn issue_token() {}\n",
@@ -137,7 +134,6 @@ fn test_a_commit_that_changed_no_indexed_file_still_answers() {
         .unwrap();
     assert!(map_output.status.success());
 
-    // The generated maps, committed — the exact sequence a user runs first.
     run_cmd(repo.path(), "git", &["add", "."]);
     run_cmd(repo.path(), "git", &["commit", "-m", "maps"]);
 

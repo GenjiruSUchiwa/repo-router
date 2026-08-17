@@ -192,8 +192,6 @@ impl TextProjection {
 
         files.push(render_symbols(self)?);
 
-        // Deepest scopes first, root last: a router is published only after
-        // everything it links to already exists.
         let mut ordered: Vec<&Scope> = self.scopes.iter().collect();
         ordered.sort_by(|left, right| {
             right.path.depth().cmp(&left.path.depth()).then_with(|| {
@@ -274,8 +272,7 @@ fn render_symbols(projection: &TextProjection) -> TextResult<RenderedFile> {
             record.start_line,
             record.api_hash.to_text()
         );
-        // The anchor is the one field carrying arbitrary repository text, and
-        // a tab or newline inside it would silently invent a column or a row.
+
         if rendered.contains('\n') || rendered.matches('\t').count() != 5 {
             return Err(TextError::Record {
                 reason: "a symbol record contains a tab or newline of its own",

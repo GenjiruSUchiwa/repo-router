@@ -37,7 +37,7 @@ fn corpus(count: usize) -> Vec<RelPath> {
 /// incremental path is for: a small delta against a large corpus.
 fn plan_over(paths: &[RelPath], changed: usize) -> RefreshPlan {
     let mut draft = PlanDraft::new();
-    // Spread rather than clustered, so a lookup cannot get lucky on locality.
+
     let stride = (paths.len() / changed.max(1)).max(1);
     for path in paths.iter().step_by(stride).take(changed) {
         draft.recheck(path.clone());

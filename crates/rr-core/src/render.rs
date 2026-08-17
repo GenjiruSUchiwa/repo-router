@@ -259,11 +259,7 @@ fn write_served_source_text(out: &mut String, path: &str, packet: &SourcePacket)
     } else {
         "SOURCE FINAL NEWLINE: absent\n"
     });
-    // Bound once, used twice, in that order: the bytes counted and the bytes
-    // written are the same `&str`, so the count and the fenced region can only
-    // be made to disagree by reaching past this local for `packet.content()`
-    // again. `render_text_counts_exactly_the_bytes_it_fenced` is what catches
-    // that if anyone does.
+
     let content = packet.content();
     let _ = writeln!(out, "SOURCE BYTES: {}", content.len());
     out.push_str("---\n");

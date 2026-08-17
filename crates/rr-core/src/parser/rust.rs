@@ -650,8 +650,6 @@ fn declaration_line(item: Span, signature: Span, source: &str, name: &str) -> St
     }
 }
 
-// Signature regions are short; counting newlines directly beats pulling in a
-// SIMD byte-count dependency.
 #[allow(clippy::naive_bytecount)]
 fn signature_span(
     kind: DefKind,
@@ -679,8 +677,7 @@ fn signature_span(
     let end_line = if end_byte == expanded.start_byte() {
         expanded.start_line()
     } else {
-        // Count newlines only inside the signature region instead of rescanning
-        // the file from byte zero for every definition.
+
         let start = expanded.start_byte() as usize;
         let newlines = bytes[start..end - 1]
             .iter()
@@ -770,7 +767,7 @@ fn visibility(node: Node<'_>, source: &str) -> Visibility {
         return Visibility::Public;
     };
     match inner.kind() {
-        // `pub(crate)` is Crate; `pub(in crate)` is a restricted path.
+
         "crate" if !has_in => Visibility::Crate,
         "self" | "super" => Visibility::Restricted(inner.kind().to_string()),
         _ => {
@@ -831,7 +828,6 @@ fn test_signals(node: Node<'_>, source: &str) -> TestSignals {
     let mut explicit_attribute = false;
     let mut inside_cfg_test = false;
 
-    // Only the definition's own attached attributes make it an explicit test.
     for attr in attached_attributes(node) {
         let path = attribute_path(attr, source).unwrap_or_default();
         if is_explicit_test_attr(&path) {
@@ -842,7 +838,6 @@ fn test_signals(node: Node<'_>, source: &str) -> TestSignals {
         }
     }
 
-    // Ancestors contribute only the `cfg(test)` ancestry signal.
     let mut current = node.parent();
     while let Some(item) = current {
         if is_definition_item(item)
@@ -865,10 +860,7 @@ fn test_signals(node: Node<'_>, source: &str) -> TestSignals {
     TestSignals {
         explicit_attribute,
         inside_cfg_test,
-        // Rust states its test scopes with `cfg(test)`, which the field above
-        // already carries. Nothing here is a second, neutral signal, and
-        // setting one anyway would make a Rust definition report a scope it
-        // does not have.
+
         inside_test_scope: false,
     }
 }
@@ -1164,7 +1156,7 @@ fn expand_use_tree(
                             message: "use_as_clause missing path",
                         })?;
                 let alias = field_text(node, "alias", source).map(str::to_string);
-                // `{self as alias}` names the accumulated prefix itself.
+
                 let path = if path_node.kind() == "self" {
                     if prefix.is_empty() {
                         "self".to_string()
@@ -1182,7 +1174,7 @@ fn expand_use_tree(
                     alias,
                     is_public,
                     is_glob: false,
-                    // The leaf clause is the whole `path as alias` clause.
+
                     span: node_span(node, source)?,
                 });
             }
@@ -1638,13 +1630,12 @@ fn via_cfg_attr() {}
                 .test_signals
                 .inside_cfg_test
         };
-        // String literal contents are not identifier tokens.
+
         assert!(!signal("feature_string"));
         assert!(!signal("feature_hyphen"));
         assert!(signal("direct"));
         assert!(signal("nested_all"));
-        // Lexical signal per contract: the token tree contains identifier
-        // `test`, without cfg evaluation.
+
         assert!(signal("negated"));
         assert!(signal("via_cfg_attr"));
     }
@@ -1925,7 +1916,7 @@ use a as _;
         }
         nested.push_str("};\n");
         let mut extractor = RustExtractor::new().unwrap();
-        // Deep nesting may exhaust the parser or degrade, but must never abort.
+
         let facts = extractor.extract(nested.as_bytes()).unwrap();
         drop(facts);
     }
@@ -1950,8 +1941,7 @@ use a as _;
 
     #[test]
     fn error_node_suppresses_internal_references_and_imports() {
-        // `match` without a scrutinee wraps the whole block in one ERROR node
-        // that contains both the import and the call.
+
         let src = "fn ok() { bar(); }\nmatch { use crate::x; foo(); }\n";
         let facts = extract(src);
         let ParseStatus::Recovered { error_nodes, .. } = facts.status() else {

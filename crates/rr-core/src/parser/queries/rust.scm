@@ -1,4 +1,3 @@
-; Definition surface ----------------------------------------------------------
 
 (function_item
   name: (identifier) @def.name
@@ -49,8 +48,6 @@
 (macro_definition
   name: (identifier) @def.name) @def.item
 
-; References ------------------------------------------------------------------
-
 (call_expression
   function: (identifier) @reference.name) @reference.call
 
@@ -83,22 +80,14 @@
 (impl_item
   trait: (_) @reference.name) @reference.implementation
 
-; Imports ---------------------------------------------------------------------
-
 (use_declaration) @import.declaration
 (extern_crate_declaration) @import.declaration
-
-; Lexical identifiers ---------------------------------------------------------
 
 (identifier) @identifier
 (type_identifier) @identifier
 (field_identifier) @identifier
 
-; Attributes -------------------------------------------------------------------
-
 (attribute_item) @attribute
-
-; Syntax diagnostics ----------------------------------------------------------
 
 (ERROR) @syntax.error
 (MISSING) @syntax.missing

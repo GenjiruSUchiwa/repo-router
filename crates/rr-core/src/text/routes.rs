@@ -22,8 +22,7 @@ use std::path::Path;
 
 use crate::lex::{split, stop};
 use crate::result::Confidence;
-// `super::digest`, not `crate::text::digest`: `mod digest` is private and only
-// the re-exported name is reachable from outside this module tree.
+
 use super::digest::Digest;
 use super::{TextError, TextResult, TEXT_FORMAT_VERSION};
 
@@ -81,9 +80,7 @@ impl RouteKey {
     #[must_use]
     pub fn new(raw: &str) -> Option<Self> {
         let mut lexemes: Vec<String> = Vec::new();
-        // `for_each_lexeme` only fails by propagating the callback's error, and
-        // this callback has none, so the result is discarded rather than
-        // pretending there is a failure mode to report.
+
         let _ = split::for_each_lexeme(raw, |lexeme| {
             if !stop::is_stop_word(lexeme) {
                 lexemes.push(lexeme.to_owned());
@@ -280,14 +277,7 @@ pub fn render_routes(table: &RouteTable) -> TextResult<Vec<u8>> {
     body.push_str(ROUTES_COLUMNS);
     body.push('\n');
     for record in table.records.values() {
-        // `{:?}` and not a fixed number of decimals: Rust's `Debug` for `f32`
-        // prints the shortest text that parses back to the same bits, so the
-        // number a hit replays is the number the ranker gave. `{:.6}` truncated
-        // `0.8132634` to `0.813263`, which made the second run of one question
-        // print a different `"confidence"` than the first — a cache that
-        // contradicts what it cached. `Debug` rather than `Display` for the one
-        // difference between them here: it keeps the `.0` on a whole number, so
-        // the column still reads as a fraction to a human running `awk`.
+
         let line = format!(
             "{}\t{}\t{}\t{}\t{:?}",
             record.key.as_str(),
@@ -306,10 +296,7 @@ pub fn render_routes(table: &RouteTable) -> TextResult<Vec<u8>> {
     }
 
     let mut out = String::from("---\n");
-    // The `{:?}` on a `&str` is Rust's own JSON-compatible string escape, which
-    // is the subset the frontmatter grammar reads. `render::frontmatter` is not
-    // reachable from here — its `Value` type is private to that module — and
-    // three lines of `write!` are cheaper than widening a type.
+
     let _ = writeln!(out, "type: {ROUTES_TYPE:?}");
     let _ = writeln!(out, "format: {TEXT_FORMAT_VERSION}");
     let _ = writeln!(out, "routes: {}", table.records.len());
@@ -405,14 +392,12 @@ pub fn parse_routes(bytes: &[u8]) -> Result<RouteTable, RouteFault> {
     let mut records = BTreeMap::new();
     for line in lines {
         let record = parse_route_record(line)?;
-        // A duplicate key means two answers to one question, which
-        // `RouteTable::insert` cannot produce. Something else wrote this file.
+
         if records.insert(record.key.clone(), record).is_some() {
             return Err(RouteFault::DuplicateKey);
         }
     }
-    // The one check that catches a truncated write: a file cut short parses
-    // cleanly and answers fewer questions than it claims to.
+
     if records.len() != declared {
         return Err(RouteFault::CountMismatch);
     }
@@ -434,9 +419,7 @@ fn parse_route_record(line: &str) -> Result<RouteRecord, RouteFault> {
     if !RouteKey::is_wellformed(key) {
         return Err(RouteFault::Record);
     }
-    // Both encoded columns are decoded here purely to prove they *can* be:
-    // storing a `map` that no reader can turn back into a path would be a
-    // record that looks fine and points nowhere.
+
     crate::render::decode_anchor(anchor).map_err(|_| RouteFault::Record)?;
     super::encode::decode_destination_component(map).map_err(|_| RouteFault::Record)?;
     let api_identity = Digest::parse(hash).map_err(|_| RouteFault::Record)?;
@@ -477,9 +460,7 @@ pub fn load_routes(root: &Path) -> (RouteTable, Option<RouteFault>) {
             Ok(table) => (table, None),
             Err(fault) => (RouteTable::default(), Some(fault)),
         },
-        // A missing file is the ordinary state of a repository nobody has
-        // queried yet, and an unreadable one is somebody else's permissions
-        // problem. Neither is a fault worth naming.
+
         Err(_) => (RouteTable::default(), None),
     }
 }
@@ -519,11 +500,6 @@ where
         return RouteUpdate::default();
     }
 
-    // A file that did not parse was discarded in memory, and a discard nobody
-    // writes back is one every later reader repeats: the damaged bytes stay on
-    // disk and are thrown away again on every query. Rewriting them here is
-    // what makes "discarded whole, then rebuilt empty" true of the file and not
-    // merely of the table.
     let (mut table, fault) = load_routes(root);
     let changed = edit(&mut table);
     let wrote = (changed || fault.is_some()) && write_routes(root, &local, &table);
@@ -681,7 +657,7 @@ mod tests {
         for original in table.records() {
             assert_eq!(back.get(&original.key), Some(original));
         }
-        // Byte identity, not merely value identity: the file is the contract.
+
         assert_eq!(render_routes(&back).expect("re-render"), bytes);
     }
 
@@ -805,7 +781,7 @@ mod tests {
             1.0,
         ));
         let text = String::from_utf8(render_routes(&table).expect("render")).expect("utf8");
-        // Unsorted, and therefore not a key `RouteKey::new` could produce.
+
         let broken = text.replace("token verify\t", "verify token\t");
 
         assert_eq!(
@@ -914,7 +890,6 @@ mod tests {
         assert_eq!(fault, None);
         assert_eq!(table.len(), 1);
 
-        // A second identical edit changes nothing, so nothing is written.
         let wrote_again = update_routes(temp.path(), |table| {
             table.insert(record(
                 "verify token",

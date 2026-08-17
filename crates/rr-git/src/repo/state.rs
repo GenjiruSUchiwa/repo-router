@@ -216,10 +216,6 @@ impl GitRepo {
             })
             .should_interrupt_owned(cancel.flag());
 
-        // A cancelled scan surfaces as an ordinary status failure, at whichever
-        // point the interrupt was noticed. Consulting the token first is what
-        // separates "you asked me to stop" from "Git is broken" — the caller
-        // retries one and reports the other.
         let mut iter = platform.into_iter(None).map_err(|error| {
             if cancel.is_cancelled() {
                 Error::Cancelled
@@ -243,9 +239,6 @@ impl GitRepo {
             }
         }
 
-        // Cancellation makes the iterator stop early, which would otherwise look
-        // exactly like a clean repository. Checking after the loop is what keeps
-        // an interrupted scan from being published as "nothing changed".
         if cancel.is_cancelled() {
             return Err(Error::Cancelled);
         }
@@ -386,12 +379,9 @@ impl Observation {
 
         match status {
             EntryStatus::Conflict { .. } => self.push(ChangeKind::Conflicted, rela_path, None),
-            // An intent-to-add entry promises a file whose content Git has not
-            // stored, so its recorded identity names nothing. Treating it as an
-            // addition is what keeps the empty-blob OID out of the corpus.
+
             EntryStatus::IntentToAdd => self.push(ChangeKind::Added, rela_path, None),
-            // Only the recorded stat is stale; the content agrees. This is the
-            // one status item that is deliberately not a change.
+
             EntryStatus::NeedsUpdate(_) => {}
             EntryStatus::Change(Change::Removed) => self.push(ChangeKind::Deleted, rela_path, None),
             EntryStatus::Change(Change::Type { .. }) => {
@@ -411,23 +401,18 @@ impl Observation {
         use gix::dir::entry::{Kind, Status};
 
         match entry.status {
-            // Tracked entries are covered by the index comparison, ignored and
-            // pruned entries are outside the corpus by definition.
+
             Status::Tracked | Status::Ignored(_) | Status::Pruned => return,
             Status::Untracked => {}
         }
 
         match entry.disk_kind {
-            // A nested repository is its own corpus; entering it here would put
-            // another project's symbols in this project's index.
+
             Some(Kind::Repository) => self.skipped_submodules += 1,
             Some(Kind::File | Kind::Symlink) => {
                 self.push(ChangeKind::Untracked, entry.rela_path.as_ref(), None);
             }
-            // A directory only reaches here when it could not be expanded, an
-            // untrackable entry is a socket or a fifo, and an unknown kind is
-            // not something Git could store as a blob. None of them are files
-            // discovery would ever offer the parser.
+
             Some(Kind::Directory | Kind::Untrackable) | None => {}
         }
     }

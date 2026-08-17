@@ -21,10 +21,7 @@ use crate::{Error, Result};
 /// truth — someone else is doing this — and lets it decide.
 #[derive(Debug)]
 pub struct RepositoryWriteGuard {
-    // The marker owns the lock file and removes it on drop. Nothing reads it:
-    // its existence *is* the claim, which is why it holds no contents. A PID or
-    // a timestamp inside would only invite the next reader to guess whether the
-    // holder is still alive, and a guess that is wrong deletes a live lock.
+
     _marker: gix_lock::Marker,
     path: PathBuf,
 }
@@ -36,9 +33,7 @@ impl RepositoryWriteGuard {
     /// Returns [`Error::PublicationLocked`] when another process holds the
     /// claim, and [`Error::Io`] when the lock directory cannot be created.
     pub fn acquire(root: &Path) -> Result<Self> {
-        // The lock lives beside the snapshot it protects, so the directory has
-        // to exist before the claim can. Creating it here also stamps the ignore
-        // rule, which matters on a first run that never reaches a build.
+
         workspace::ensure_private(root).map_err(Error::Io)?;
         let local = workspace::local_dir(root);
         std::fs::create_dir_all(&local).map_err(Error::Io)?;

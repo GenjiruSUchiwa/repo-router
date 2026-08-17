@@ -194,9 +194,7 @@ impl VisibilityLabel {
                 label: "package",
                 key: "package".to_owned(),
             }),
-            // Shown rather than withheld for the reason `protected` and
-            // `internal` are: another declaration in the same file reaches it,
-            // so it is not the one-definition scope `Private` names.
+
             Visibility::FilePrivate => Some(Self {
                 label: "fileprivate",
                 key: "fileprivate".to_owned(),
@@ -278,10 +276,7 @@ impl ApiRecord {
     fn write_api_hash(&self, stream: &mut HashStream) {
         stream.text(&self.path);
         stream.text(&self.name);
-        // The anchor is what issue #12 stores against a route in
-        // `.rr/ROUTES.md`, and an api_hash that did not cover it could leave a
-        // route pointing at a location this projection no longer spells the
-        // same way.
+
         stream.text(&self.anchor_name);
         stream.text(self.kind.as_str());
         stream.text(&self.visibility.key);
@@ -560,9 +555,7 @@ fn index_hash_of(
         }
         stream.count(scope.api.len());
         for record in &scope.api {
-            // Start line rides in the index hash but not in `api_hash`: moving
-            // a definition changes what the map displays without changing the
-            // API a route was learned against.
+
             record.write_api_hash(&mut stream);
             stream.u32(record.start_line);
         }
@@ -596,13 +589,7 @@ fn check_budget(budget: u32) -> TextResult<usize> {
             reason: "a page budget of zero cannot hold a page",
         });
     }
-    // No floor beyond that. A budget too small to hold even a page's fixed
-    // shell is not an error but an over-budget scope, reported through the same
-    // channel as one oversize signature — refusing here would be the only place
-    // in this module where a budget problem stops a map from existing.
-    // Widened before multiplying: on a 32-bit target the product of two u32s
-    // does not fit a `usize`, and a budget that wrapped would silently plan
-    // pages against a capacity nobody asked for.
+
     Ok(usize::try_from(u64::from(budget) * u64::from(BYTES_PER_TOKEN)).unwrap_or(usize::MAX))
 }
 
@@ -672,10 +659,7 @@ fn collect_directories(snapshot: &Snapshot) -> TextResult<BTreeMap<ScopePath, Di
             })?
             .to_owned();
         let (scope, file_name) = split_directory(&path)?;
-        // Fidelity is recursive, so every ancestor learns about this file even
-        // though only its own directory lists it. Walking the chain here is
-        // also what creates the routers for directories that hold nothing but
-        // other directories.
+
         let file_fidelity = Fidelity::of(&file.parse_status);
         for ancestor in ancestors_of(&scope) {
             let draft = directories.entry(ancestor).or_default();
@@ -758,8 +742,6 @@ fn collect_file(
             });
         }
 
-        // A test is a test whatever its visibility: `## Tests` is a location
-        // for a reader, not a claim about who may call it.
         if is_test(file, symbol) {
             named_tests += 1;
             draft.tests.push(TestRecord {
@@ -863,10 +845,7 @@ fn collect_symbol_lines(scopes: &[Scope]) -> TextResult<Vec<SymbolLine>> {
         }
     }
     lines.sort_by(SymbolLine::order);
-    // Sorted, so identical records are adjacent. Reported rather than
-    // deduplicated: two identical claims mean the index built something twice,
-    // and hiding that here would leave the bug to be found by whoever trusts
-    // the symbol count.
+
     if lines
         .windows(2)
         .any(|pair| pair[0].identity() == pair[1].identity())

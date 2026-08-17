@@ -259,26 +259,14 @@ mod tests {
             .unwrap()
             .render(&ExistingPurposes::none())
             .unwrap();
-        // Maps only, and every map in the generation: `.rr/SYMBOLS.md` lists
-        // the same names, so counting it would let a kind pass this test while
-        // being absent from the artifact the test is named after. Whether
-        // these twenty fit one file is a property of the default budget
-        // rather than of this test.
-        //
-        // Parsed back into records rather than searched as text. These names
-        // nest — `kind_const` is a substring of `kind_constructor`, `kind_trait`
-        // of `kind_trait_method` — so a projection that dropped `Const` and
-        // `Trait` would satisfy a `contains` on the rendered bytes and fail
-        // nothing. Comparing records also makes the map's own grammar part of
-        // what this test proves.
+
         let mut rendered_names: Vec<String> = Vec::new();
         for file in rendered.files() {
             if file.kind() == ArtifactKind::Symbols {
                 continue;
             }
             let map = parse_map(file.bytes()).unwrap();
-            // The record displays the qualified name; the kind is identified by
-            // its last segment, which is the name the def was built with.
+
             rendered_names.extend(
                 map.api()
                     .iter()
@@ -286,15 +274,10 @@ mod tests {
             );
         }
 
-        // Before naming anything: every def produced exactly one record, so a
-        // kind that vanished cannot be hidden by a kind that rendered twice,
-        // and an empty parse cannot make the loop below vacuous.
         assert_eq!(rendered_names.len(), DefKind::ALL.len());
 
         for kind in DefKind::ALL {
-            // `Vec::contains`, comparing whole names — not `str::contains`,
-            // which is the substring search this assertion used to be and which
-            // the nesting above defeats.
+
             assert!(
                 rendered_names.contains(&def_name(kind)),
                 "a {kind} definition reached the index and no map names it"

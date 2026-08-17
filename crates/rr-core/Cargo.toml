@@ -51,7 +51,6 @@ harness = false
 name = "lex"
 harness = false
 
-
 [[bench]]
 name = "refresh"
 harness = false
@@ -63,7 +62,6 @@ harness = false
 [[bench]]
 name = "ranking"
 harness = false
-
 
 [[bench]]
 name = "tags"

@@ -13,12 +13,10 @@ use rr_git::{release_locks_signal_safe, RepositoryWriteGuard};
 fn the_signal_safe_release_removes_a_claim_that_is_still_held() {
     let temp = tempfile::tempdir().unwrap();
     let guard = RepositoryWriteGuard::acquire(temp.path()).unwrap();
-    // `path()` names the resource; `gix_lock` marks it by adding the suffix.
+
     let lock = guard.path().with_extension("lock");
     assert!(lock.exists(), "the claim is not on disk to begin with");
 
-    // Deliberately with the guard alive and still owning the marker: that is
-    // the state a terminating signal finds, and the lock has to go anyway.
     release_locks_signal_safe();
 
     assert!(
@@ -26,7 +24,6 @@ fn the_signal_safe_release_removes_a_claim_that_is_still_held() {
         "a held claim outlived the release, so a signalled run would refuse every later one"
     );
 
-    // The `Drop` the real path never reaches has to stay harmless here.
     drop(guard);
     RepositoryWriteGuard::acquire(temp.path()).expect("the claim was released");
 }

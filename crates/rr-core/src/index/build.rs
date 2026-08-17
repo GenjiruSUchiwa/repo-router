@@ -946,9 +946,7 @@ fn module_prefix(path: &RelPath, lang: Lang) -> Vec<String> {
     if components.first().map(String::as_str) == Some("src") {
         components.remove(0);
     }
-    // The extension is dropped only when it spells the file's own language, so
-    // `service.py` becomes the module `service` while an unexpected suffix is
-    // left visible rather than half-stripped.
+
     if let Some(file) = components.last_mut() {
         if let Some((stem, extension)) = file.rsplit_once('.') {
             if !stem.is_empty() && Lang::from_extension(extension) == Some(lang) {
@@ -956,7 +954,7 @@ fn module_prefix(path: &RelPath, lang: Lang) -> Vec<String> {
             }
         }
     }
-    // File names that name their directory's module rather than their own.
+
     let implicit: &[&str] = match lang {
         Lang::Rust => &["lib", "main", "mod"],
         Lang::Python => &["__init__", "__main__"],
@@ -1066,7 +1064,7 @@ mod tests {
             module_prefix(&RelPath::new("pkg/__init__.py").unwrap(), Lang::Python),
             ["pkg"]
         );
-        // A foreign extension is not this language's to strip.
+
         assert_eq!(
             module_prefix(&RelPath::new("src/service.py").unwrap(), Lang::Rust),
             ["service.py"]

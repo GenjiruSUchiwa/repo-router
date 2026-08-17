@@ -153,7 +153,7 @@ fn an_edited_generated_section_costs_the_whole_run() {
         "src/auth/MAP.md",
         &original.replace("Claims", "Claimz"),
     );
-    // A real change elsewhere, so the run has something it would otherwise do.
+
     write(temp.path(), "src/added.rs", "pub fn added() -> u32 { 3 }\n");
     let before_root = read(temp.path(), "MAP.md");
 
@@ -353,7 +353,7 @@ fn overflow_pages(root: &Path) -> usize {
 fn a_no_op_refresh_takes_no_lock_from_any_directory() {
     let temp = repo();
     run(temp.path(), &["map"]);
-    // Held by nobody, but `gix_lock` refuses a claim whose file already exists.
+
     write(temp.path(), ".rr/local/publication.lock", "");
 
     for from in [".", "src", "src/auth"] {
@@ -434,7 +434,6 @@ fn a_reserved_path_that_is_a_symlink_is_never_written_through() {
     std::os::unix::fs::symlink("../outside.txt", temp.path().join(".rr/SYMBOLS.md"))
         .expect("link symbols");
 
-    // Something to do, so the run is not declining work it never had.
     write(temp.path(), "extra/more.rs", "pub fn more() -> u32 { 6 }\n");
     let output = run(temp.path(), &["map"]);
 

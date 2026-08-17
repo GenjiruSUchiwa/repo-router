@@ -362,11 +362,6 @@ fn compare(
         );
     }
 
-    // A directory that lost its last source file leaves a valid, owned map
-    // behind. It is only removable while it still validates: a page somebody
-    // edited is evidence of intent, and intent outranks a stale plan. The
-    // reasons are the same ones a planned artifact gets, because a human
-    // deciding what to do about the file has the same two questions.
     for path in owned_paths_on_disk(root, &planned) {
         match read_and_classify_existing(root, &path) {
             Ok(true) => validation.removable.push(path),
@@ -411,8 +406,7 @@ fn classify_managed_ignore(
     }
     let existing = match std::fs::read_to_string(root.join(path)) {
         Ok(text) => text,
-        // Absent is not a problem to report: the block is appended on the next
-        // write, and until then the directory is excluded by name anyway.
+
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return,
         Err(_) => {
             validation
@@ -446,9 +440,7 @@ fn classify(
     }
 
     let absolute = root.join(path);
-    // Before reading, because every read here follows the link: a symlink would
-    // be judged on its target's bytes and then written through, putting rr's
-    // output somewhere rr never chose.
+
     if std::fs::symlink_metadata(&absolute).is_ok_and(|meta| meta.file_type().is_symlink()) {
         validation
             .conflicts
@@ -478,9 +470,7 @@ fn classify(
         return;
     }
     if repairs_in_place(kind, outcome) {
-        // Distinguished from the line above because the two are different
-        // events: one is a file that says something older, the other is a file
-        // that no longer says anything valid. Only the second is a repair.
+
         validation.symbols_repaired = true;
         validation.stale.push(path.to_owned());
         return;
@@ -523,8 +513,7 @@ fn case_collisions<'a>(
         } else {
             root.join(directory)
         };
-        // A directory that is not there yet holds nothing to collide with, and
-        // rr is about to create it.
+
         let Ok(entries) = std::fs::read_dir(&absolute) else {
             continue;
         };
@@ -540,11 +529,7 @@ fn case_collisions<'a>(
                 .iter()
                 .find(|entry| entry.eq_ignore_ascii_case(name))
             {
-                // Folding is what makes this a collision rather than two files.
-                // The planned name is not in the listing, so on a
-                // case-sensitive volume nothing resolves under it and rr is
-                // free to create it beside `found`. Only a filesystem that
-                // folds case answers this call, and that answer is `found`.
+
                 if absolute.join(name).symlink_metadata().is_err() {
                     continue;
                 }
