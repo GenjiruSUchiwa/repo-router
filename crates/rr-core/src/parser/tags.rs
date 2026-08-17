@@ -1742,6 +1742,153 @@ static JAVA_IMPORTS: ImportSpec = ImportSpec {
     compiled: OnceLock::new(),
 };
 
+const CSHARP_KINDS: &[(&str, DefKind)] = &[
+    ("class", DefKind::Class),
+    ("interface", DefKind::Interface),
+    ("struct", DefKind::Struct),
+    ("record", DefKind::Class),
+    ("enum", DefKind::Enum),
+    ("delegate", DefKind::TypeAlias),
+    ("method", DefKind::Method),
+    ("function", DefKind::Function),
+    ("constructor", DefKind::Constructor),
+    ("property", DefKind::Property),
+    ("field", DefKind::Field),
+    ("module", DefKind::Module),
+];
+
+const CSHARP_REFERENCE_KINDS: &[(&str, ReferenceKind)] = &[
+    ("call", ReferenceKind::Call),
+    ("method-call", ReferenceKind::MethodCall),
+    ("class", ReferenceKind::Type),
+    ("implementation", ReferenceKind::Implementation),
+];
+
+/// A C# member that states no modifier is private, which is the language's
+/// default; the placeholder has to say the same thing the file does.
+fn csharp_visibility(_name: &str) -> Visibility {
+    Visibility::Private
+}
+
+/// Every word C# allows between the start of a declaration and its type, read
+/// as a prefix for the reason `JAVA_MODIFIERS` gives: a field named `sealed`
+/// is a thing a repository contains.
+const CSHARP_MODIFIERS: &[&str] = &[
+    "public",
+    "private",
+    "protected",
+    "internal",
+    "static",
+    "readonly",
+    "sealed",
+    "abstract",
+    "virtual",
+    "override",
+    "async",
+    "partial",
+    "const",
+    "unsafe",
+    "extern",
+    "ref",
+    "required",
+    "file",
+];
+
+/// The declaration text with any leading attribute run removed.
+///
+/// The C# grammar nests `[Fact]` inside the declaration node, so the signature
+/// slice opens with the attribute rather than the modifier; `strip_leading_decorations`
+/// knows `@` and `#[` but not a bare `[`, which no other language in this file
+/// puts at that position.
+fn csharp_strip_attributes(signature: &str) -> &str {
+    let bytes = signature.as_bytes();
+    let mut cursor = 0;
+    loop {
+        while bytes.get(cursor) == Some(&b' ') {
+            cursor += 1;
+        }
+        if bytes.get(cursor) != Some(&b'[') {
+            return signature.get(cursor..).unwrap_or("");
+        }
+        let mut index = cursor;
+        let mut depth = 0usize;
+        while let Some(&byte) = bytes.get(index) {
+            match byte {
+                b'[' | b'(' => depth += 1,
+                b']' | b')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        index += 1;
+                        break;
+                    }
+                }
+                _ => {}
+            }
+            index += 1;
+        }
+        cursor = index;
+    }
+}
+
+/// The access modifier this declaration states, or `None` when it states none.
+///
+/// `internal` reads as [`Visibility::Package`]: enforced by the compiler and
+/// scoped to one compilation unit, like Java's default access. The compound
+/// forms keep their first word — `protected internal` is at least `protected`,
+/// `private protected` at least `private`.
+fn csharp_declared_visibility(signature: &str) -> Option<Visibility> {
+    csharp_strip_attributes(signature)
+        .split(' ')
+        .take_while(|word| CSHARP_MODIFIERS.contains(word))
+        .find_map(|word| match word {
+            "public" => Some(Visibility::Public),
+            "private" => Some(Visibility::Private),
+            "protected" => Some(Visibility::Protected),
+            "internal" => Some(Visibility::Package),
+            _ => None,
+        })
+}
+
+/// What the C# query captured, plus the modifier no capture can reach.
+fn csharp_refine(def: &mut Def) {
+    if let Some(visibility) = csharp_declared_visibility(&def.signature) {
+        def.visibility = visibility;
+    }
+}
+
+/// xUnit `Fact`/`Theory`, `NUnit` `Test`/`TestCase`, `MSTest` `TestMethod`.
+fn csharp_test_attribute(ident: &str) -> bool {
+    matches!(
+        ident,
+        "Fact" | "Theory" | "Test" | "TestCase" | "TestMethod"
+    )
+}
+
+pub(crate) static CSHARP: LanguageSpec = LanguageSpec {
+    lang: Lang::CSharp,
+    language: tree_sitter_c_sharp::LANGUAGE,
+    tags_query: include_str!("queries/csharp.scm"),
+    locals_query: "",
+    kinds: CSHARP_KINDS,
+    reference_kinds: CSHARP_REFERENCE_KINDS,
+    imports: Some(&CSHARP_IMPORTS),
+    visibility: csharp_visibility,
+    test_attribute: csharp_test_attribute,
+    test_scope: never_a_test_signal,
+    refine: csharp_refine,
+    doc_is_leading_body_string: false,
+    line_comment_prefixes: &["//", "///"],
+    config: OnceLock::new(),
+};
+
+static CSHARP_IMPORTS: ImportSpec = ImportSpec {
+    query: include_str!("queries/csharp-imports.scm"),
+    kinds: &[("import", ImportKind::Import)],
+    markers: &["using"],
+    callee_names: &[],
+    compiled: OnceLock::new(),
+};
+
 const C_KINDS: &[(&str, DefKind)] = &[
     ("class", DefKind::Struct),
     ("function", DefKind::Function),

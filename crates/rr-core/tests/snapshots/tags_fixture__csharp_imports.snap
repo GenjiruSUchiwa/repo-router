@@ -1,0 +1,66 @@
+---
+source: crates/rr-core/tests/tags_fixture.rs
+expression: "to_snapshot(\"imports.cs\", &facts)"
+---
+path: imports.cs
+status: tags(parse_errors=false)
+defs:
+  - name: App
+    local_qualified: ~
+    kind: module
+    visibility: private
+    start_line: 6
+    end_line: 6
+    signature: namespace App;
+    signature_idents:
+      - namespace
+    body_idents: []
+    doc_idents: []
+    attribute_idents: []
+  - name: Thing
+    local_qualified: ~
+    kind: class
+    visibility: public
+    start_line: 8
+    end_line: 8
+    signature: "public class Thing {}"
+    signature_idents:
+      - public
+      - class
+    body_idents: []
+    doc_idents: []
+    attribute_idents: []
+references: []
+imports:
+  - kind: Import
+    path: System
+    name: ~
+    alias: ~
+    is_public: false
+    is_glob: false
+    line: 1
+    owner: ~
+  - kind: Import
+    path: System.Collections.Generic
+    name: ~
+    alias: ~
+    is_public: false
+    is_glob: false
+    line: 2
+    owner: ~
+  - kind: Import
+    path: System.Text
+    name: ~
+    alias: Text
+    is_public: false
+    is_glob: false
+    line: 3
+    owner: ~
+  - kind: Import
+    path: System.Text.Json
+    name: ~
+    alias: Json
+    is_public: false
+    is_glob: false
+    line: 4
+    owner: ~
