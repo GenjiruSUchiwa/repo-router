@@ -22,8 +22,8 @@ use rr_core::render::{
 use rr_core::result::{resolve_anchor, Candidate, Pipeline, QueryResult, TargetId};
 use rr_core::snapshot::{LoadOutcome, SnapshotStore};
 use rr_core::text::{
-    encode_map_destination, load_routes, projected_map_catalog, update_routes, RouteKey,
-    RouteRecord, DEFAULT_MAP_BUDGET,
+    api_identity, encode_map_destination, load_routes, projected_map_catalog, update_routes,
+    RouteKey, RouteRecord, DEFAULT_MAP_BUDGET,
 };
 use rr_core::verify::{
     finish_source, resolve_indexed_source, verify_source, PendingSource, SourceResult,
@@ -62,8 +62,10 @@ pub fn run(args: &Args) -> anyhow::Result<u8> {
     let mut scratch = RankingScratch::new();
 
     // A cache hit is only a shortcut, so it must cost less than the work it
-    // skips: `route_lookup` reads one file and projects the snapshot, while
-    // `route_query` on a miss ranks the whole corpus. A `--path` query is
+    // skips: `route_lookup` reads two small files and resolves one anchor, while
+    // `route_query` on a miss ranks the whole corpus. The projection that names
+    // the corpus identity is paid once per published snapshot, by the miss that
+    // learns a route and not by the hits that follow. A `--path` query is
     // neither read nor learned — the qualifier is part of the question and is
     // not part of the key, so caching one would let a later unqualified
     // question receive a qualified answer.
@@ -149,7 +151,7 @@ impl Workspace {
             if snapshot.meta.no_git {
                 bail!("index repository mismatch; run 'rr map'");
             }
-            if snapshot.meta.repo_head_oid != head_oid && !index_still_holds(&root)? {
+            if snapshot.meta.repo_head_oid != head_oid && !index_still_holds(&root, head_oid)? {
                 bail!("index is stale; run 'rr refresh'");
             }
         } else if !snapshot.meta.no_git {
@@ -175,37 +177,72 @@ impl Workspace {
 /// So this asks `rr status`'s own question rather than a cheaper one that gives
 /// a different answer.
 ///
-/// Only reached when the ids differ, so the common case pays nothing: the walk
-/// costs what it costs exactly in the window that was previously a hard refusal.
-fn index_still_holds(root: &Path) -> anyhow::Result<bool> {
+/// Only reached when the ids differ, and then **once**. The window this opens is
+/// the one a user meets first — `rr map`, commit the generated maps, ask
+/// something — and it lasts until the next `rr refresh`, so a walk per query
+/// would make every query in it slow rather than the first. The answer is
+/// therefore memoized against the commit it was reached for.
+///
+/// The memo is stamped against the snapshot file, so a rebuilt index is never
+/// answered from it. Within one snapshot and one commit it says exactly what the
+/// equal-ids branch above says without being asked: that this index describes
+/// this repository. A worktree edit made after the verification is invisible to
+/// it — and equally invisible to the equal-ids branch, which never walks at all.
+/// This grants the moved-`HEAD` window the same trust as the unmoved one, which
+/// is the whole claim of the commit that opened it.
+fn index_still_holds(root: &Path, head: Option<rr_core::oid::Oid>) -> anyhow::Result<bool> {
+    let verified = head.map_or_else(|| "none".to_owned(), |oid| oid.to_hex());
+    if rr_core::workspace::read_memo(root, HEAD_VERIFIED_MEMO).as_deref() == Some(verified.as_str())
+    {
+        return Ok(true);
+    }
     let report =
         rr_git::status(root, &CancelToken::new()).context("compare index to repository")?;
     // `Unknown` is ignorance, not evidence — a tree that could not be compared
     // has said nothing, and refusing on nothing is the behaviour that was wrong
-    // in the first place. Only a plan that would actually reconsider paths
-    // refuses.
-    Ok(report.snapshot != SnapshotLabel::Stale)
+    // in the first place. Named rather than excluded: `Missing`, `Corrupt` and
+    // `Incompatible` are plans that would rebuild *everything*, which is more
+    // than reconsidering paths, and a `!= Stale` test would read every one of
+    // them as agreement.
+    let holds = matches!(
+        report.snapshot,
+        SnapshotLabel::Fresh | SnapshotLabel::Unknown
+    );
+    // Only agreement is remembered. A refusal is the state a user is about to
+    // change by running `rr refresh`, and a memo saying "stale" would have to be
+    // invalidated by the very thing that fixes it.
+    if holds {
+        rr_core::workspace::write_memo(root, HEAD_VERIFIED_MEMO, &verified);
+    }
+    Ok(holds)
 }
+
+/// The memo naming the commit this snapshot was last confirmed to describe.
+const HEAD_VERIFIED_MEMO: &str = "head-verified";
 
 /// The cached answer to this question, if there is one that is still true.
 ///
 /// Three things have to hold, and each of them is a way a route dies: the
-/// record exists, its anchor still names exactly one symbol, and the scope that
-/// owns that symbol still hashes to what the record was learned against. The
-/// third is the one that matters: an `api_hash` covers path, name, anchor name,
-/// kind, visibility and signature of every public record in the directory, so a
-/// renamed or re-signed neighbour retires this route without anybody having to
-/// notice.
+/// record exists, its anchor still names exactly one symbol, and the repository's
+/// public API still hashes to what the record was learned against. The third is
+/// the one that matters, and it is deliberately corpus-wide rather than
+/// per-scope. A per-scope key answers "is this symbol still what it was", which
+/// is not the question: learn `verify token` → `src/auth/token.rs#verify_token`,
+/// then add a better-matching `verify_token_request` under `src/api/`, and
+/// `src/auth`'s own hash is untouched while the answer the ranker would now give
+/// is not. Over-invalidating costs one ranked query; under-invalidating costs a
+/// wrong answer.
+///
+/// Cheap in the order it asks, which is what makes a hit a shortcut rather than
+/// a detour: the file read and the anchor resolution come first, and
+/// [`api_identity`] is a memo read whenever a previous run already projected
+/// this snapshot.
 fn route_lookup(workspace: &Workspace, key: &RouteKey) -> Option<Candidate> {
     let (table, _) = load_routes(&workspace.root);
     let record = table.get(key)?;
     let symbol = resolve_route_anchor(&workspace.snapshot, &record.anchor)?;
-    // Projected, not validated: the weaker guarantee is that the map may not be
-    // on disk, which costs a reader one `MAP.md` they cannot open, against
-    // reading every artifact in the repository on every query.
-    let catalog = projected_map_catalog(&workspace.snapshot, DEFAULT_MAP_BUDGET).ok()?;
-    let identity = catalog.owner(symbol)?;
-    if identity.api_hash().digest() != record.api_hash {
+    let identity = api_identity(&workspace.root, &workspace.snapshot, DEFAULT_MAP_BUDGET).ok()?;
+    if identity != record.api_identity {
         return None;
     }
     Some(Candidate::new(
@@ -233,10 +270,19 @@ fn learn_route(workspace: &Workspace, key: Option<&RouteKey>, result: &QueryResu
     let Some(confidence) = candidate.confidence else {
         return;
     };
+    // Projected, not validated: the weaker guarantee is that the map may not be
+    // on disk, which costs a reader one `MAP.md` they cannot open, against
+    // reading every artifact in the repository to learn one route.
+    //
+    // This is the one place on the query path that projects, and it is on the
+    // miss — the run that already paid for a full ranking pass. `remember` files
+    // the corpus identity it computed here, so the hits that follow read a memo
+    // instead of projecting again.
     let Ok(catalog) = projected_map_catalog(&workspace.snapshot, DEFAULT_MAP_BUDGET) else {
         return;
     };
-    let Some(identity) = catalog.owner(symbol) else {
+    catalog.remember(&workspace.root);
+    let Some(owner) = catalog.owner(symbol) else {
         return;
     };
     let Ok(anchor) = resolve_anchor(&workspace.snapshot, candidate.target) else {
@@ -248,8 +294,8 @@ fn learn_route(workspace: &Workspace, key: Option<&RouteKey>, result: &QueryResu
         // The spelling `rr query` prints, so what is cached and what was shown
         // are one string.
         anchor: encode_anchor(anchor.path, anchor.symbol),
-        map: encode_map_destination(identity.path().as_str()),
-        api_hash: identity.api_hash().digest(),
+        map: encode_map_destination(owner.path().as_str()),
+        api_identity: catalog.api_identity(),
         confidence,
     };
     let _ = update_routes(&workspace.root, |table| table.insert(record));

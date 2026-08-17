@@ -15,9 +15,12 @@ use std::path::Path;
 use crate::index::{Snapshot, SymbolId};
 use crate::path::RelPath;
 
-use super::digest::{ApiHash, Digest};
+use super::digest::{ApiHash, Digest, HashStream};
 use super::model::TextProjection;
 use super::validate::validate_text_artifacts;
+
+/// The memo `.rr/local/memo/` files [`MapCatalog::api_identity`] under.
+pub const API_IDENTITY_MEMO: &str = "route-corpus";
 
 /// Which committed map owns each symbol, and at what API identity.
 ///
@@ -28,6 +31,7 @@ use super::validate::validate_text_artifacts;
 pub struct MapCatalog {
     owners: BTreeMap<SymbolId, MapIdentity>,
     index_hash: Digest,
+    api_identity: Digest,
 }
 
 /// One committed map and the API identity of its scope.
@@ -62,6 +66,39 @@ impl MapCatalog {
     #[must_use]
     pub const fn index_hash(&self) -> Digest {
         self.index_hash
+    }
+
+    /// The public API of the *whole* corpus, as one digest.
+    ///
+    /// Deliberately not [`Self::index_hash`], which is the wrong shape twice
+    /// over: it carries `start_line`, so moving a definition down its file would
+    /// retire every route in the repository, and it carries the budget and the
+    /// plans, so re-paginating a map would too. This covers each scope's path
+    /// and its `api_hash` and nothing else, which keeps both of the survival
+    /// promises `.rr/ROUTES.md` makes — a reworded purpose and a moved
+    /// definition leave it alone — while changing whenever any public name,
+    /// kind, visibility or signature *anywhere* moves.
+    ///
+    /// Corpus-wide rather than per-scope because a route is an answer the ranker
+    /// gave about the whole index, not about one directory. A new
+    /// `verify_token_request` under `src/api/` changes what "verify token"
+    /// should resolve to while leaving `src/auth`'s own `api_hash` untouched, so
+    /// a per-scope key keeps serving `direct` where the ranker would now be
+    /// ambiguous. Over-invalidating costs one ranked query; under-invalidating
+    /// costs a wrong answer.
+    #[must_use]
+    pub const fn api_identity(&self) -> Digest {
+        self.api_identity
+    }
+
+    /// Files [`Self::api_identity`] in `.rr/local/`, so the next query can check
+    /// a route without projecting the snapshot again.
+    ///
+    /// Called from the paths that had to build a catalog anyway — learning a
+    /// route, and reconciling them after a publication — so the memo costs the
+    /// run that fills it nothing it had not already spent.
+    pub fn remember(&self, root: &Path) {
+        crate::workspace::write_memo(root, API_IDENTITY_MEMO, &self.api_identity.to_text());
     }
 
     /// How many symbols have an owning map.
@@ -134,7 +171,15 @@ pub fn projected_map_catalog(snapshot: &Snapshot, budget: u32) -> crate::Result<
 /// concluded.
 fn catalog_of(projection: &TextProjection) -> MapCatalog {
     let mut owners = BTreeMap::new();
+    let mut stream = HashStream::new("route-corpus");
+    stream.count(projection.scopes().len());
     for scope in projection.scopes() {
+        // Hashed before the `continue` below, not after: a scope whose map path
+        // this crate cannot spell still has a public API, and leaving it out
+        // would make the corpus identity blind to changes inside it.
+        stream.text(scope.path.as_str());
+        stream.digest(scope.api_hash.digest());
+
         let Ok(path) = RelPath::new(scope.path.map_path()) else {
             continue;
         };
@@ -151,7 +196,35 @@ fn catalog_of(projection: &TextProjection) -> MapCatalog {
     MapCatalog {
         owners,
         index_hash: projection.index_hash(),
+        api_identity: stream.finish(),
     }
+}
+
+/// The corpus API identity, projecting the snapshot only when it has to.
+///
+/// This is the whole of what a route lookup needs from the text layer, and it is
+/// the reason the lookup is a shortcut rather than a detour. Projecting a
+/// 3900-symbol snapshot measured 17 ms against a ranking pass in single-digit
+/// milliseconds, so a hit that projected would cost more than the miss it
+/// replaced — and an exact-name query, which was a binary search, would pay it
+/// on every run. The memo turns that into one projection per published
+/// snapshot, paid by the run that learns a route and by nobody after it.
+///
+/// A memo filed against some other snapshot is not read at all — see
+/// [`crate::workspace::read_memo`] — so the fallback is a fresh projection and
+/// never a stale identity.
+///
+/// # Errors
+/// Returns what [`projected_map_catalog`] returns, and only when the memo missed.
+pub fn api_identity(root: &Path, snapshot: &Snapshot, budget: u32) -> crate::Result<Digest> {
+    if let Some(digest) = crate::workspace::read_memo(root, API_IDENTITY_MEMO)
+        .and_then(|text| Digest::parse(&text).ok())
+    {
+        return Ok(digest);
+    }
+    let catalog = projected_map_catalog(snapshot, budget)?;
+    catalog.remember(root);
+    Ok(catalog.api_identity())
 }
 
 #[cfg(test)]

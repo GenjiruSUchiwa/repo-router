@@ -208,9 +208,9 @@ fn a_renamed_symbol_retires_its_route() {
 }
 
 /// D8's third consequence, asserted so that the coarseness is a documented
-/// promise rather than a surprise: an `api_hash` covers a whole directory, so a
-/// rename next door retires this route too. Over-invalidating costs one ranked
-/// query; under-invalidating costs a wrong answer.
+/// promise rather than a surprise: an `api_identity` covers the whole
+/// repository, so a rename next door retires this route too. Over-invalidating
+/// costs one ranked query; under-invalidating costs a wrong answer.
 #[test]
 fn a_neighbour_rename_retires_the_route_too() {
     let temp = repo();
@@ -264,7 +264,7 @@ fn a_path_qualified_query_is_neither_cached_nor_answered_from_cache() {
 }
 
 /// Only a direct answer to a symbol is a route: candidates name no one symbol,
-/// so there is no `api_hash` that could ever mark them stale.
+/// so there is no anchor that could ever mark them stale.
 #[test]
 fn a_candidates_result_writes_no_route() {
     let temp = repo();
@@ -358,4 +358,100 @@ fn two_concurrent_queries_both_record_their_route() {
             "the route for {key:?} was lost to a concurrent writer:\n{file}"
         );
     }
+}
+
+/// The half a per-scope key could not see, and the reason `api_identity` is
+/// corpus-wide.
+///
+/// Nothing about `src/auth/` changes here: its files, names, signatures and
+/// therefore its own `api_hash` are exactly what they were. What changes is that
+/// somewhere else in the repository there is now a name that answers this
+/// question better, so the answer the ranker would give is no longer the answer
+/// on file. A route keyed on its owning directory stays live through this and
+/// keeps reporting `direct` where the ranker has become ambiguous.
+#[test]
+fn a_better_match_in_another_directory_retires_the_route() {
+    let temp = repo();
+    let root = temp.path();
+
+    let before = ask(root, "verify token");
+    assert_eq!(before["result"], "direct", "the fixture must answer this");
+    let auth_before = read(root, "src/auth/token.rs");
+
+    write(
+        root,
+        "src/api/requests.rs",
+        "/// Verifies the bearer token carried by an inbound request.\n\
+         pub fn verify_token_request() {}\n",
+    );
+    commit_and_refresh(root);
+
+    assert_eq!(
+        read(root, "src/auth/token.rs"),
+        auth_before,
+        "the owning scope must be untouched, or this proves nothing"
+    );
+    let after = ask(root, "verify token");
+    assert_ne!(
+        after["pipeline"], "route",
+        "a better match in another directory left the route live: {after}"
+    );
+}
+
+/// The moved-`HEAD` window is verified once, not once per query.
+///
+/// `rr map`, commit the generated maps, then ask: every query in that window
+/// used to pay a full `rr_git::status` tree walk, and the window lasts until the
+/// next `rr refresh` — which is exactly the stretch the cache exists to make
+/// fast. The memo is the observable half of the fix, so it is what is asserted.
+#[test]
+fn the_moved_head_window_is_verified_once() {
+    let temp = repo();
+    let root = temp.path();
+    let memo = root.join(".rr/local/memo/head-verified");
+
+    ask(root, "verify token");
+    assert!(
+        !memo.exists(),
+        "a query whose HEAD matches the index must not walk the tree at all"
+    );
+
+    commit_all(root, "commit the generated maps");
+    ask(root, "verify token");
+    assert!(
+        memo.exists(),
+        "the verification was not remembered, so every query in this window re-walks the tree"
+    );
+}
+
+/// A cache this crate cannot read is reset — and *said* to have been reset.
+///
+/// The reset itself is the easy half and was already true in memory. The half
+/// that was missing is the report: `RouteFault` is a closed enum rather than a
+/// bare `bool` so that a human can be told which damage was found, and until
+/// this line existed nobody was ever told anything.
+#[test]
+fn a_corrupt_cache_is_reset_and_says_why() {
+    let temp = repo();
+    let root = temp.path();
+    ask(root, "verify token");
+
+    write(root, ROUTES, "something else wrote this file\n");
+    // A publication is what reconciles routes, so the refresh needs real work.
+    let source = read(root, "src/store/entry.rs");
+    write(
+        root,
+        "src/store/entry.rs",
+        &source.replace("serialize_entry", "encode_entry"),
+    );
+    let verbose = commit_and_refresh(root);
+
+    assert!(
+        verbose.contains("the route cache reset because the header is not the one rr writes"),
+        "the reset was silent: {verbose}"
+    );
+    assert!(
+        !read(root, ROUTES).contains("something else wrote this file"),
+        "the damaged bytes were discarded in memory and left on disk"
+    );
 }

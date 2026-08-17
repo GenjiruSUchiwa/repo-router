@@ -73,11 +73,19 @@ pub struct TextReport {
     pub conflicts: Vec<Conflict>,
     /// Learned routes this generation invalidated and dropped.
     ///
-    /// Reported rather than acted on: the `api_hash` check on the query path is
+    /// Reported rather than acted on: the `api_identity` check on the query path is
     /// what actually protects an answer, and a lazy reader would be just as
     /// correct. What it could never do is *say so*, and "eleven routes retired"
     /// is the one place a user learns that a rename moved things.
     pub routes_retired: u32,
+    /// Why the route cache had to be discarded whole, if it did.
+    ///
+    /// [`super::RouteFault`] is a closed enum precisely so this line can exist:
+    /// "the cache reset" and "the cache reset because two records answer the
+    /// same question" are different things to a human, and a caller that drops
+    /// the fault leaves a user to detect the reset by noticing every route is
+    /// gone.
+    pub routes_reset: Option<super::RouteFault>,
 }
 
 impl TextReport {
@@ -158,6 +166,13 @@ impl TextReport {
             let _ = writeln!(
                 out,
                 "  text warning {scope}: no page of this scope fits the map budget"
+            );
+        }
+        if let Some(fault) = self.routes_reset {
+            let _ = writeln!(
+                out,
+                "  text warning the route cache reset because {}",
+                fault.as_str()
             );
         }
         out.pop();

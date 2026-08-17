@@ -479,6 +479,34 @@ fn query_contract_lexical_abstains_on_incidental_evidence() {
     );
 }
 
+/// The cache has to replay what it cached, byte for byte.
+///
+/// The test below discards `.rr/ROUTES.md` between runs, because what it pins is
+/// the *ranker*. Nothing pinned the other half: a record that stored a
+/// confidence it could not reproduce — `{:.6}` turning `0.8132634` into
+/// `0.813263` — made the second ask of one question print a different document
+/// than the first, and no test could see it.
+#[test]
+fn query_contract_a_route_replays_the_answer_it_cached() {
+    let repo = setup_lexical_repo();
+    forget_routes(&repo);
+    let first = query(&repo, &["--json", "how do we create a session?"]).stdout;
+    let second = query(&repo, &["--json", "how do we create a session?"]).stdout;
+
+    let first: serde_json::Value = serde_json::from_slice(&first).unwrap();
+    let mut second: serde_json::Value = serde_json::from_slice(&second).unwrap();
+    assert_eq!(
+        second["pipeline"], "route",
+        "the second ask was not answered from the cache: {second}"
+    );
+    // The one field a hit is supposed to change; every other byte must agree.
+    second["pipeline"] = first["pipeline"].clone();
+    assert_eq!(
+        second, first,
+        "a cached answer differs from the answer it cached"
+    );
+}
+
 #[test]
 fn query_contract_lexical_repeats_byte_for_byte_across_processes() {
     let repo = setup_lexical_repo();
