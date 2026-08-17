@@ -668,12 +668,42 @@ mod tests {
         );
     }
 
+    /// Installs a SIGPIPE disposition and restores the one it replaced on drop.
+    ///
+    /// The disposition is process-wide, so restoring it from a plain statement
+    /// at the end of a test is not enough: a failing assertion or a `Result`
+    /// that came back `Err` unwinds past that statement and leaves the whole
+    /// test binary terminating on `EPIPE`, which turns one reportable failure
+    /// into a killed process with no output.
+    #[cfg(unix)]
+    struct SigpipeDisposition(libc::sighandler_t);
+
+    #[cfg(unix)]
+    impl SigpipeDisposition {
+        #[allow(unsafe_code)]
+        fn install(handler: libc::sighandler_t) -> Self {
+            // SAFETY: test-only. `SIGPIPE` is catchable, so `signal` cannot
+            // fail, and the previous disposition goes back on drop.
+            Self(unsafe { libc::signal(libc::SIGPIPE, handler) })
+        }
+    }
+
+    #[cfg(unix)]
+    impl Drop for SigpipeDisposition {
+        #[allow(unsafe_code)]
+        fn drop(&mut self) {
+            // SAFETY: restoring the disposition captured in `install`.
+            unsafe {
+                libc::signal(libc::SIGPIPE, self.0);
+            }
+        }
+    }
+
     /// A driver that stops reading is how #59 used to kill `rr`. The
     /// disposition here is the one `main` installs; without the ignore around
     /// convert-to-Git this process dies before the assertion.
     #[cfg(unix)]
     #[test]
-    #[allow(unsafe_code)]
     fn a_clean_filter_that_closes_stdin_returns_what_the_driver_wrote() {
         let (temp, _repo) = committed_repo();
         git(temp.path(), &["config", "filter.trunc.clean", "head -c 8"]);
@@ -685,17 +715,9 @@ mod tests {
         write(temp.path(), SOURCE, input.as_bytes());
         let repo = GitRepo::discover(temp.path()).unwrap().unwrap();
 
-        // SAFETY: test-only. Restored to SIG_IGN below so later tests in this
-        // binary keep Rust's default rather than a terminating disposition.
-        unsafe {
-            libc::signal(libc::SIGPIPE, libc::SIG_DFL);
-        }
-
+        let terminating = SigpipeDisposition::install(libc::SIG_DFL);
         let bytes = repo.convert_to_git(input.as_bytes(), &source()).unwrap();
-
-        unsafe {
-            libc::signal(libc::SIGPIPE, libc::SIG_IGN);
-        }
+        drop(terminating);
 
         assert_eq!(bytes, b"pub fn v");
     }
