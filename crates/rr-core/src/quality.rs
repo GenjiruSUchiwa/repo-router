@@ -568,15 +568,11 @@ pub struct RoutingMetrics {
 /// raise a recall figure that measures something they never participated in.
 #[must_use]
 pub fn routing_metrics(verdicts: &[RoutingCaseVerdict]) -> RoutingMetrics {
-    let answerable = count(verdicts, |verdict| {
-        matches!(verdict.expectation, CaseExpectation::Answerable)
-    });
-    let must_abstain = count(verdicts, |verdict| {
-        matches!(verdict.expectation, CaseExpectation::MustAbstain)
-    });
+    let answerable = count_expectation(verdicts, CaseExpectation::Answerable);
+    let must_abstain = count_expectation(verdicts, CaseExpectation::MustAbstain);
     let answerable_hit = |rank: u32| {
         count(verdicts, |verdict| {
-            matches!(verdict.expectation, CaseExpectation::Answerable) && verdict.hit_at(rank)
+            verdict.expectation == CaseExpectation::Answerable && verdict.hit_at(rank)
         })
     };
     let directs = count(verdicts, |verdict| verdict.answered_direct);
@@ -593,11 +589,21 @@ pub fn routing_metrics(verdicts: &[RoutingCaseVerdict]) -> RoutingMetrics {
         ),
         required_abstention: Ratio::new(
             count(verdicts, |verdict| {
-                matches!(verdict.expectation, CaseExpectation::MustAbstain) && verdict.abstained()
+                verdict.expectation == CaseExpectation::MustAbstain && verdict.abstained()
             }),
             must_abstain,
         ),
     }
+}
+
+/// How many verdicts came from cases carrying `expectation`.
+///
+/// The two populations are named here rather than matched inline at each use,
+/// because they are the two denominators every routing figure is divided by. A
+/// figure divided by the other one is a figure that rose without anything having
+/// improved, which is the one failure this whole module is built to prevent.
+fn count_expectation(verdicts: &[RoutingCaseVerdict], expectation: CaseExpectation) -> u64 {
+    count(verdicts, |verdict| verdict.expectation == expectation)
 }
 
 /// How many verdicts satisfy `predicate`.
@@ -952,10 +958,7 @@ fn absent_evidence(evidence: &GateEvidence) -> String {
     if evidence.routing.is_none() {
         absent.push("routing");
     }
-    if evidence
-        .safety
-        .is_none_or(|safety| safety.denominator == 0)
-    {
+    if evidence.safety.is_none_or(|safety| safety.denominator == 0) {
         absent.push("safety");
     }
     if evidence.performance.is_none() {
@@ -994,7 +997,8 @@ pub const MAX_CORPUS_FILE_BYTES: u64 = 16 * 1024 * 1024;
 /// failing — a red build for work nobody has been asked to do teaches a team to
 /// ignore red builds — and it names the pull request that ends the skip, so the
 /// skip cannot be mistaken for a passing run.
-pub const CORPUS_ABSENT_SKIP: &str = "fixtures/corpus/manifest.json absent; see the corpus-update PR";
+pub const CORPUS_ABSENT_SKIP: &str =
+    "fixtures/corpus/manifest.json absent; see the corpus-update PR";
 
 /// The variable that lets a run rewrite a locked artifact.
 ///
@@ -1117,13 +1121,19 @@ impl CorpusFault {
     pub const fn summary(self) -> &'static str {
         match self {
             Self::Unreadable => "a corpus file could not be read",
-            Self::ManifestMalformed => "the corpus manifest is not the document this contract \
-                                       describes",
+            Self::ManifestMalformed => {
+                "the corpus manifest is not the document this contract \
+                                       describes"
+            }
             Self::TrailingBytes => "a corpus document decoded and something followed it",
-            Self::UnsupportedVersion => "the corpus manifest declares an unsupported schema \
-                                         version",
-            Self::ProvenanceMalformed => "a vendored repository's provenance is not in the \
-                                          published spelling",
+            Self::UnsupportedVersion => {
+                "the corpus manifest declares an unsupported schema \
+                                         version"
+            }
+            Self::ProvenanceMalformed => {
+                "a vendored repository's provenance is not in the \
+                                          published spelling"
+            }
             Self::PathEscape => "a declared path leaves the corpus directory",
             Self::ForeignPath => "a declared path does not sit under the entry that declares it",
             Self::DuplicateDeclaration => "one path is declared twice",
@@ -1135,10 +1145,14 @@ impl CorpusFault {
             Self::LengthDrift => "a corpus file's byte length is not the declared one",
             Self::ModeDrift => "a corpus file's mode is not the declared one",
             Self::DigestDrift => "a corpus file's bytes are not the declared ones",
-            Self::GeneratorDrift => "the generated repository is not what this build's generator \
-                                     produces",
-            Self::LicenseMismatch => "a vendored repository's licence is not the one the manifest \
-                                      declares",
+            Self::GeneratorDrift => {
+                "the generated repository is not what this build's generator \
+                                     produces"
+            }
+            Self::LicenseMismatch => {
+                "a vendored repository's licence is not the one the manifest \
+                                      declares"
+            }
         }
     }
 
@@ -1217,6 +1231,35 @@ pub enum CorpusTier {
     /// The generated repository, which is not vendored and not counted.
     Performance,
 }
+
+impl CorpusTier {
+    /// The published spelling, identical in JSON and in a diagnostic.
+    ///
+    /// One spelling and not two: the manifest names a tier in kebab-case through
+    /// serde, and a diagnostic that named it any other way would send a reader
+    /// looking through the manifest for a word that is not in it.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Small => "small",
+            Self::Medium => "medium",
+            Self::Large => "large",
+            Self::Performance => "performance",
+        }
+    }
+}
+
+/// Every tier a manifest may declare, which is the whole closed vocabulary.
+///
+/// Checks walk this list rather than the tiers a manifest happens to contain, so
+/// "every tier was looked at" is a property of the code and not of the data it
+/// was handed.
+pub const CORPUS_TIERS: [CorpusTier; 4] = [
+    CorpusTier::Small,
+    CorpusTier::Medium,
+    CorpusTier::Large,
+    CorpusTier::Performance,
+];
 
 /// Where one corpus repository came from.
 ///
@@ -1355,6 +1398,7 @@ pub fn verify_manifest(root: &Path) -> Vec<DiagnosticV1> {
     }
     declared.insert(String::from("manifest.json"), Role::Content);
 
+    verify_tiers(&manifest, &mut diagnostics);
     for repository in &manifest.repositories {
         verify_repository(&corpus, repository, &mut diagnostics);
     }
@@ -1363,6 +1407,34 @@ pub fn verify_manifest(root: &Path) -> Vec<DiagnosticV1> {
     }
     verify_no_undeclared(&corpus, &declared, &mut diagnostics);
     diagnostics
+}
+
+/// Reports a tier that two repositories both claim.
+///
+/// The tier is the only thing in the manifest that says which of the vendored
+/// trees a figure was measured on. Two entries claiming one tier therefore mean a
+/// tier is *gone*, and every figure filed under the missing one was measured on a
+/// tree that does not answer for it. A tier that no repository claims is not
+/// reported: a corpus halfway through vendoring declares fewer than four, and a
+/// verifier that failed on that would fail on every step of the human procedure
+/// except the last one.
+fn verify_tiers(manifest: &CorpusManifest, diagnostics: &mut Vec<DiagnosticV1>) {
+    for tier in CORPUS_TIERS {
+        let claimants: Vec<&str> = manifest
+            .repositories
+            .iter()
+            .filter(|repository| repository.tier == tier)
+            .map(|repository| repository.id.as_str())
+            .collect();
+        if claimants.len() > 1 {
+            diagnostics.push(corpus_diagnostic(
+                "manifest.json",
+                CorpusFault::ManifestMalformed,
+                Some(format!("one repository at tier {}", tier.as_str())),
+                Some(claimants.join(", ")),
+            ));
+        }
+    }
 }
 
 /// Records every path one repository entry declares.
@@ -1469,16 +1541,14 @@ fn verify_repository(
                 verify_file(corpus, file, Role::Content, diagnostics);
             }
         }
-        Provenance::Generated(generated) => verify_generated(&repository.id, generated, diagnostics),
+        Provenance::Generated(generated) => {
+            verify_generated(&repository.id, generated, diagnostics);
+        }
     }
 }
 
 /// Verifies that a vendored entry says where its bytes came from.
-fn verify_provenance(
-    id: &str,
-    vendored: &VendoredProvenance,
-    diagnostics: &mut Vec<DiagnosticV1>,
-) {
+fn verify_provenance(id: &str, vendored: &VendoredProvenance, diagnostics: &mut Vec<DiagnosticV1>) {
     let path = format!("repos/{id}");
     if !vendored.upstream_url.starts_with("https://") {
         diagnostics.push(corpus_diagnostic(
@@ -1555,12 +1625,7 @@ fn verify_generated(
 }
 
 /// Verifies one declared file against the bytes on disk.
-fn verify_file(
-    corpus: &Path,
-    file: &CorpusFile,
-    role: Role,
-    diagnostics: &mut Vec<DiagnosticV1>,
-) {
+fn verify_file(corpus: &Path, file: &CorpusFile, role: Role, diagnostics: &mut Vec<DiagnosticV1>) {
     let Ok(relative) = RelPath::new(&file.path) else {
         return;
     };
@@ -1568,16 +1633,34 @@ fn verify_file(
     let metadata = match std::fs::symlink_metadata(&full) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            diagnostics.push(role_diagnostic(&file.path, CorpusFault::MissingFile, role, None, None));
+            diagnostics.push(role_diagnostic(
+                &file.path,
+                CorpusFault::MissingFile,
+                role,
+                None,
+                None,
+            ));
             return;
         }
         Err(_) => {
-            diagnostics.push(role_diagnostic(&file.path, CorpusFault::Unreadable, role, None, None));
+            diagnostics.push(role_diagnostic(
+                &file.path,
+                CorpusFault::Unreadable,
+                role,
+                None,
+                None,
+            ));
             return;
         }
     };
     if metadata.file_type().is_symlink() {
-        diagnostics.push(role_diagnostic(&file.path, CorpusFault::SymlinkEntry, role, None, None));
+        diagnostics.push(role_diagnostic(
+            &file.path,
+            CorpusFault::SymlinkEntry,
+            role,
+            None,
+            None,
+        ));
         return;
     }
     if !metadata.is_file() {
@@ -1591,7 +1674,13 @@ fn verify_file(
         return;
     }
     if metadata.len() > MAX_CORPUS_FILE_BYTES {
-        diagnostics.push(role_diagnostic(&file.path, CorpusFault::FileTooLarge, role, None, None));
+        diagnostics.push(role_diagnostic(
+            &file.path,
+            CorpusFault::FileTooLarge,
+            role,
+            None,
+            None,
+        ));
         return;
     }
     if metadata.len() != file.bytes {
@@ -1616,7 +1705,13 @@ fn verify_file(
         }
     }
     let Ok(bytes) = std::fs::read(&full) else {
-        diagnostics.push(role_diagnostic(&file.path, CorpusFault::Unreadable, role, None, None));
+        diagnostics.push(role_diagnostic(
+            &file.path,
+            CorpusFault::Unreadable,
+            role,
+            None,
+            None,
+        ));
         return;
     };
     let observed = Digest::of_bytes(&bytes).to_text();
@@ -1652,7 +1747,12 @@ fn verify_no_undeclared(
     };
     for path in found {
         if !declared.contains_key(&path) {
-            diagnostics.push(corpus_diagnostic(&path, CorpusFault::UndeclaredFile, None, None));
+            diagnostics.push(corpus_diagnostic(
+                &path,
+                CorpusFault::UndeclaredFile,
+                None,
+                None,
+            ));
         }
     }
 }
@@ -1867,7 +1967,9 @@ pub fn relock(previous: &CorpusManifest, root: &Path) -> Result<CorpusManifest, 
         found
             .iter()
             .filter(|path| {
-                !path.starts_with("repos/") && !path.starts_with("licenses/") && *path != "manifest.json"
+                !path.starts_with("repos/")
+                    && !path.starts_with("licenses/")
+                    && *path != "manifest.json"
             })
             .map(String::as_str),
     )?;
@@ -2232,7 +2334,10 @@ impl fmt::Display for AggregationFault {
             | Self::ShardOutOfRange(shard) => write!(f, "{spelling}: shard {shard}"),
             Self::UnsupportedVersion(version) => write!(f, "{spelling}: {version}"),
             Self::ShardCountMismatch { declared, expected } => {
-                write!(f, "{spelling}: {declared} shards, this build splits into {expected}")
+                write!(
+                    f,
+                    "{spelling}: {declared} shards, this build splits into {expected}"
+                )
             }
             Self::DigestMalformed(digest) | Self::ManifestMismatch { other: digest, .. } => {
                 write!(f, "{spelling}: {digest}")
@@ -2245,7 +2350,10 @@ impl fmt::Display for AggregationFault {
                 case_id,
                 ran_on,
                 belongs_to,
-            } => write!(f, "{spelling}: {case_id} ran on {ran_on}, belongs to {belongs_to}"),
+            } => write!(
+                f,
+                "{spelling}: {case_id} ran on {ran_on}, belongs to {belongs_to}"
+            ),
         }
     }
 }
@@ -2910,10 +3018,8 @@ mod tests {
     #[test]
     fn perf_decision_has_no_absolute_latency_field() {
         let decision = PerfDecision::decide(Ratio::new(11, 10), Ratio::new(21, 20));
-        let json: serde_json::Value = serde_json::from_str(
-            &serde_json::to_string(&decision).unwrap(),
-        )
-        .unwrap();
+        let json: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&decision).unwrap()).unwrap();
 
         let mut keys = Vec::new();
         collect_keys(&json, &mut keys);
@@ -2933,15 +3039,7 @@ mod tests {
             ]
         );
         for forbidden in [
-            "ms",
-            "millis",
-            "nanos",
-            "micros",
-            "seconds",
-            "duration",
-            "latency",
-            "elapsed",
-            "time",
+            "ms", "millis", "nanos", "micros", "seconds", "duration", "latency", "elapsed", "time",
         ] {
             assert!(
                 keys.iter().all(|key| !key.contains(forbidden)),

@@ -32,9 +32,19 @@ compiled `rr` binary. Vendoring is the human step described below.
 | `check-cases.json` | `rr check` goldens |
 | `adversarial/` | fixtures that must fail in bounded ways rather than panic or escape |
 | `baselines/` | committed performance baselines, one per platform |
+| `baselines/top1-cases.txt` | the approved top-one recall, one integer. Absent until a corpus-update PR approves one, and then top-one may not lose more than one case against it |
 
 Generated evidence never lives here. It goes to `target/rr-quality/`, which is not
-committed, because a report produced by a run is not an input to the next one.
+committed, because a report produced by a run is not an input to the next one:
+
+| Path under `target/rr-quality/` | Written by | Read by |
+|---|---|---|
+| `shard-<n>.json` | `corpus_gate`, one file per shard it covered | `corpus_aggregate` |
+| `perf-evidence-v1.json` | the benchmark run on the one pinned platform, as two integer ratios and no duration | `corpus_aggregate` |
+| `quality-report-v1.json` | `corpus_aggregate` | `rr check --quality-report` |
+
+A shard that measured nothing still writes its file. Absence means "this shard
+never ran", and the aggregation refuses that rather than averaging what it got.
 
 ## The generated repository is not in this tree
 
@@ -74,6 +84,12 @@ a human decision recorded in code.
    repository: `id`, `tier`, the upstream URL, the commit, the retrieval date and
    the SPDX expression. Leave every `bytes` at `0` and every `digest` at its
    placeholder; step 5 computes them.
+
+   No two repositories may claim one tier. The tier is the only thing in the
+   manifest that says which vendored tree a figure was measured on, so two
+   entries labelled `large` mean a tier is gone and the figures filed under the
+   missing one were measured somewhere else. A tier nothing claims yet is fine:
+   that is every step of this procedure except the last.
 5. Regenerate the locks. This is the only mode that may write here:
 
    ```sh
@@ -91,14 +107,24 @@ a human decision recorded in code.
    and whether a single committed anchor is permitted; plus at least eight
    must-abstain cases. The must-abstain cases never enter the answerable
    denominator.
-7. Re-run step 5, then run the gate on every shard:
+7. Re-run step 5, then run the gate on every shard and adjudicate the aggregate:
 
    ```sh
    for shard in 0 1 2 3; do
      RR_CORPUS_SHARD=$shard/4 cargo test --release -p rr-cli --test corpus \
          -- --ignored --exact corpus_gate
    done
+   cargo test --release -p rr-cli --test corpus -- --ignored --exact corpus_aggregate
+   cargo run --release -p rr-cli -- check \
+       --quality-report target/rr-quality/quality-report-v1.json --json
    ```
+
+   A case belongs to shard `sha256(case_id) mod 4`, so the identity decides the
+   shard and not the position in the file: inserting a case at the top does not
+   move every other case to another machine. `corpus_aggregate` refuses anything it
+   cannot place — a case nobody ran, a case two shards ran, a case no file declares,
+   a case run by the wrong shard — because each of those shrinks a denominator, and
+   a denominator that shrank is a score that rose.
 
 8. Open the pull request with the `corpus-update` label, quality CODEOWNER review,
    the provenance and licence evidence, the regenerated locks, and the before and
