@@ -1,0 +1,146 @@
+{
+  "schema_version": 1,
+  "repositories": [
+    {
+      "id": "small",
+      "tier": "small",
+      "provenance": {
+        "vendored": {
+          "upstream_url": "https://example.invalid/replace-me",
+          "commit": "0000000000000000000000000000000000000000",
+          "retrieved": "1970-01-01",
+          "spdx": "MIT OR Apache-2.0",
+          "license_files": [
+            {
+              "path": "licenses/small-LICENSE-MIT",
+              "mode": "regular",
+              "bytes": 0,
+              "digest": "blake3:0000000000000000000000000000000000000000000000000000000000000000"
+            }
+          ]
+        }
+      },
+      "files": [
+        {
+          "path": "repos/small/src/lib.rs",
+          "mode": "regular",
+          "bytes": 0,
+          "digest": "blake3:0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ]
+    },
+    {
+      "id": "medium",
+      "tier": "medium",
+      "provenance": {
+        "vendored": {
+          "upstream_url": "https://example.invalid/replace-me",
+          "commit": "0000000000000000000000000000000000000000",
+          "retrieved": "1970-01-01",
+          "spdx": "MIT",
+          "license_files": [
+            {
+              "path": "licenses/medium-LICENSE",
+              "mode": "regular",
+              "bytes": 0,
+              "digest": "blake3:0000000000000000000000000000000000000000000000000000000000000000"
+            }
+          ]
+        }
+      },
+      "files": [
+        {
+          "path": "repos/medium/src/lib.rs",
+          "mode": "regular",
+          "bytes": 0,
+          "digest": "blake3:0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ]
+    },
+    {
+      "id": "large",
+      "tier": "large",
+      "provenance": {
+        "vendored": {
+          "upstream_url": "https://example.invalid/replace-me",
+          "commit": "0000000000000000000000000000000000000000",
+          "retrieved": "1970-01-01",
+          "spdx": "Apache-2.0",
+          "license_files": [
+            {
+              "path": "licenses/large-LICENSE",
+              "mode": "regular",
+              "bytes": 0,
+              "digest": "blake3:0000000000000000000000000000000000000000000000000000000000000000"
+            }
+          ]
+        }
+      },
+      "files": [
+        {
+          "path": "repos/large/src/lib.rs",
+          "mode": "regular",
+          "bytes": 0,
+          "digest": "blake3:0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ]
+    },
+    {
+      "id": "synthetic-10k",
+      "tier": "performance",
+      "provenance": {
+        "generated": {
+          "generator_version": 1,
+          "seed": 424242,
+          "files": 10000,
+          "digest": "blake3:339b49b25c568cc656b0af20d695944361e4e5a0ca0985f44583af3dc603b139"
+        }
+      },
+      "files": []
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "README.md",
+      "mode": "regular",
+      "bytes": 0,
+      "digest": "blake3:0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "path": "manifest.template.json",
+      "mode": "regular",
+      "bytes": 0,
+      "digest": "blake3:0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "path": "queries.json",
+      "mode": "regular",
+      "bytes": 0,
+      "digest": "blake3:0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "path": "impact-cases.json",
+      "mode": "regular",
+      "bytes": 0,
+      "digest": "blake3:0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "path": "check-cases.json",
+      "mode": "regular",
+      "bytes": 0,
+      "digest": "blake3:0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "path": "adversarial/.gitkeep",
+      "mode": "regular",
+      "bytes": 0,
+      "digest": "blake3:0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "path": "baselines/.gitkeep",
+      "mode": "regular",
+      "bytes": 0,
+      "digest": "blake3:0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  ]
+}
