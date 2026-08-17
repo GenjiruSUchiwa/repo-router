@@ -398,29 +398,43 @@ fn a_better_match_in_another_directory_retires_the_route() {
     );
 }
 
-/// The moved-`HEAD` window is verified once, not once per query.
+/// The other side of the window above, and what keeps it from being optimism.
 ///
-/// `rr map`, commit the generated maps, then ask: every query in that window
-/// used to pay a full `rr_git::status` tree walk, and the window lasts until the
-/// next `rr refresh` — which is exactly the stretch the cache exists to make
-/// fast. The memo is the observable half of the fix, so it is what is asserted.
+/// The test before this one commits the generated maps and expects the cache to
+/// keep serving. On its own that is satisfied by trusting *every* moved `HEAD`,
+/// which is not a window but a hole — so this commits something the index is a
+/// statement about and requires the refusal.
+///
+/// Asked twice on purpose. The verdict is re-derived from the commit's tree diff
+/// on every query rather than remembered, because a remembered one outlives the
+/// state it was true of: a memo saying "this commit is inert" would still be
+/// there after the next commit made it false.
 #[test]
-fn the_moved_head_window_is_verified_once() {
+fn a_commit_that_touches_an_indexed_source_closes_the_window() {
     let temp = repo();
     let root = temp.path();
-    let memo = root.join(".rr/local/memo/head-verified");
 
     ask(root, "verify token");
-    assert!(
-        !memo.exists(),
-        "a query whose HEAD matches the index must not walk the tree at all"
+    commit_all(root, "commit the generated maps");
+    assert_eq!(
+        ask(root, "verify token")["pipeline"],
+        "route",
+        "the inert commit was refused, so what follows would prove nothing"
     );
 
-    commit_all(root, "commit the generated maps");
-    ask(root, "verify token");
-    assert!(
-        memo.exists(),
-        "the verification was not remembered, so every query in this window re-walks the tree"
+    let source = read(root, "src/auth/token.rs");
+    write(
+        root,
+        "src/auth/token.rs",
+        &source.replace("verify_token", "check_token"),
+    );
+    commit_all(root, "rename the verifier");
+
+    let output = run(root, &["query", "--json", "verify token"]);
+    assert_ne!(
+        code(&output),
+        0,
+        "a commit that renamed an indexed symbol was answered from a stale index"
     );
 }
 

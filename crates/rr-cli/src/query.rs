@@ -6,16 +6,14 @@
 //! is; `rr-git` decides *what the file says*; this module is the only place
 //! that puts the two together.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{bail, Context};
-use rr_core::cancel::CancelToken;
 use rr_core::index::Snapshot;
 use rr_core::path::RelPath;
 use rr_core::query::{parse_query, resolve_route_anchor, route_query, QueryRequest};
 use rr_core::ranking::{RankingScratch, DEFAULT_RANKING_PROFILE};
-use rr_core::refresh::SnapshotLabel;
 use rr_core::render::{
     encode_anchor, render_json, render_json_explained, render_text, render_text_explained,
 };
@@ -125,11 +123,11 @@ struct Workspace {
     ///
     /// Every memo under `.rr/local/memo/` is a claim about these exact bytes, so
     /// it is read and written against this one stamp rather than against
-    /// whatever the file happens to be when a memo is reached. Taken on both
-    /// sides of the load and kept only if it did not move, because a
-    /// publication landing mid-load would otherwise pair one snapshot's stamp
-    /// with another snapshot's contents — and that pairing is a wrong answer
-    /// rather than a slow one.
+    /// whatever the file happens to be when a memo is reached. Taken by the load
+    /// itself, which is the only place the bytes and the snapshot are the same
+    /// thing: stat-ing the file around the load would let a publication landing
+    /// mid-load pair one snapshot's stamp with another snapshot's contents, and
+    /// that pairing is a wrong answer rather than a slow one.
     stamp: Option<String>,
 }
 
@@ -149,24 +147,36 @@ impl Workspace {
             None => (canonical, None),
         };
 
-        let before = rr_core::workspace::snapshot_stamp(&root);
-        let snapshot = match SnapshotStore::new(&root)
-            .load()
-            .map_err(|err| anyhow::anyhow!("{err}"))?
-        {
+        let (outcome, stamp) = SnapshotStore::new(&root)
+            .load_identified()
+            .map_err(|err| anyhow::anyhow!("{err}"))?;
+        let snapshot = match outcome {
             LoadOutcome::Ready(snapshot) => snapshot,
             LoadOutcome::Missing => bail!("index missing; run 'rr map'"),
             LoadOutcome::NeedsRebuild(_) => bail!("index invalid; run 'rr map'"),
         };
-        let stamp = rr_core::workspace::snapshot_stamp(&root)
-            .filter(|after| before.as_deref() == Some(after.as_str()));
 
         if repo.is_some() {
             if snapshot.meta.no_git {
                 bail!("index repository mismatch; run 'rr map'");
             }
+            // A moved `HEAD` is not a stale index. The commit that moves it most
+            // often is the one that commits the generated maps, which touches no
+            // indexed source at all — and `rr status` already knows that,
+            // because #44 gave it the `HEAD`-to-`HEAD` tree diff. Comparing
+            // commit ids alone left the two commands contradicting each other on
+            // the same snapshot in the same second: `snapshot: fresh,
+            // stale_paths: 0` from one, `index is stale` from the other.
+            //
+            // Asked out of the commit's own tree diff, on every query rather
+            // than once. The window this covers — `rr map`, commit the generated
+            // maps, ask something — lasts until the next `rr refresh`, so the
+            // question has to be cheap enough to repeat, and a diff of what was
+            // committed is. Re-deriving it also means nothing here can outlive
+            // the state it was true of, which a remembered answer would.
             if snapshot.meta.repo_head_oid != head_oid
-                && !index_still_holds(&root, stamp.as_deref(), head_oid)?
+                && !rr_git::commits_left_index_true(&root, &snapshot, head_oid)
+                    .context("compare index to repository")?
             {
                 bail!("index is stale; run 'rr refresh'");
             }
@@ -182,79 +192,6 @@ impl Workspace {
         })
     }
 }
-
-/// Whether the snapshot still describes the repository, asked properly.
-///
-/// A moved `HEAD` is not a stale index. The commit that moves it most often is
-/// the one that commits the generated maps, which touches no indexed source at
-/// all — and `rr status` already knows that, because #44 gave it the
-/// `HEAD`-to-`HEAD` tree diff. Comparing commit ids here instead left the two
-/// commands contradicting each other on the same snapshot in the same second:
-/// `snapshot: fresh, stale_paths: 0` from one, `index is stale` from the other.
-/// So this asks `rr status`'s own question rather than a cheaper one that gives
-/// a different answer.
-///
-/// Only reached when the ids differ, and then **once**. The window this opens is
-/// the one a user meets first — `rr map`, commit the generated maps, ask
-/// something — and it lasts until the next `rr refresh`, so a walk per query
-/// would make every query in it slow rather than the first. A walk that
-/// *observed* agreement is therefore memoized against the commit it was reached
-/// for; one that could only report ignorance is not, because ignorance is a
-/// condition that clears and a memo would outlive it.
-///
-/// The memo is stamped against the snapshot file, so a rebuilt index is never
-/// answered from it. Within one snapshot and one commit it says exactly what the
-/// equal-ids branch above says without being asked: that this index describes
-/// this repository. A worktree edit made after the verification is invisible to
-/// it — and equally invisible to the equal-ids branch, which never walks at all.
-/// This grants the moved-`HEAD` window the same trust as the unmoved one, which
-/// is the whole claim of the commit that opened it.
-fn index_still_holds(
-    root: &Path,
-    stamp: Option<&str>,
-    head: Option<rr_core::oid::Oid>,
-) -> anyhow::Result<bool> {
-    let verified = head.map_or_else(|| "none".to_owned(), |oid| oid.to_hex());
-    if stamp
-        .and_then(|stamp| rr_core::workspace::read_memo(root, HEAD_VERIFIED_MEMO, stamp))
-        .as_deref()
-        == Some(verified.as_str())
-    {
-        return Ok(true);
-    }
-    let report =
-        rr_git::status(root, &CancelToken::new()).context("compare index to repository")?;
-    // `Unknown` is ignorance, not evidence — a tree that could not be compared
-    // has said nothing, and refusing on nothing is the behaviour that was wrong
-    // in the first place. Named rather than excluded: `Missing`, `Corrupt` and
-    // `Incompatible` are plans that would rebuild *everything*, which is more
-    // than reconsidering paths, and a `!= Stale` test would read every one of
-    // them as agreement.
-    let holds = matches!(
-        report.snapshot,
-        SnapshotLabel::Fresh | SnapshotLabel::Unknown
-    );
-    // Only an *observation* is remembered, which `Unknown` is not: it means the
-    // tree could not be compared at all — a clean filter that died, a `git`
-    // holding the index lock — and that is a condition which clears. Memoizing
-    // it would turn one transient failure into standing trust in an index the
-    // very next walk would have called stale, for as long as this snapshot and
-    // this commit last. Answering the query on it is the documented trade; not
-    // re-asking afterwards is not.
-    //
-    // A refusal is not remembered either: it is the state a user is about to
-    // change by running `rr refresh`, and a memo saying "stale" would have to be
-    // invalidated by the very thing that fixes it.
-    if report.snapshot == SnapshotLabel::Fresh {
-        if let Some(stamp) = stamp {
-            rr_core::workspace::write_memo(root, HEAD_VERIFIED_MEMO, stamp, &verified);
-        }
-    }
-    Ok(holds)
-}
-
-/// The memo naming the commit this snapshot was last confirmed to describe.
-const HEAD_VERIFIED_MEMO: &str = "head-verified";
 
 /// The cached answer to this question, if there is one that is still true.
 ///

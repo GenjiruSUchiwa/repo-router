@@ -8,6 +8,7 @@
 //! `fresh` while `rr refresh` rebuilds every time.
 
 use std::collections::BTreeSet;
+use std::path::Path;
 use std::sync::Arc;
 
 use rr_core::cancel::CancelToken;
@@ -15,6 +16,7 @@ use rr_core::index::{ContentRepresentation, Snapshot};
 use rr_core::path::RelPath;
 use rr_core::refresh::{FullReason, PlanDraft, RefreshMode, RefreshPlan};
 use rr_core::snapshot::{LoadOutcome, RebuildReason, SnapshotStore};
+use rr_core::Oid;
 
 use rr_core::walk::{collected_lang, WalkCfg};
 
@@ -155,6 +157,77 @@ pub fn plan_for(
     }
 
     draft_from(observed, snapshot, repo, walk, &committed)
+}
+
+/// Whether the commits between the snapshot's `HEAD` and `after` left this
+/// index true, asked without looking at the working tree.
+///
+/// [`plan_for`] answers a strictly larger question and needs [`observe`] to do
+/// it: a walk of the whole tree, which is the right price for `rr status` and
+/// the wrong one for `rr query`. This asks only the part a moved `HEAD` raises
+/// — *did the commits in between touch anything this index is a statement
+/// about?* — and it asks it out of the commit's own tree diff, so the cost is
+/// proportional to what was committed rather than to what exists.
+///
+/// The predicates are [`plan_for`]'s, reached through the same [`Evidence`],
+/// which is what keeps the two from drifting into different answers about one
+/// repository. Rule paths are the one addition: discovery is a function of them
+/// and this has no observation to recompute the digest from, so a commit that
+/// touches one is refused rather than reasoned about.
+///
+/// Every uncertainty answers `false` — no `HEAD` on either side, no repository,
+/// a diff the object store would not produce. That is a slow answer (`rr
+/// refresh`) and never a wrong one.
+///
+/// What it does **not** see is a working-tree edit, and deliberately: neither
+/// does the caller's equal-ids branch, which never asks anything at all. So this
+/// grants a moved `HEAD` exactly the trust an unmoved one already had, and no
+/// more. Observing the tree is `rr status`'s job, and it is still the only
+/// command that does it.
+///
+/// # Errors
+/// Returns discovery and repository-open failures.
+pub fn commits_left_index_true(
+    root: &Path,
+    snapshot: &Snapshot,
+    after: Option<Oid>,
+) -> Result<bool> {
+    let (Some(before), Some(after)) = (snapshot.meta.repo_head_oid, after) else {
+        return Ok(false);
+    };
+    if before == after {
+        return Ok(true);
+    }
+
+    // One thread, and no pool: nothing here parses.
+    let context = BuildContext::open(root, 1)?;
+    let Some(repo) = context.repo()? else {
+        return Ok(false);
+    };
+    let CommittedDelta::Paths(committed) = repo.committed_delta(before, after) else {
+        return Ok(false);
+    };
+
+    let mut draft = PlanDraft::new();
+    let mut evidence = Evidence {
+        snapshot,
+        repo: Some(&repo),
+        walk: &context.walk,
+        content_reads: 0,
+    };
+    for change in &committed {
+        if crate::rules::is_rule_path(&change.path) {
+            return Ok(false);
+        }
+        match change.kind {
+            CommittedKind::Removed => evidence.remove(&mut draft, &change.path),
+            CommittedKind::Touched => evidence.recheck(&mut draft, &change.path),
+        }
+    }
+
+    // A draft that will not build is a contradiction, which is a reason to
+    // refresh and not a reason to trust.
+    Ok(draft.build().is_ok_and(|plan| plan.is_empty_delta()))
 }
 
 /// Turns observed changes into a delta, or into the reason there cannot be one.
