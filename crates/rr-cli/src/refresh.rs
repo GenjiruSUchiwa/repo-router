@@ -28,6 +28,25 @@ use crate::text_artifacts;
 /// it would collide with the `2` that `clap` already returns for a mistyped
 /// flag, leaving a script unable to tell "your index is out of date" from "you
 /// misspelled `--threads`".
+///
+/// A fourth number a caller will see is **141**, and it is deliberately not a
+/// constant here: no command returns it. Writing to a pipe whose reader has gone
+/// terminates the process with SIGPIPE — `main` restores that disposition before
+/// the first print — and `128 + 13` is the shell's arithmetic over the `wait`
+/// status, not a value this crate chose. `INTERRUPTED` is the counter-example
+/// that makes the difference legible: a refresh *catches* SIGINT, stops at a
+/// boundary it chose, and returns `128 + 2`. Nothing catches SIGPIPE. A
+/// `BROKEN_PIPE` constant would be one nothing could return without claiming to
+/// have exited when it was killed. A closed stderr is the same story as a closed
+/// stdout, on purpose: under `2>&1` they are one pipe, and a rule that told them
+/// apart would only be telling apart which write happened to land first.
+///
+/// Termination is not unwinding, so a signalled run drops nothing — the
+/// publication guard included. Publication survives that only because no command
+/// prints while the guard is held: `run_refresh` writes its first line after
+/// `publish` has returned and released it. `tests/broken_pipe.rs` pins that
+/// ordering, and is the test that fails if progress output is ever added inside
+/// the guarded section.
 pub mod exit {
     /// The command did what it was asked.
     pub const OK: u8 = 0;

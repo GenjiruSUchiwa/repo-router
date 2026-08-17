@@ -174,6 +174,13 @@ but from the coupling between the index and the agent's instructions.
    the launcher refuses any platform other than linux-x86_64.
 6. Robustness detail to do better: the binary panics on SIGPIPE
    (`radar impact | head` → panic "Broken pipe"); handle EPIPE cleanly.
+   **Done from the first commit, and pinned since #45.** `rr` restores the
+   default SIGPIPE disposition in `main` before anything prints, so a consumer
+   that stops reading terminates `rr` with signal 13: no panic, no backtrace,
+   nothing on stderr, `141` to the shell. That covers writes `rr` does not make
+   — `clap`'s `--help` and `--version` — which an `ErrorKind::BrokenPipe` check
+   at rr's own write boundary could not have reached.
+   `crates/rr-cli/tests/broken_pipe.rs` keeps it true.
 
 ## 10. Fixture numbers (indicative)
 

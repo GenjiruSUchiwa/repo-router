@@ -37,7 +37,6 @@ impl Output {
     /// # Errors
     ///
     /// Returns an [`io::Error`] if writing to `stdout` fails.
-    #[allow(dead_code)]
     pub fn print_text(text: &str) -> io::Result<()> {
         let stdout = io::stdout().lock();
         Self::write_text(stdout, text)
