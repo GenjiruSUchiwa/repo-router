@@ -1,0 +1,11 @@
+`GsonBuilder` is defined in `gson/src/main/java/com/google/gson/GsonBuilder.java` (`rr` isn't installed in this environment, so I searched directly).
+
+Its `create()` method (line 922-924) is trivial:
+
+```java
+public Gson create() {
+  return new Gson(this);
+}
+```
+
+All the actual configuration work — resolving excluders, date adapters, `LongSerializationPolicy`, field-naming strategy, and building the full ordered list of `TypeAdapterFactory` instances — happens inside `Gson`'s constructor via `GsonBuilder.createFactories(...)` (line 926 onward), which `Gson` calls, passing `this` (the builder) in. So `create()` itself just hands the builder's accumulated state off to a new immutable `Gson` instance.

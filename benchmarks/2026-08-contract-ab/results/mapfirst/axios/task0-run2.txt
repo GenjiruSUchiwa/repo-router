@@ -1,0 +1,1 @@
+`dispatchRequest` lives at `lib/core/dispatchRequest.js`. It applies request transforms, selects and invokes the adapter (per `lib/adapters/adapters.js`), and applies response transforms before resolving/rejecting.

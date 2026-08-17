@@ -1,0 +1,14 @@
+`rr` isn't available in this environment (command not found), so I searched directly instead.
+
+The naming strategy lives in `Dapper/DefaultTypeMap.cs`, in the class `DefaultTypeMap` (implements `SqlMapper.ITypeMap`):
+
+- **`GetMember(string columnName)`** (line 147) is the core lookup: it matches a DB column name to a settable property/field via `MatchFirstOrDefault`.
+- **`MatchFirstOrDefault<T>`** (line 185) does the actual matching, in this priority order:
+  1. Exact name match (ordinal)
+  2. Case-insensitive exact match
+  3. If `MatchNamesWithUnderscores` is enabled: strip underscores from the column name and retry ordinal/case-insensitive, then also strip underscores from the *member* name and retry both — so `User_Id` matches `UserId`.
+- **`MatchNamesWithUnderscores`** (line 183) is a public static bool switch (off by default) that enables the underscore-stripping fallback — this is Dapper's "snake_case to PascalCase" support.
+- Fields get similar treatment directly in `GetMember` (lines 159–173), including handling Roslyn's auto-property backing field names (`<Name>k__BackingField`).
+- Constructor parameter matching uses the same underscore logic via `EqualsCI`/`EqualsCIU` helpers (lines 246–249) in `FindConstructor`.
+
+There's no pluggable naming-strategy interface — it's this fixed ordinal → case-insensitive → underscore-stripped matching cascade, toggled by the single static `MatchNamesWithUnderscores` flag.

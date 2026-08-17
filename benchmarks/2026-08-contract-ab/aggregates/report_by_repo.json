@@ -1,0 +1,110 @@
+{
+ "date-fns": {
+  "mapfirst": {
+   "correct": "6/6",
+   "cout": 0.6122,
+   "rr_query": 4,
+   "grep": 0,
+   "read_MAP": 2,
+   "read": 6
+  },
+  "radarstyle": {
+   "correct": "6/6",
+   "cout": 0.5808,
+   "rr_query": 6,
+   "grep": 1,
+   "read_MAP": 0,
+   "read": 6
+  }
+ },
+ "Dapper": {
+  "mapfirst": {
+   "correct": "6/6",
+   "cout": 0.7665,
+   "rr_query": 4,
+   "grep": 10,
+   "read_MAP": 2,
+   "read": 5
+  },
+  "radarstyle": {
+   "correct": "6/6",
+   "cout": 0.7253,
+   "rr_query": 6,
+   "grep": 8,
+   "read_MAP": 0,
+   "read": 5
+  }
+ },
+ "gson": {
+  "mapfirst": {
+   "correct": "6/6",
+   "cout": 0.7626,
+   "rr_query": 3,
+   "grep": 8,
+   "read_MAP": 2,
+   "read": 6
+  },
+  "radarstyle": {
+   "correct": "6/6",
+   "cout": 0.6272,
+   "rr_query": 6,
+   "grep": 9,
+   "read_MAP": 0,
+   "read": 2
+  }
+ },
+ "serde": {
+  "mapfirst": {
+   "correct": "6/6",
+   "cout": 0.4868,
+   "rr_query": 4,
+   "grep": 8,
+   "read_MAP": 0,
+   "read": 1
+  },
+  "radarstyle": {
+   "correct": "6/6",
+   "cout": 0.4263,
+   "rr_query": 6,
+   "grep": 8,
+   "read_MAP": 0,
+   "read": 0
+  }
+ },
+ "axios": {
+  "mapfirst": {
+   "correct": "6/6",
+   "cout": 0.697,
+   "rr_query": 2,
+   "grep": 4,
+   "read_MAP": 1,
+   "read": 3
+  },
+  "radarstyle": {
+   "correct": "6/6",
+   "cout": 0.6356,
+   "rr_query": 6,
+   "grep": 4,
+   "read_MAP": 0,
+   "read": 3
+  }
+ },
+ "cobra": {
+  "mapfirst": {
+   "correct": "6/6",
+   "cout": 0.5721,
+   "rr_query": 4,
+   "grep": 7,
+   "read_MAP": 0,
+   "read": 3
+  },
+  "radarstyle": {
+   "correct": "6/6",
+   "cout": 0.3621,
+   "rr_query": 4,
+   "grep": 6,
+   "read_MAP": 0,
+   "read": 0
+  }
+ }
+}

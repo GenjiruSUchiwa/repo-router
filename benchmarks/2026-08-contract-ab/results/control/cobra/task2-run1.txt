@@ -1,0 +1,4 @@
+Flag parsing lives in `command.go`:
+
+- `Command.ParseFlags` (command.go:1868) is the core entry point — it merges persistent flags via `mergePersistentFlags()` (line 1898), then delegates to the underlying `pflag.FlagSet` with `c.Flags().Parse(args)` (line 1882). Cobra itself doesn't implement flag parsing logic; it wraps `github.com/spf13/pflag`.
+- It's invoked from `execute()` (command.go:854) and `ExecuteC()` (command.go:919) during command execution, after `Find()` locates the target command and strips out the leading args to determine which flags belong to it.

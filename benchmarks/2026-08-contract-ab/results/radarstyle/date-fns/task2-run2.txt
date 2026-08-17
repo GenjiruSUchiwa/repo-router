@@ -1,0 +1,7 @@
+`isValid` is implemented in `pkgs/core/src/isValid/index.ts:35-37`.
+
+It works like this:
+- It first checks that the input is either a `Date` object (via `isDate`) or a `number` — if neither, it's invalid.
+- Otherwise it converts the input to a `Date` via `toDate` and checks `isNaN(+toDate(date))`. Coercing a `Date` to a number (`+date`) gives its time value in milliseconds; an "Invalid Date" has a time value of `NaN`.
+
+So the full condition `!((!isDate(date) && typeof date !== "number") || isNaN(+toDate(date)))` returns `true` only when the input is a Date or number **and** converts to a Date whose numeric time value isn't `NaN`.

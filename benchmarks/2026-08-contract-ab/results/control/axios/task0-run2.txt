@@ -1,0 +1,1 @@
+`lib/core/dispatchRequest.js:35` — that's `dispatchRequest`, which applies request transforms, invokes the selected adapter, applies response transforms, and normalizes errors via `AxiosError`. It's called from `lib/core/Axios.js` as the last step of the interceptor chain.

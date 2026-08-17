@@ -1,0 +1,1 @@
+The `derive(Serialize)` macro is defined at `serde_derive/src/lib.rs:113-119`, in `derive_serialize`, which delegates to `ser::expand_derive_serialize` (implemented in `serde_derive/src/ser.rs`).

@@ -1,0 +1,25 @@
+Now I have the full picture. Here's the chain:
+
+## Gson's `toJson` chain
+
+**1. Entry points** (`Gson.java`) — all overloads funnel down to the core method:
+```
+toJson(Object src)                              → toJson(src, src.getClass())
+toJson(Object src, Type typeOfSrc)              → builds StringBuilder, calls toJson(src, typeOfSrc, writer)
+toJson(Object src, Type typeOfSrc, Appendable)  → wraps in JsonWriter, calls toJson(src, typeOfSrc, jsonWriter)
+toJson(Object src, Type typeOfSrc, JsonWriter)  ← the core method (Gson.java:670)
+```
+
+**2. Core method** (`Gson.toJson(Object, Type, JsonWriter)`, line 670):
+- Resolves a `TypeAdapter<Object> adapter = getAdapter(TypeToken.get(typeOfSrc))`
+- Applies writer settings (strictness, htmlSafe, serializeNulls)
+- Delegates the actual write: `adapter.write(writer, src)`
+
+**3. `getAdapter(TypeToken<T>)`** (line 340) looks up the adapter via the chain of registered `TypeAdapterFactory`s (built-ins for primitives/collections/etc., then reflection-based fallback), caching results and guarding against reentrant/recursive type resolution with a `ThreadLocal` map + `FutureTypeAdapter`.
+
+**4. For plain POJOs**, the resolved adapter is typically `ReflectiveTypeAdapterFactory`'s adapter (`internal/bind/ReflectiveTypeAdapterFactory.java`), which:
+- Reflectively enumerates the object's fields (respecting `@SerializedName`, exclusion strategies, custom per-field adapters)
+- For each field, writes the field name then delegates to that field's own `TypeAdapter.write(...)` — recursing for nested objects
+- Writes the whole thing as a JSON object via `JsonWriter.beginObject()/endObject()`
+
+So the flow is: **`toJson(Object)` → `toJson(Object, Type)` → `toJson(Object, Type, Appendable)` → `toJson(Object, Type, JsonWriter)` → `getAdapter(TypeToken)` → `TypeAdapter.write(JsonWriter, T)`**, where the concrete `TypeAdapter` (often the reflective one) does the actual field-by-field serialization onto the streaming `JsonWriter`.

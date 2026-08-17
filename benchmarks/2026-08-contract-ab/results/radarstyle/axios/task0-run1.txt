@@ -1,0 +1,1 @@
+`dispatchRequest` is defined in `lib/core/dispatchRequest.js:35`. It's called from `lib/core/Axios.js` as part of the interceptor chain, and internally it selects and invokes the adapter via `adapter(config)` (adapter resolved through `lib/adapters/adapters.js`).

@@ -1,0 +1,15 @@
+The various `fromJson` overloads are in `gson/src/main/java/com/google/gson/Gson.java`, lines 850–1230ish. The core overloads:
+
+- `fromJson(String, Class<T>)` — line 850
+- `fromJson(String, Type)` — line 879
+- `fromJson(String, TypeToken<T>)` — line 909
+- `fromJson(Reader, Class<T>)` — line 940
+- `fromJson(Reader, Type)` — line 971
+- `fromJson(Reader, TypeToken<T>)` — line 1001
+- `fromJson(JsonReader, Type)` — line 1046 (the actual deserialization logic, others delegate here)
+- `fromJson(JsonReader, TypeToken<T>)` — line 1087
+- `fromJson(JsonElement, Class<T>)` — line 1159
+- `fromJson(JsonElement, Type)` — line 1186
+- `fromJson(JsonElement, TypeToken<T>)` — line 1212
+
+All the String/Reader/JsonElement variants ultimately funnel into `fromJson(JsonReader, TypeToken<T>)` (line 1087), which does the real work via `getAdapter(typeOfT).read(reader)`.

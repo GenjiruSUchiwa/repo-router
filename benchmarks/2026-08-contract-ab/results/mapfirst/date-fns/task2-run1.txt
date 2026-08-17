@@ -1,0 +1,15 @@
+`isValid` is implemented in `pkgs/core/src/isValid/index.ts:35`.
+
+It checks validity with:
+```ts
+export function isValid(date: unknown): boolean {
+  return !((!isDate(date) && typeof date !== "number") || isNaN(+toDate(date)));
+}
+```
+
+Logic:
+1. The input must be either an actual `Date` instance (checked via `isDate`) or a `number` — anything else (string, object, etc.) fails immediately.
+2. It converts the input to a `Date` via `toDate` and coerces that to its numeric time value (`+toDate(date)`). If that's `NaN` (an "Invalid Date"), it fails.
+3. If neither condition trips, it returns `true`.
+
+So `isValid` isn't a full type-guard for arbitrary input — it only accepts `Date` or `number` and then relies on `toDate` + `isNaN` to catch invalid time values (per the JS spec, an invalid date has a `NaN` time value).

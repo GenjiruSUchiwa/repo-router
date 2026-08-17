@@ -1,0 +1,22 @@
+`Query<T>` is implemented as an extension method on `IDbConnection` in `Dapper/SqlMapper.cs:844` (the main overload):
+
+```csharp
+public static IEnumerable<T> Query<T>(this IDbConnection cnn, string sql, object? param = null, IDbTransaction? transaction = null, bool buffered = true, int? commandTimeout = null, CommandType? commandType = null)
+{
+    var command = new CommandDefinition(sql, param, transaction, commandTimeout, commandType, buffered ? CommandFlags.Buffered : CommandFlags.None);
+    var data = QueryImpl<T>(cnn, command, typeof(T));
+    return command.Buffered ? data.ToList() : data;
+}
+```
+
+There's also a `CommandDefinition`-taking overload at `SqlMapper.cs:1062` that most other overloads funnel into.
+
+What it does:
+1. Wraps the sql/params/transaction/timeout/commandType into a `CommandDefinition`.
+2. Delegates to the private iterator `QueryImpl<T>` (`SqlMapper.cs:1202`), which:
+   - Builds an `Identity` (cache key based on sql text, connection, param type, target type) and fetches/builds cached parameter-reader and row-deserializer info via `GetCacheInfo`.
+   - Opens the connection if it was closed, sets up an `IDbCommand`, and executes an `ExecuteReader` (with `SequentialAccess | SingleResult`, falling back if the provider doesn't support those flags).
+   - Computes a hash of the reader's columns; if it differs from the cached deserializer's hash (or there's no cached deserializer), it builds/emits a new IL deserializer via `GetDeserializer` and caches it.
+   - Iterates `reader.Read()`, invoking the deserializer function per row and yielding results (`yield return`), i.e. it's a lazy iterator.
+   - On completion (or in `finally`), disposes the reader/command and closes the connection if Dapper opened it.
+3. Back in `Query<T>`, if `buffered` (the default), the lazy sequence is materialized into a `List<T>` before returning; otherwise the caller gets the still-open lazy enumerable (must be fully consumed to release the connection/reader).

@@ -1,0 +1,17 @@
+The core parsing lives entirely in `pkgs/core/src/parseISO/index.ts`. Here's the chain:
+
+**1. Split into components** — `splitDateString` (line 124) breaks the input string on the `T`/space delimiter into `date`, `time`, and `timezone` substrings using regexes in `patterns` (lines 112-116).
+
+**2. Parse the date part** — inside `parseISO` (lines 62-65):
+- `parseYear` (line 162) extracts the year via a dynamically-built regex (accounts for `additionalDigits`), returning `{ year, restDateString }`.
+- `parseDate` (line 185) matches the rest against `dateRegex` (line 118-119), which handles three ISO date forms — ordinal day-of-year, calendar month/day, and ISO week date (`W##`). For week dates it calls `dayOfISOWeekYear` (line 260) to compute the actual calendar date; otherwise it builds a `Date` via `date.setUTCFullYear(year, month, day)` (line 213). Validation happens via `validateDate`/`validateDayOfYearDate`/`validateWeekDate`.
+
+**3. Parse the time part** (line 73-76) — `parseTime` (line 222) matches `timeRegex` and converts hours/minutes/seconds (with comma/decimal support via `parseTimeUnit`) into a millisecond offset.
+
+**4. Parse the timezone part** (line 78-96) — `parseTimezone` (line 243) matches `timezoneRegex`, returning a signed millisecond offset (or `0` for `"Z"`). If no timezone was present in the string, the function instead reconstructs the date field-by-field in local time (lines 82-95), rather than applying an offset.
+
+**5. Combine** — final return (line 98): `toDate(timestamp + time + offset, options?.in)`, where `timestamp` is `+date` from step 2, added to the millisecond values from steps 3 and 4, then handed to `toDate` (`pkgs/core/src/toDate/index.ts`) to produce the final `Date` (or custom `DateType` via `options.in`).
+
+Invalid/unparseable input returns `constructFrom(options?.in, NaN)` (line 56), i.e. an Invalid Date.
+
+So the entry point and all ISO-parsing logic is in **`pkgs/core/src/parseISO/index.ts`**, main function starting at **line 52**.

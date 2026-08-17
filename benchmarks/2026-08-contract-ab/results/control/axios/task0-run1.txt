@@ -1,0 +1,1 @@
+`dispatchRequest` is defined in `lib/core/dispatchRequest.js:35`. It's the function that selects and invokes the adapter (via `lib/adapters/adapters.js`) and applies request/response transforms — it's used as the terminal link in `Axios.js`'s interceptor chain (`lib/core/Axios.js:195, 229, 242`).

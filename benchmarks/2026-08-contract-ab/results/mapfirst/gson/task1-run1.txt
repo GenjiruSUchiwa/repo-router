@@ -1,0 +1,11 @@
+`GsonBuilder` is defined at `gson/src/main/java/com/google/gson/GsonBuilder.java:93`.
+
+Its `create()` method (line 922) is intentionally simple:
+
+```java
+public Gson create() {
+  return new Gson(this);
+}
+```
+
+It's side-effect-free (can be called multiple times on the same builder) and just constructs a new `Gson` instance passing `this` (the builder) to the `Gson` constructor. The actual heavy lifting — assembling the list of `TypeAdapterFactory` instances from all the builder's configured options (custom adapters, date formats, naming policies, etc.) — happens inside `Gson`'s constructor via `GsonBuilder.createFactories(...)` (line 926), which `create()` doesn't call directly but which the `Gson` constructor invokes on the builder.

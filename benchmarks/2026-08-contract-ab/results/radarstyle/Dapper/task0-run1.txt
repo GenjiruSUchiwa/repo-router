@@ -1,0 +1,20 @@
+(Note: `rr` isn't installed here, so I fell back to grep/read directly.)
+
+`Query<T>` is implemented in `Dapper/SqlMapper.cs:844` as an extension method on `IDbConnection`:
+
+```csharp
+public static IEnumerable<T> Query<T>(this IDbConnection cnn, string sql, object? param = null,
+    IDbTransaction? transaction = null, bool buffered = true, int? commandTimeout = null, CommandType? commandType = null)
+{
+    var command = new CommandDefinition(sql, param, transaction, commandTimeout, commandType, buffered ? CommandFlags.Buffered : CommandFlags.None);
+    var data = QueryImpl<T>(cnn, command, typeof(T));
+    return command.Buffered ? data.ToList() : data;
+}
+```
+
+What it does:
+- Wraps the SQL, parameters, transaction, timeout, and command type into a `CommandDefinition`.
+- Delegates to the private `QueryImpl<T>` (same file) which opens/uses the connection, executes the command via ADO.NET, builds a row-materializer for `T` (via cached IL-emitted deserializers), and yields results lazily as an `IEnumerable<T>`.
+- If `buffered` is true (the default), it eagerly materializes the results into a `List<T>` before returning, so the underlying reader/connection can be closed immediately; if `false`, it returns the lazy enumerable and the caller is responsible for iterating (and disposing) it while the connection stays open.
+
+There's also an overload at line 1062 taking a `CommandDefinition` directly, which similarly delegates to `QueryImpl<T>`.

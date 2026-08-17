@@ -1,0 +1,3 @@
+`GsonBuilder` is defined at `gson/src/main/java/com/google/gson/GsonBuilder.java`. It's a builder class that accumulates configuration (field naming policies, type adapters, date formats, exclusion strategies, etc.) via chained setter methods.
+
+Its `create()` method (`GsonBuilder.java:922`) is a one-liner: `return new Gson(this);` — it passes the fully configured builder into `Gson`'s constructor, which reads all the accumulated settings off the builder (e.g. via `createFactories(...)`, line 926) to assemble the immutable `Gson` instance's list of `TypeAdapterFactory`s and other config.

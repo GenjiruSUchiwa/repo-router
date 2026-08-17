@@ -1,0 +1,28 @@
+## Gson's `toJson` chain
+
+**1. Entry points (`Gson.java`)** — all overloads funnel down to one core method:
+
+- `toJson(Object src)` → `toJson(src, src.getClass())`
+- `toJson(Object src, Type typeOfSrc)` → builds a `StringBuilder`, calls `toJson(src, typeOfSrc, writer)`
+- `toJson(Object src, Type typeOfSrc, Appendable writer)` → wraps the `Appendable` in a `JsonWriter`, delegates to the core overload
+- **Core**: `toJson(Object src, Type typeOfSrc, JsonWriter writer)` (Gson.java:670) does the real work:
+  1. `getAdapter(TypeToken.get(typeOfSrc))` resolves a `TypeAdapter<Object>` for the type
+  2. Applies writer settings (strictness, HTML-safe, serializeNulls) from the `Gson`/`GsonBuilder` config
+  3. Calls `adapter.write(writer, src)`
+  4. Restores the writer's original settings in a `finally` block
+
+**2. Adapter resolution (`Gson.getAdapter`, Gson.java:340)** — iterates the registered `TypeAdapterFactory` list (built-ins for primitives/collections/dates/enums etc., plus any user-registered ones, plus reflection-based fallback) calling `factory.create(this, type)` until one returns non-null. Results are cached in `typeTokenCache`; a thread-local map guards against infinite recursion for cyclic/self-referential types via a `FutureTypeAdapter`.
+
+**3. The default case — `ReflectiveTypeAdapterFactory`** — for a plain POJO with no custom adapter, this factory produces a reflective `TypeAdapter`. Its `Adapter.write` (ReflectiveTypeAdapterFactory.java:485):
+```java
+out.beginObject();
+for (BoundField boundField : fieldsData.serializedFields) {
+  boundField.write(out, value);
+}
+out.endObject();
+```
+Each `BoundField.write` (line 222) reads the field value via reflection (or a record accessor), looks up that field's own `TypeAdapter` (recursing through `getAdapter` again for nested objects), and writes `out.name(...)` + the value — which is how nested objects/collections/primitives all serialize recursively.
+
+**4. Bottom layer — `JsonWriter`** actually emits the JSON syntax/tokens to the underlying `Appendable`/`Writer`.
+
+So the chain is: `Gson.toJson(...)` overloads → core `toJson(src, type, JsonWriter)` → `getAdapter(type)` picks a `TypeAdapter` (built-in, custom, or reflective) → `adapter.write(writer, value)` recursively walks fields/elements → `JsonWriter` streams out the JSON text.

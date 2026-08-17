@@ -1,0 +1,1 @@
+The `Serialize` trait is defined in `serde_core/src/ser/mod.rs`, in the `serde_core` crate (re-exported from the main `serde` crate).

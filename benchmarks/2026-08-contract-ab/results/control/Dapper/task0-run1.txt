@@ -1,0 +1,8 @@
+It's in `Dapper/SqlMapper.cs:844` (with a `CommandDefinition` overload at line 1062). Both are extension methods on `IDbConnection`.
+
+What it does:
+- Line 844: builds a `CommandDefinition` from `sql`, `param`, `transaction`, `commandTimeout`, `commandType`, and a `Buffered`/`None` flag based on `buffered`.
+- Calls `QueryImpl<T>(cnn, command, typeof(T))`, an internal iterator method that opens/manages the connection, executes the `IDbCommand`, gets an `IDataReader`, and lazily yields deserialized `T` instances (row-to-object mapping via cached deserializers, or the raw first column for primitive/basic types).
+- If `buffered` is true (the default), it eagerly materializes the results with `.ToList()` before returning, closing the reader/connection promptly; if `buffered` is false, it returns the lazy `IEnumerable<T>` as-is, leaving the reader open until enumeration completes.
+
+The `CommandDefinition` overload (line 1062) does the same but takes a pre-built `CommandDefinition` directly instead of assembling one from individual parameters.

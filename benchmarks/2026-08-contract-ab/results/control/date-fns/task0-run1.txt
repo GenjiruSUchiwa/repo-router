@@ -1,0 +1,13 @@
+The `format` function is defined in `pkgs/core/src/format/index.ts:346-442` (also exported as `formatDate`).
+
+**What it does:**
+1. Resolves locale, `weekStartsOn`, and `firstWeekContainsDate` from options → locale options → global default options → hardcoded fallback.
+2. Converts the input `date` to a `Date` via `toDate`, throwing `RangeError("Invalid time value")` if invalid.
+3. Tokenizes `formatStr` in two passes:
+   - First replaces long-format tokens (`P`/`p` combos like `PPPPPppp`) using `longFormatters`, which expand to locale-specific format strings (e.g. `Pp` → date+time patterns).
+   - Then splits the resulting string into tokens/literals using `formattingTokensRegExp`, distinguishing real format tokens (backed by an entry in `formatters`, e.g. `y`, `MM`, `dd`, `HH`) from literal text and quote-escaped substrings (`'...'`).
+4. Runs an optional locale `preprocessor` (used for French locale quirks).
+5. Maps over each part: literals pass through as-is; tokens are checked against protected week-year/day-of-year tokens (warns/throws unless `useAdditionalWeekYearTokens`/`useAdditionalDayOfYearTokens` is set), then dispatched to the matching function in `formatters` (from `../_lib/format/formatters`) to render that piece (e.g. year, month, hour) using the resolved locale/week options.
+6. Joins all the rendered parts into the final formatted string.
+
+The actual per-token rendering logic (e.g. how `yyyy`, `MMM`, `EEEE` are computed) lives in `pkgs/core/src/_lib/format/formatters/index.ts`, and long-token expansion logic lives in `pkgs/core/src/_lib/format/longFormatters/index.ts`.

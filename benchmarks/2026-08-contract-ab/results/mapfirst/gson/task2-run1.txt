@@ -1,0 +1,18 @@
+Here's the `toJson` implementation chain in `Gson.java`:
+
+**1. Public entry points (`gson/src/main/java/com/google/gson/Gson.java:565-670`)** — all overloads funnel down to a common core:
+- `toJson(Object src)` → resolves `src.getClass()` → `toJson(src, type)`
+- `toJson(Object src, Type typeOfSrc)` → builds a `StringBuilder` → `toJson(src, typeOfSrc, writer)`
+- `toJson(Object src, Type typeOfSrc, Appendable writer)` → wraps the `Appendable` in a `JsonWriter` via `newJsonWriter(...)` → calls the core overload
+- **Core: `toJson(Object src, Type typeOfSrc, JsonWriter writer)`** (line 670) — this is where real work happens:
+  1. `getAdapter(TypeToken.get(typeOfSrc))` (line 340/407) looks up (or lazily builds, caching in `typeTokenCache`) the right `TypeAdapter<Object>` by walking the registered `factories` list (built-ins, custom adapters, then the reflective fallback).
+  2. Saves/overrides the writer's strictness, HTML-safe, and serializeNulls settings from the `Gson` instance's config.
+  3. Calls `adapter.write(writer, src)` — this is the actual polymorphic dispatch: each `TypeAdapter` (e.g. primitive adapters in `TypeAdapters`, collection/map adapters, or `ReflectiveTypeAdapterFactory`'s adapter for POJOs) knows how to write its own fields to the `JsonWriter` stream.
+  4. Restores the writer's original settings in a `finally` block.
+
+**2. Reflective serialization for plain objects** — `ReflectiveTypeAdapterFactory` (`gson/src/main/java/com/google/gson/internal/bind/ReflectiveTypeAdapterFactory.java`):
+- Its `Adapter.write(JsonWriter out, T value)` (line 485) opens a JSON object, then iterates over the class's `BoundField`s (one per serializable field, built via reflection + naming/exclusion strategies), calling each field's own `write(writer, source)` (line 222), which in turn delegates to that field's `TypeAdapter` (nested `toJson` recursion for object graphs).
+
+**3. Tree serialization variant** — `toJsonTree(Object src, Type typeOfSrc)` (line 544) does the same lookup/dispatch but writes into a `JsonTreeWriter` instead of a text `JsonWriter`, producing a `JsonElement` tree rather than a string.
+
+So the chain is: `toJson(Object)` → `toJson(Object, Type)` → `toJson(Object, Type, Appendable)` → `toJson(Object, Type, JsonWriter)` (core, does `getAdapter` + `adapter.write`) → the resolved `TypeAdapter.write` (often `ReflectiveTypeAdapterFactory$Adapter.write`, which recurses through fields).

@@ -1,0 +1,1 @@
+`get` is defined generically at lib/core/Axios.js:266, via `forEachMethodNoData` looping over `['delete', 'get', 'head', 'options']` and attaching each as `Axios.prototype[method]`.

@@ -1,0 +1,1 @@
+`Execute` is implemented as an extension method on `IDbConnection` in `Dapper/SqlMapper.cs:557` (and the `CommandDefinition` overload at line 569), both delegating to `ExecuteImpl`.

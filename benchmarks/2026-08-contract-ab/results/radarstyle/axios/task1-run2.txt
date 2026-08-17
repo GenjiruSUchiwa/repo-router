@@ -1,0 +1,16 @@
+The XHR adapter lives at `lib/adapters/xhr.js`. Here's how axios makes a browser HTTP request:
+
+**Selection**: `lib/adapters/adapters.js` picks `xhr` as the default adapter when `XMLHttpRequest` exists (default preference order is `['xhr', 'http', 'fetch']` per AGENTS.md, capability-checked, not environment-name-checked).
+
+**Execution** (`lib/adapters/xhr.js:16-277`):
+1. The exported adapter is a function guarded by `isXHRAdapterSupported = typeof XMLHttpRequest !== 'undefined'` (line 14), so it's only defined in environments that actually have XHR.
+2. It returns a `new Promise` and calls `resolveConfig(config)` (line 19) to normalize headers/URL/auth into `_config`.
+3. Creates `new XMLHttpRequest()`, opens it with `request.open(method, url, true)` (line 38), and sets `request.timeout`.
+4. Registers response/error handling: `onloadend` (or an `onreadystatechange` fallback for browsers lacking `onloadend`) builds an `AxiosResponse`-like object and passes it to `settle()` to resolve/reject based on `validateStatus`. `onabort`, `onerror`, and `ontimeout` each reject with the appropriate `AxiosError` code (`ECONNABORTED`, `ERR_NETWORK`, `ETIMEDOUT`).
+5. Sets request headers via `setRequestHeader`, `withCredentials`, and `responseType`.
+6. Wires up upload/download progress via `progressEventReducer`.
+7. Wires cancellation: both `cancelToken.subscribe` and `AbortSignal` listeners call `request.abort()`.
+8. Validates the URL's protocol against `platform.protocols` before sending.
+9. Finally calls `request.send(requestData || null)` (line 275) to fire the actual HTTP request.
+
+This adapter is invoked from the generic request lifecycle (`dispatchRequest` in `lib/core/`) after request interceptors and `transformRequest` run, per the Request Lifecycle section in AGENTS.md.

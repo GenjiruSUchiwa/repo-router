@@ -1,0 +1,25 @@
+In the browser, axios uses the **XHR adapter** at `lib/adapters/xhr.js` (selected by capability check in `lib/adapters/adapters.js`, with default preference order `['xhr', 'http', 'fetch']`). Here's the flow:
+
+1. **Feature detection** (`xhr.js:14`): the adapter only exists if `typeof XMLHttpRequest !== 'undefined'` — this is the capability check `lib/adapters/adapters.js` uses to pick it over `fetch`/`http`.
+
+2. **Config resolution** (`xhr.js:19`): `resolveConfig(config)` (in `lib/helpers/resolveConfig.js`) merges in browser-specific concerns like base URL, XSRF token, and auth headers.
+
+3. **Create and open the request** (`xhr.js:36-41`): `new XMLHttpRequest()`, `request.open(method, url, true)` for async mode, and sets `request.timeout`.
+
+4. **Wire up completion handling** (`xhr.js:43-149`): `onloadend` is the primary completion path (with a `readystatechange` fallback for browsers lacking `onloadend`). It builds an `AxiosResponse`-shaped object from `responseText`/`response`, `status`, `statusText`, and parsed headers (`AxiosHeaders.from(request.getAllResponseHeaders())`), then calls `settle()` (`lib/core/settle.js`) to resolve or reject based on `validateStatus`.
+
+5. **Error/timeout/abort handlers** (`xhr.js:152-199`): `onabort`, `onerror`, `ontimeout` each reject with an appropriate `AxiosError` (`ECONNABORTED`, `ERR_NETWORK`, `ETIMEDOUT`/`ECONNABORTED`).
+
+6. **Headers** (`xhr.js:201-209`): request headers are normalized via `AxiosHeaders`, sanitized (`toByteStringHeaderObject`), and set via `request.setRequestHeader`.
+
+7. **withCredentials / responseType** (`xhr.js:212-219`).
+
+8. **Progress events** (`xhr.js:222-237`): download/upload progress listeners via `progressEventReducer` (throttled), attached to `request` and `request.upload`.
+
+9. **Cancellation** (`xhr.js:239-258`): subscribes to both legacy `CancelToken` and modern `AbortSignal`, calling `request.abort()` and rejecting with `CanceledError` on cancel.
+
+10. **Protocol check** (`xhr.js:260-272`): rejects unsupported protocols against `platform.protocols`.
+
+11. **Send** (`xhr.js:275`): `request.send(requestData || null)` actually fires the request.
+
+This all happens after step 4 of the general request lifecycle (interceptors → adapter selection → this adapter runs), and `transformRequest`/`transformResponse` wrap around it per the lifecycle described in AGENTS.md.

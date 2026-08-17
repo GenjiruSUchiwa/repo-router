@@ -1,0 +1,6 @@
+`fromJson` is implemented in `gson/src/main/java/com/google/gson/Gson.java`, with a family of overloads starting around line 850.
+
+- `fromJson(String, Class<T>)` — Gson.java:850, delegates to `fromJson(json, TypeToken.get(classOfT))`
+- `fromJson(String, Type)` — Gson.java:879
+- `fromJson(String, TypeToken<T>)` — Gson.java:909, wraps the string in a `JsonReader` and calls the `Reader`-based overload
+- Additional overloads accepting `Reader`, `JsonReader`, and `JsonElement` follow, all ultimately routing through the `JsonReader`-based implementation which uses a `TypeAdapter` obtained from the `Gson` instance to parse.

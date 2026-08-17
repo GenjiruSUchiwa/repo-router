@@ -1,0 +1,23 @@
+`Query<T>` for a raw `IDbConnection` lives in `Dapper/SqlMapper.cs`, in the `SqlMapper` static class (the `rr` CLI isn't installed here, so I searched directly).
+
+**`Query<T>` (SqlMapper.cs:844)**
+```csharp
+public static IEnumerable<T> Query<T>(this IDbConnection cnn, string sql, object? param = null,
+    IDbTransaction? transaction = null, bool buffered = true, int? commandTimeout = null, CommandType? commandType = null)
+{
+    var command = new CommandDefinition(sql, param, transaction, commandTimeout, commandType, buffered ? CommandFlags.Buffered : CommandFlags.None);
+    var data = QueryImpl<T>(cnn, command, typeof(T));
+    return command.Buffered ? data.ToList() : data;
+}
+```
+It wraps the arguments into a `CommandDefinition`, delegates to `QueryImpl<T>`, and — if `buffered` is true (default) — eagerly materializes the results into a `List<T>`; otherwise it returns the lazy `IEnumerable<T>` iterator as-is. There's a second overload at line 1062 taking a `CommandDefinition` directly.
+
+**`QueryImpl<T>` (SqlMapper.cs:1202)**, the actual worker, is an iterator method that:
+1. Builds an `Identity` (cache key) from the SQL text, command type, connection, and result type, and looks up/creates cached deserialization info (`GetCacheInfo`).
+2. Creates the `IDbCommand` via `command.SetupCommand`, opens the connection if it was closed.
+3. Executes the reader (`ExecuteReaderWithFlagsFallback`, using `SequentialAccess | SingleResult`).
+4. Computes a hash of the result columns and builds/reuses a compiled deserializer function (`GetDeserializer`) matching those columns, caching it via `SetQueryCache`.
+5. Iterates `reader.Read()`, invoking the deserializer per row and `yield return`-ing each typed value.
+6. In `finally`, cancels/disposes the command and reader and closes the connection if Dapper opened it.
+
+This is the core "materialize a SQL result set as `IEnumerable<T>` with cached, dynamically-generated deserializers" pattern Dapper is known for.

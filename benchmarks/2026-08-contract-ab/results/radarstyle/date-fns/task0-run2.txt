@@ -1,0 +1,14 @@
+The `format` function (aliased as `formatDate`) is defined in `pkgs/core/src/format/index.ts:346`.
+
+It converts a `Date` into a string according to a Unicode-style token pattern (e.g. `'MM/dd/yyyy'`). Here's what it does:
+
+1. **Resolves options** — merges the given `locale`, `weekStartsOn`, and `firstWeekContainsDate` with any global default options and falls back to `defaultLocale`.
+2. **Validates the date** — converts the input via `toDate` and throws `RangeError("Invalid time value")` if it's not valid.
+3. **Tokenizes the format string** in two passes:
+   - First it expands long-format tokens (`P`/`p`, e.g. `PPPP`) into their locale-specific pattern using `longFormatters`.
+   - Then it splits the result into individual tokens/literal text using `formattingTokensRegExp`, distinguishing real format tokens from quoted literal strings (escaped by `'`), and throws if it finds an unescaped Latin letter that isn't a known token.
+4. **Applies a locale preprocessor** if present (used by some French locale rules).
+5. **Renders each token** by looking up the matching function in `formatters` (from `_lib/format/formatters`) and calling it with the date, token, locale, and week-related options; non-token parts are passed through as literal text.
+6. **Joins** all the resulting pieces into the final formatted string.
+
+The actual per-token formatting logic (e.g. how `yyyy`, `MMMM`, `EEEE` render) lives in `pkgs/core/src/_lib/format/formatters/index.ts` and `longFormatters/index.ts`, which `format` delegates to.

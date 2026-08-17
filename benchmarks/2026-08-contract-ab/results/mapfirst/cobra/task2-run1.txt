@@ -1,0 +1,1 @@
+Flag parsing happens in `command.go#ParseFlags` (command.go:1868), which merges persistent flags via `mergePersistentFlags` and delegates the actual parsing to the `pflag` package's `c.Flags().Parse(args)` call. It's invoked during command execution from `execute()` (command.go:854 and 919) before the command's `Run`/`RunE` is called.

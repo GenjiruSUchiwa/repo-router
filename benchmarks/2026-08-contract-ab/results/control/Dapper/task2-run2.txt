@@ -1,0 +1,13 @@
+The core logic lives in `Dapper/DefaultTypeMap.cs`, implementing `SqlMapper.ITypeMap`.
+
+**Property mapping** (`GetMember`, `DefaultTypeMap.cs:147-179`, backed by `MatchFirstOrDefault` at line 185):
+1. Exact ordinal name match (`UserId` ↔ `UserId`)
+2. Case-insensitive match (`userid` ↔ `UserId`)
+3. If `MatchNamesWithUnderscores` is enabled (a static, global opt-in flag, line 183): strip `_` from the column name and repeat exact/case-insensitive matching against property names — so `User_Id` matches `UserId`
+4. Same again but also stripping underscores from the *property* name for comparison (covers both sides)
+
+**Field mapping** follows a similar cascade but also checks for Roslyn's auto-property backing field pattern (`<Name>k__BackingField`), for get-only properties.
+
+**Constructor parameter mapping** (`FindConstructor`, lines 68-110) uses `EqualsCI`/`EqualsCIU` helpers (lines 246-249) for the same case-insensitive / underscore-stripped comparison when picking a constructor whose parameter names and types line up with reader columns.
+
+So there's no dedicated "naming strategy" class/interface for pluggable conventions — it's inline priority-ordered string matching gated by the single `DefaultTypeMap.MatchNamesWithUnderscores` static switch. Custom mapping instead is done via `SqlMapper.SetTypeMap()` with a custom `ITypeMap`, or the `[Column]`/`ColumnAttributeTypeMapper` in `ColumnAttributeTypeMapper.cs` for explicit attribute-based overrides.

@@ -1,0 +1,1 @@
+`fromJson` is implemented in `gson/src/main/java/com/google/gson/Gson.java`, with several overloads starting around line 850. They all funnel down to the core implementation that takes a `JsonReader` and `TypeToken` (around line 1001+), which does the actual deserialization via `TypeAdapter.read()`.

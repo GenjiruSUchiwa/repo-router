@@ -1,0 +1,1 @@
+The `get` method is generated dynamically in `lib/core/Axios.js` — `utils.forEach(['delete', 'get', 'head', 'options'], ...)` at `lib/core/Axios.js:266` attaches it (and the other no-body methods) to `Axios.prototype` via a helper that wraps `Axios.prototype.request`.

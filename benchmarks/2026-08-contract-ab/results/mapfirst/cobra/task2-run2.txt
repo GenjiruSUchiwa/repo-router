@@ -1,0 +1,7 @@
+Flag parsing happens in `command.go:1868` — `(*Command).ParseFlags(args []string) error`.
+
+It works like this:
+- `ParseFlags` merges persistent flags from parent commands (`mergePersistentFlags`) into the command's local flag set, then delegates the actual parsing to `c.Flags().Parse(args)` — `c.Flags()` returns a `*pflag.FlagSet` (from the `spf13/pflag` package, cobra's dependency), which does the real flag-token parsing (`--flag=value`, `-f value`, etc.).
+- `ParseFlags` is invoked during command execution from `(*Command).execute`, which calls `c.ParseFlags(a)` before running `RunE`/`Run`.
+
+So: cobra itself only sets up and merges the flag set; actual flag-string parsing is delegated to `pflag`.

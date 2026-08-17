@@ -1,0 +1,16 @@
+The XHR adapter lives at `lib/adapters/xhr.js`, wrapped in `lib/adapters/adapters.js` which picks it via capability check (default preference order `['xhr', 'http', 'fetch']` per AGENTS.md).
+
+**How it works (`lib/adapters/xhr.js:16-277`):**
+
+1. **Support check** (line 14): `isXHRAdapterSupported = typeof XMLHttpRequest !== 'undefined'` — the adapter itself is `false` in environments without XHR, so `adapters.js` skips it via capability detection.
+2. **Config resolution** (line 19): `resolveConfig(config)` normalizes the merged axios config (URL, auth, headers, etc.) for XHR use.
+3. **Create & open the request** (lines 36-38): `new XMLHttpRequest()`, then `request.open(method, url, true)` for an async request; `request.timeout` set from config (line 41).
+4. **Headers** (lines 201-209): drops `Content-Type` if there's no body, then calls `request.setRequestHeader` for each normalized header.
+5. **Options**: sets `withCredentials` (211-214) and `responseType` (217-219) when applicable.
+6. **Progress tracking** (221-237): wires `progressEventReducer` to the `progress` events for download, and to `request.upload`'s `progress`/`loadend` for upload (when supported).
+7. **Cancellation** (239-258): subscribes to both the legacy `CancelToken` and modern `AbortSignal`, aborting the XHR and rejecting with `CanceledError` on trigger.
+8. **Protocol check** (260-272): rejects unsupported protocols before sending.
+9. **Completion handling**: `onloadend` (or the `onreadystatechange` fallback for older browsers, lines 125-149) builds the response object and calls `settle()` (`lib/core/settle.js`) to resolve/reject based on `validateStatus`. `onerror`, `onabort`, and `ontimeout` handle the corresponding failure paths, each producing an `AxiosError` with the appropriate code (`ERR_NETWORK`, `ECONNABORTED`/`ETIMEDOUT`).
+10. **Send** (line 275): `request.send(requestData || null)` actually dispatches the request.
+
+This all runs inside a `new Promise` returned by the adapter function, so `dispatchRequest` (called from `lib/core/Axios.js` per the standard request lifecycle) awaits it, then the response/error flows back through response interceptors.

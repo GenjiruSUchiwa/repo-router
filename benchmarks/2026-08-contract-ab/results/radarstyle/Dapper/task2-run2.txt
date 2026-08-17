@@ -1,0 +1,16 @@
+Note: the environment has no `rr` binary installed, so I fell back to plain grep/read.
+
+The naming strategy lives in `Dapper/DefaultTypeMap.cs`, implementing `SqlMapper.ITypeMap`:
+
+- **`GetMember(string columnName)`** (line 147) is the core lookup, called per column when materializing a row into an object. It:
+  1. Matches the column name against settable **properties** via `MatchFirstOrDefault` (line 149).
+  2. Falls back to **fields**, including Roslyn's auto-property backing fields (`<Name>k__BackingField`).
+
+- **`MatchFirstOrDefault`** (line 185) defines the actual match precedence:
+  1. Exact ordinal match
+  2. Case-insensitive match
+  3. If `MatchNamesWithUnderscores` is enabled (static toggle, line 183): match with underscores stripped from the column name, then case-insensitive, then with underscores stripped from both sides.
+
+- **`FindConstructor`** (line 68) and **`GetConstructorParameter`** (line 134) apply the same name-matching rules (`EqualsCI`/`EqualsCIU`) when Dapper materializes via a constructor instead of property setters.
+
+So column→property mapping is: exact name → case-insensitive name → (optionally) underscore-insensitive name, properties preferred over fields, resolved once per type and cached (`SqlMapper.GetTypeMap`/`TypeMapProvider` in `Dapper/SqlMapper.cs:3217`).

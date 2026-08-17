@@ -1,0 +1,4 @@
+In `gson/src/main/java/com/google/gson/Gson.java`. There are multiple overloads (String/Reader/JsonElement × Class/Type/TypeToken); they all funnel down to the core implementation:
+
+- `fromJson(JsonReader reader, TypeToken<T> typeOfT)` (~line 1087) — this is the actual deserialization logic: it looks up a `TypeAdapter` via `getAdapter(typeOfT)` and calls `adapter.read(reader)`.
+- All other overloads (lines 850, 879, 909, 940, 971, 1001, 1046, 1159, 1186, 1212) are convenience wrappers that convert their input (String/Reader/JsonElement, Class/Type) into a `TypeToken` and `JsonReader`, then delegate to that core method.

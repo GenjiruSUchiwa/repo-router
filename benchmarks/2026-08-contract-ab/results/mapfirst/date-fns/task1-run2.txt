@@ -1,0 +1,11 @@
+The whole ISO parsing chain lives in `pkgs/core/src/parseISO/index.ts` — no separate parser module is involved. Trace:
+
+1. **`parseISO(argument, options)`** — `pkgs/core/src/parseISO/index.ts:52-99` — entry point.
+2. **`splitDateString(dateString)`** (line 124) splits the raw string on `T`/space into `date`, `time`, `timezone` substrings using regexes at lines 112-122.
+3. **`parseYear(dateStrings.date, additionalDigits)`** (line 162) extracts the year (handling extended-year format) and returns the remainder of the date string.
+4. **`parseDate(restDateString, year)`** (line 185) matches `dateRegex` (line 118-119) to get month/day or ISO week/day-of-week, validates via `validateDate`/`validateDayOfYearDate`/`validateWeekDate`, and builds a UTC `Date` (or defers to `dayOfISOWeekYear` for week dates, line 260) — this is called at **line 64**, the point where the date portion becomes an actual `Date` object.
+5. Back in `parseISO`, if a time part exists, **`parseTime(dateStrings.time)`** (line 222) converts it to milliseconds using `timeRegex` and `validateTime`.
+6. If a timezone part exists, **`parseTimezone(dateStrings.timezone)`** (line 243) converts the offset to milliseconds (or 0 for `Z`); otherwise the fallback branch (lines 82-95) builds the result from UTC components directly (implicit local-time interpretation).
+7. Finally, `toDate(timestamp + time + offset, options?.in)` (line 98, importing `toDate` from `../toDate/index.ts`) constructs the final `Date`/`DateType` result via `constructFrom`.
+
+So the actual "string → Date" conversion happens at `pkgs/core/src/parseISO/index.ts:64` (`parseDate` call, which internally does `new Date(...)`/`date.setUTCFullYear(...)`), with the final result assembled at line 98.

@@ -1,0 +1,1 @@
+`Command.ParseFlags` in `command.go:1868` is where cobra parses a command's flags — it merges local, persistent, and inherited flag sets, applies parsing config, then calls `c.Flags().Parse(args)`. It's invoked from `Command.execute` (command.go:854) and `Command.ParseFlags`'s caller at line 919 during `Find`/argument pre-processing.

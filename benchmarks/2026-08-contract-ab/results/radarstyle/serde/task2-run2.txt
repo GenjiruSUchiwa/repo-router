@@ -1,0 +1,1 @@
+The `#[derive(Serialize)]` proc macro entry point is defined at `serde_derive/src/lib.rs:113`. It calls into the serializer codegen in `serde_derive/src/ser.rs` (see the function invoked right after that attribute in `lib.rs`).
