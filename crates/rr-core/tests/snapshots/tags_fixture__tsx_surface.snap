@@ -9,7 +9,7 @@ defs:
     local_qualified: ~
     kind: interface
     visibility: public
-    start_line: 2
+    start_line: 1
     end_line: 5
     signature: "export interface BadgeProps {"
     signature_idents:
@@ -76,7 +76,7 @@ defs:
     local_qualified: ~
     kind: class
     visibility: public
-    start_line: 13
+    start_line: 12
     end_line: 23
     signature: "export class BadgeList {"
     signature_idents:

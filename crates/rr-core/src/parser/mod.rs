@@ -25,8 +25,8 @@ pub const PYTHON_EXTRACTOR_VERSION: u32 = 6;
 /// TypeScript and TSX share a query and count separately, because they are two
 /// grammars: a `.tsx` fix that reparses every `.ts` file would be the global
 /// constant this module exists to avoid.
-pub const TYPESCRIPT_EXTRACTOR_VERSION: u32 = 3;
-pub const TSX_EXTRACTOR_VERSION: u32 = 3;
+pub const TYPESCRIPT_EXTRACTOR_VERSION: u32 = 4;
+pub const TSX_EXTRACTOR_VERSION: u32 = 4;
 
 /// The extractor version for `lang`, `0` when rr has no extractor for it.
 #[must_use]

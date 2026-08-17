@@ -60,11 +60,19 @@ pub struct LanguageSpec {
     /// a body, as Python's docstring is.
     ///
     /// `false` for a language whose documentation is a comment *preceding* the
-    /// definition: the comment already falls outside the span, so nothing has
-    /// to be kept out of the body scan — and excluding a leading body string
-    /// anyway would silently drop a `"use strict"` prologue's identifiers from
-    /// a documented function.
+    /// definition. That comment run is folded into the definition's span by
+    /// [`preceding_comment_run_start`] and excluded from the body scan as a
+    /// header region — so a container no longer absorbs its members' doc
+    /// prose. Excluding a leading body string here would still be wrong: it
+    /// would silently drop a `"use strict"` prologue's identifiers from a
+    /// documented function.
     pub doc_is_leading_body_string: bool,
+    /// Full-line comment prefixes for [`preceding_comment_run_start`].
+    ///
+    /// TypeScript uses `//`; Python uses `#`. They are not interchangeable:
+    /// a TypeScript `#attempts` field starts with `#` and is a definition, not
+    /// a comment. Block comments (`/* … */`) are recognized for every language.
+    pub line_comment_prefixes: &'static [&'static str],
     /// The compiled tags query, shared by every worker that speaks this
     /// language. Compiling it costs milliseconds that rayon would otherwise
     /// repeat once per work split; only [`TagsContext`] stays per worker.
@@ -214,52 +222,11 @@ impl TagsExtractor {
                 continue;
             };
             if tag.is_definition {
-                let Some((kind, is_local)) = definition_kind(spec, config, tag.syntax_type_id)
+                let Some(built) = definition_from_tag(spec, config, &tag, name, source, &lines)?
                 else {
                     continue;
                 };
-                let span = span_for_range(&tag.range, &lines, source)?;
-                let header = header_for(
-                    span,
-                    tag.name_range.start,
-                    name,
-                    tag.docs.is_some() && spec.doc_is_leading_body_string,
-                    source,
-                    &lines,
-                )?;
-                let doc_idents = tag.docs.as_deref().map(scan_idents).unwrap_or_default();
-                let test_signals = TestSignals {
-                    explicit_attribute: header
-                        .attribute_idents
-                        .iter()
-                        .any(|ident| (spec.test_attribute)(ident)),
-                    inside_cfg_test: false,
-                    inside_test_scope: false,
-                };
-                let mut def = Def {
-                    name: name.to_owned(),
-                    local_qualified: None,
-                    kind,
-                    // A `local-` capture is the query stating this declaration is not
-                    // on the file's surface, which outranks anything the name suggests:
-                    // `LanguageSpec::visibility` reads name shape — a `#` prefix, a PEP 8
-                    // underscore — and a name shape cannot see an absent `export`.
-                    visibility: if is_local {
-                        Visibility::Private
-                    } else {
-                        (spec.visibility)(name)
-                    },
-                    span,
-                    signature_span: header.signature_span,
-                    signature: header.signature,
-                    signature_idents: header.signature_idents,
-                    body_idents: Vec::new(),
-                    doc_idents,
-                    attribute_idents: header.attribute_idents,
-                    test_signals,
-                };
-                (spec.refine)(&mut def);
-                defs.push((def, header.exclusions));
+                defs.push(built);
             } else {
                 let Some(kind) = reference_kind(spec, config, tag.syntax_type_id) else {
                     continue;
@@ -658,6 +625,67 @@ fn span_for_range(range: &Range<usize>, lines: &LineIndex, source: &str) -> Resu
     )
 }
 
+/// One tags definition: the expanded span, header, and refined [`Def`].
+fn definition_from_tag(
+    spec: &LanguageSpec,
+    config: &TagsConfiguration,
+    tag: &tree_sitter_tags::Tag,
+    name: &str,
+    source: &str,
+    lines: &LineIndex,
+) -> Result<Option<(Def, Vec<Span>)>> {
+    let Some((kind, is_local)) = definition_kind(spec, config, tag.syntax_type_id) else {
+        return Ok(None);
+    };
+    let decl_range = tag.range.clone();
+    let span_start =
+        preceding_comment_run_start(source, decl_range.start, spec.line_comment_prefixes)
+            .unwrap_or(decl_range.start);
+    let span = span_for_range(&(span_start..decl_range.end), lines, source)?;
+    let header = header_for(
+        span,
+        decl_range.start,
+        tag.name_range.start,
+        name,
+        tag.docs.is_some() && spec.doc_is_leading_body_string,
+        source,
+        lines,
+    )?;
+    let doc_idents = tag.docs.as_deref().map(scan_idents).unwrap_or_default();
+    let test_signals = TestSignals {
+        explicit_attribute: header
+            .attribute_idents
+            .iter()
+            .any(|ident| (spec.test_attribute)(ident)),
+        inside_cfg_test: false,
+        inside_test_scope: false,
+    };
+    let mut def = Def {
+        name: name.to_owned(),
+        local_qualified: None,
+        kind,
+        // A `local-` capture is the query stating this declaration is not
+        // on the file's surface, which outranks anything the name suggests:
+        // `LanguageSpec::visibility` reads name shape — a `#` prefix, a PEP 8
+        // underscore — and a name shape cannot see an absent `export`.
+        visibility: if is_local {
+            Visibility::Private
+        } else {
+            (spec.visibility)(name)
+        },
+        span,
+        signature_span: header.signature_span,
+        signature: header.signature,
+        signature_idents: header.signature_idents,
+        body_idents: Vec::new(),
+        doc_idents,
+        attribute_idents: header.attribute_idents,
+        test_signals,
+    };
+    (spec.refine)(&mut def);
+    Ok(Some((def, header.exclusions)))
+}
+
 /// The header of one tagged definition: its signature, its attached
 /// attributes, and the regions the body scan must skip.
 struct Header {
@@ -665,14 +693,18 @@ struct Header {
     signature: String,
     signature_idents: Vec<String>,
     attribute_idents: Vec<String>,
-    /// Regions the body scan must not read: attached attributes and the
-    /// captured documentation string. The signature span is excluded by the
-    /// caller, which already holds it.
+    /// Regions the body scan must not read: the absorbed comment run, attached
+    /// attributes, and the captured documentation string. The signature span
+    /// is excluded by the caller, which already holds it.
     exclusions: Vec<Span>,
 }
 
 fn header_for(
     span: Span,
+    // Byte offset where the definition node itself begins — after any comment
+    // run `preceding_comment_run_start` folded into `span`. Attributes live
+    // between this and the name line; the comment run does not.
+    decl_start: usize,
     name_start: usize,
     name: &str,
     has_docs: bool,
@@ -681,21 +713,26 @@ fn header_for(
 ) -> Result<Header> {
     let span_start = span.start_byte() as usize;
     let span_end = span.end_byte() as usize;
-    // The line that names the definition opens the header. Everything the span
-    // holds before that line is attached attributes — a decorated Python
-    // definition's span starts at its first decorator.
-    let line_start = lines.line_start(name_start).max(span_start);
+    let decl_start = decl_start.clamp(span_start, span_end);
+    // The line that names the definition opens the header. Everything from the
+    // declaration node to that line is attached attributes — a decorated
+    // Python definition's node starts at its first decorator. Comments folded
+    // into the span sit *before* `decl_start` and are not attributes.
+    let line_start = lines.line_start(name_start).max(decl_start);
     let item_start = source
         .get(line_start..span_end)
         .and_then(|text| text.find(|character: char| !character.is_ascii_whitespace()))
         .map_or(line_start, |offset| line_start + offset)
-        .max(span_start);
+        .max(decl_start);
 
     let mut exclusions = Vec::new();
-    let attribute_idents = if line_start > span_start {
-        exclusions.push(span_for_range(&(span_start..line_start), lines, source)?);
+    if decl_start > span_start {
+        exclusions.push(span_for_range(&(span_start..decl_start), lines, source)?);
+    }
+    let attribute_idents = if line_start > decl_start {
+        exclusions.push(span_for_range(&(decl_start..line_start), lines, source)?);
         source
-            .get(span_start..line_start)
+            .get(decl_start..line_start)
             .map(scan_idents)
             .unwrap_or_default()
     } else {
@@ -735,6 +772,104 @@ fn header_for(
         attribute_idents,
         exclusions,
     })
+}
+
+/// Start of the comment run immediately before `decl_start`, when one abuts
+/// the declaration.
+///
+/// A tags-tier definition node's range begins at the declaration. A preceding
+/// comment is not a child of that node, so without this walk it sits inside
+/// the container's span and outside the member's — and the container's
+/// `body_idents` absorb the member's doc prose. Folding the adjacent run into
+/// the member's span is what makes the existing child-exclusion rule catch it.
+///
+/// Adjacency matches tree-sitter-tags' `#select-adjacent!`: comments may be
+/// stacked with only horizontal whitespace between them, but a blank line or
+/// any code breaks the run. Line-comment prefixes come from the language
+/// (`//` for TypeScript, `#` for Python) so a TypeScript `#attempts` field is
+/// never mistaken for a comment; block comments (`/* … */`) are universal.
+fn preceding_comment_run_start(
+    source: &str,
+    decl_start: usize,
+    line_comment_prefixes: &[&str],
+) -> Option<usize> {
+    let bytes = source.as_bytes();
+    if decl_start == 0 || decl_start > bytes.len() {
+        return None;
+    }
+    let mut cursor = decl_start;
+    let mut absorbed = decl_start;
+    loop {
+        while cursor > 0 && matches!(bytes[cursor - 1], b' ' | b'\t') {
+            cursor -= 1;
+        }
+        if cursor == 0 {
+            break;
+        }
+        if cursor >= 2 && bytes[cursor - 2] == b'*' && bytes[cursor - 1] == b'/' {
+            let Some(open) = block_comment_open(bytes, cursor - 1) else {
+                break;
+            };
+            absorbed = open;
+            cursor = open;
+            continue;
+        }
+        if bytes[cursor - 1] != b'\n' {
+            break;
+        }
+        let mut line_end = cursor - 1;
+        if line_end > 0 && bytes[line_end - 1] == b'\r' {
+            line_end -= 1;
+        }
+        let mut line_start = line_end;
+        while line_start > 0 && bytes[line_start - 1] != b'\n' {
+            line_start -= 1;
+        }
+        let line = &source[line_start..line_end];
+        let trim_offset = line.len() - line.trim_start_matches([' ', '\t']).len();
+        let trimmed = &line[trim_offset..];
+        if trimmed.is_empty() {
+            break;
+        }
+        if line_comment_prefixes
+            .iter()
+            .any(|prefix| trimmed.starts_with(prefix))
+        {
+            absorbed = line_start;
+            cursor = line_start;
+            continue;
+        }
+        if let Some(rel) = trimmed.rfind("*/") {
+            let close_slash = line_start + trim_offset + rel + 1;
+            let Some(open) = block_comment_open(bytes, close_slash) else {
+                break;
+            };
+            absorbed = open;
+            cursor = open;
+            continue;
+        }
+        break;
+    }
+    (absorbed < decl_start).then_some(absorbed)
+}
+
+/// Byte offset of the `/` that opens the `/* … */` closed by the `*/` whose
+/// `/` sits at `close_slash`.
+fn block_comment_open(bytes: &[u8], close_slash: usize) -> Option<usize> {
+    if close_slash == 0 || close_slash >= bytes.len() {
+        return None;
+    }
+    if bytes[close_slash] != b'/' || bytes[close_slash - 1] != b'*' {
+        return None;
+    }
+    let mut index = close_slash - 1;
+    while index > 0 {
+        index -= 1;
+        if bytes[index] == b'*' && index > 0 && bytes[index - 1] == b'/' {
+            return Some(index - 1);
+        }
+    }
+    None
 }
 
 /// Where the declaration header ends: the first line break outside brackets
@@ -1041,6 +1176,7 @@ pub(crate) static PYTHON: LanguageSpec = LanguageSpec {
     test_scope: python_test_scope,
     refine: python_refine,
     doc_is_leading_body_string: true,
+    line_comment_prefixes: &["#"],
     config: OnceLock::new(),
 };
 
@@ -1252,6 +1388,7 @@ const fn typescript_spec(
         test_scope: never_a_test_signal,
         refine: typescript_refine,
         doc_is_leading_body_string: false,
+        line_comment_prefixes: &["//"],
         config: OnceLock::new(),
     }
 }
@@ -1351,6 +1488,7 @@ mod tests {
             test_scope: python_test_scope,
             refine: python_refine,
             doc_is_leading_body_string: true,
+            line_comment_prefixes: &["#"],
             config: OnceLock::new(),
         };
         static INCOMPLETE: LanguageSpec = LanguageSpec {
@@ -1366,6 +1504,7 @@ mod tests {
             test_scope: python_test_scope,
             refine: python_refine,
             doc_is_leading_body_string: true,
+            line_comment_prefixes: &["#"],
             config: OnceLock::new(),
         };
         assert!(TagsExtractor::new(&ILLEGAL).is_err());
@@ -1534,6 +1673,70 @@ mod tests {
             .unwrap()
             .extract(source.as_bytes())
             .unwrap()
+    }
+
+    /// The defect #53 owns: a member's doc comment sits inside its container
+    /// and, before the span grew backward, outside the member — so the
+    /// container's `body_idents` swallowed the prose. The member's span now
+    /// covers the adjacent comment run, and the existing child exclusion
+    /// keeps those words out of the container.
+    #[test]
+    fn a_containers_body_idents_do_not_absorb_member_doc_prose() {
+        let facts = typescript(
+            "/** Service docs mention container. */\nexport class Service {\n  /** Mentions widget and frobnicate. */\n  run(): void {\n    helper();\n  }\n}\n",
+        );
+        let service = facts
+            .defs()
+            .iter()
+            .find(|def| def.name == "Service")
+            .unwrap();
+        let run = facts.defs().iter().find(|def| def.name == "run").unwrap();
+        assert!(run.doc_idents.iter().any(|ident| ident == "widget"));
+        assert!(run.doc_idents.iter().any(|ident| ident == "frobnicate"));
+        assert!(run.span.start_byte() < run.signature_span.start_byte());
+        assert!(!service.body_idents.iter().any(|ident| ident == "widget"));
+        assert!(!service
+            .body_idents
+            .iter()
+            .any(|ident| ident == "frobnicate"));
+        // helper is in the method body, excluded from the class via the member span.
+        assert!(!service.body_idents.iter().any(|ident| ident == "helper"));
+        assert!(run.body_idents.iter().any(|ident| ident == "helper"));
+        // The class still owns its own doc prose in doc_idents, not body.
+        assert!(service.doc_idents.iter().any(|ident| ident == "container"));
+        assert!(!service.body_idents.iter().any(|ident| ident == "container"));
+    }
+
+    #[test]
+    fn preceding_comment_run_absorbs_stacked_line_and_block_comments() {
+        let source = "/* block about alpha */\n// line about beta\nfunction target(): void {}\n";
+        let decl = source.find("function").unwrap();
+        let start = preceding_comment_run_start(source, decl, &["//"]).unwrap();
+        assert_eq!(
+            &source[start..decl],
+            "/* block about alpha */\n// line about beta\n"
+        );
+
+        let gapped = "/* orphan */\n\nfunction other(): void {}\n";
+        assert_eq!(
+            preceding_comment_run_start(gapped, gapped.find("function").unwrap(), &["//"]),
+            None,
+            "a blank line breaks adjacency"
+        );
+
+        // A TypeScript private field is not a comment, even though it starts with `#`.
+        let private_field = "    #attempts = 0;\n    private secret: string;\n";
+        let secret_at = private_field.find("private").unwrap();
+        assert_eq!(
+            preceding_comment_run_start(private_field, secret_at, &["//"]),
+            None,
+            "private fields must not be absorbed as comments"
+        );
+        // Python does treat `#` as a line comment.
+        let py = "# note about widget\ndef run():\n    pass\n";
+        let def_at = py.find("def").unwrap();
+        let start = preceding_comment_run_start(py, def_at, &["#"]).unwrap();
+        assert_eq!(&py[start..def_at], "# note about widget\n");
     }
 
     fn kind_of(facts: &Facts, name: &str) -> String {
@@ -2178,6 +2381,7 @@ mod tests {
             test_scope: python_test_scope,
             refine: python_refine,
             doc_is_leading_body_string: true,
+            line_comment_prefixes: &["#"],
             config: OnceLock::new(),
         };
         let mut extractor = TagsExtractor::new(&NO_IMPORTS).unwrap();

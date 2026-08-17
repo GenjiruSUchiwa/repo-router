@@ -9,7 +9,7 @@ defs:
     local_qualified: ~
     kind: function
     visibility: public
-    start_line: 2
+    start_line: 1
     end_line: 2
     signature: "declare function preload(name: string): void;"
     signature_idents:
@@ -33,7 +33,7 @@ defs:
     local_qualified: ~
     kind: class
     visibility: public
-    start_line: 5
+    start_line: 4
     end_line: 8
     signature: "declare class Runtime {"
     signature_idents:
@@ -104,7 +104,7 @@ defs:
     local_qualified: ~
     kind: interface
     visibility: public
-    start_line: 15
+    start_line: 14
     end_line: 17
     signature: "declare interface HostEnv {"
     signature_idents:
@@ -214,7 +214,7 @@ defs:
     local_qualified: ~
     kind: function
     visibility: public
-    start_line: 31
+    start_line: 30
     end_line: 31
     signature: "export declare function start(env: HostEnv): Runtime;"
     signature_idents:

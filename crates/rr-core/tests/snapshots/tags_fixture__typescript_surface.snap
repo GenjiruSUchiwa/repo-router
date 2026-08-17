@@ -9,20 +9,13 @@ defs:
     local_qualified: ~
     kind: interface
     visibility: public
-    start_line: 2
+    start_line: 1
     end_line: 7
     signature: "export interface ClientOptions {"
     signature_idents:
       - export
       - interface
-    body_idents:
-      - Base
-      - URL
-      - every
-      - request
-      - is
-      - joined
-      - onto
+    body_idents: []
     doc_idents:
       - Options
       - the
@@ -33,7 +26,7 @@ defs:
     local_qualified: ClientOptions.baseUrl
     kind: field
     visibility: public
-    start_line: 4
+    start_line: 3
     end_line: 4
     signature: "readonly baseUrl: string"
     signature_idents:
@@ -77,7 +70,7 @@ defs:
     local_qualified: ~
     kind: type-alias
     visibility: public
-    start_line: 10
+    start_line: 9
     end_line: 10
     signature: "export type TransportName = \"http\" | \"memory\";"
     signature_idents:
@@ -97,7 +90,7 @@ defs:
     local_qualified: ~
     kind: enum
     visibility: public
-    start_line: 13
+    start_line: 12
     end_line: 16
     signature: "export enum Ceiling {"
     signature_idents:
@@ -232,7 +225,7 @@ defs:
     local_qualified: ~
     kind: class
     visibility: public
-    start_line: 37
+    start_line: 36
     end_line: 74
     signature: "export class Client implements ClientOptions {"
     signature_idents:
@@ -240,23 +233,7 @@ defs:
       - class
       - implements
       - ClientOptions
-    body_idents:
-      - Binds
-      - the
-      - client
-      - to
-      - its
-      - options
-      - How
-      - many
-      - attempts
-      - this
-      - client
-      - has
-      - made
-      - Sends
-      - one
-      - request
+    body_idents: []
     doc_idents:
       - A
       - configured
@@ -333,7 +310,7 @@ defs:
     local_qualified: Client.constructor
     kind: constructor
     visibility: public
-    start_line: 46
+    start_line: 45
     end_line: 50
     signature: "constructor(options: ClientOptions) {"
     signature_idents:
@@ -361,7 +338,7 @@ defs:
     local_qualified: Client.attempts
     kind: property
     visibility: public
-    start_line: 53
+    start_line: 52
     end_line: 55
     signature: "get attempts(): number {"
     signature_idents:
@@ -416,7 +393,7 @@ defs:
     local_qualified: Client.send
     kind: method
     visibility: public
-    start_line: 66
+    start_line: 65
     end_line: 69
     signature: "async send(path: string): Promise<string> {"
     signature_idents:
@@ -460,7 +437,7 @@ defs:
     local_qualified: ~
     kind: class
     visibility: public
-    start_line: 77
+    start_line: 76
     end_line: 79
     signature: "export abstract class Transport {"
     signature_idents:
@@ -513,7 +490,7 @@ defs:
     local_qualified: ~
     kind: function
     visibility: public
-    start_line: 84
+    start_line: 83
     end_line: 86
     signature: "export function* pages(count: number): Generator<number> {"
     signature_idents:
@@ -538,7 +515,7 @@ defs:
     local_qualified: ~
     kind: namespace
     visibility: public
-    start_line: 89
+    start_line: 88
     end_line: 98
     signature: "export namespace Reserved {"
     signature_idents:
@@ -610,7 +587,7 @@ defs:
     local_qualified: ~
     kind: function
     visibility: private
-    start_line: 101
+    start_line: 100
     end_line: 104
     signature: "function join(base: string, path: string): string {"
     signature_idents:
@@ -638,7 +615,7 @@ defs:
     local_qualified: ~
     kind: class
     visibility: public
-    start_line: 107
+    start_line: 106
     end_line: 119
     signature: "export class Connection {"
     signature_idents:

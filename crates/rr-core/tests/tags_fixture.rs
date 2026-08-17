@@ -355,6 +355,31 @@ fn a_typescript_binding_is_a_function_only_when_its_initializer_is_one() {
     assert_eq!(def(&facts, "later").kind.to_string(), "variable");
 }
 
+/// A documented member inside a documented container: the member's doc words
+/// must not appear in the container's `body_idents`. Fails on any tags tier
+/// that starts the member span at the declaration node alone (#53).
+#[test]
+fn a_containers_body_idents_do_not_absorb_member_doc_prose() {
+    let (_, facts) = facts_for(Lang::TypeScript, "typescript", "surface.ts");
+    let options = def(&facts, "ClientOptions");
+    let base_url = def(&facts, "baseUrl");
+    assert!(base_url.doc_idents.iter().any(|ident| ident == "Base"));
+    assert!(base_url.doc_idents.iter().any(|ident| ident == "joined"));
+    assert!(
+        !options.body_idents.iter().any(|ident| ident == "Base"),
+        "container absorbed member doc prose: {:?}",
+        options.body_idents
+    );
+    assert!(
+        !options.body_idents.iter().any(|ident| ident == "joined"),
+        "container absorbed member doc prose: {:?}",
+        options.body_idents
+    );
+    // The member's span reaches back over the comment; the signature does not.
+    assert!(base_url.span.start_byte() < base_url.signature_span.start_byte());
+    assert_eq!(base_url.signature, "readonly baseUrl: string");
+}
+
 /// Documentation is the comment run before the declaration, and a body that
 /// opens with a string literal is body, not documentation.
 #[test]

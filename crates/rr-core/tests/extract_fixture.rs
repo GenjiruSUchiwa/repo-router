@@ -519,7 +519,7 @@ fn a_rust_repository_indexes_identically_across_the_schema_bump() {
 fn versions_are_pinned() {
     assert_eq!(extractor_version(Lang::Rust), 3);
     assert_eq!(extractor_version(Lang::Python), 6);
-    assert_eq!(extractor_version(Lang::TypeScript), 3);
-    assert_eq!(extractor_version(Lang::Tsx), 3);
+    assert_eq!(extractor_version(Lang::TypeScript), 4);
+    assert_eq!(extractor_version(Lang::Tsx), 4);
     assert_eq!(FACT_SCHEMA_VERSION, 5);
 }
