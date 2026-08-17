@@ -21,6 +21,7 @@ gix = { version = "0.86.0", default-features = false, features = [
 gix-lock = "24.0.0"
 gix-tempfile = "24.0.0"
 blake3 = { workspace = true }
+postcard = { workspace = true }
 sha1 = { workspace = true }
 sha2 = { workspace = true }
 serde = { workspace = true }

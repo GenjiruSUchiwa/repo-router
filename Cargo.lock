@@ -2110,6 +2110,7 @@ dependencies = [
  "gix-lock",
  "gix-tempfile",
  "libc",
+ "postcard",
  "proptest",
  "rayon",
  "rr-core",

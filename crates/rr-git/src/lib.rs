@@ -6,6 +6,7 @@
 //! Provides fast Git object identifier computation, Git blob hashing, repository discovery,
 //! and index-based OID resolution with zero content reads on clean files.
 
+pub mod cochange;
 pub mod content;
 pub mod diff;
 pub mod guard;
@@ -21,6 +22,7 @@ mod sigpipe;
 
 pub mod status;
 
+pub use cochange::{co_changed, CoChange};
 pub use content::{
     acquire_for_source, acquire_non_git, revalidate_source, AcquireOutcome, AcquiredContent,
     ContentProbe, ContentRepresentation,
