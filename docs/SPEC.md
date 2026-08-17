@@ -1125,6 +1125,13 @@ repository until a human deletes it. Having released it, the handler re-raises
 the signal against the default disposition, so what a caller observes is what
 `SIG_DFL` would have produced and nothing above changes.
 
+The same handler takes `SIGTERM`, `SIGHUP` and `SIGQUIT` for that one reason:
+they already ended the run on their own, and only the claim needed rescuing.
+Ctrl-C is the exception. `refresh` catches the first `SIGINT` itself, stops at a
+boundary of its own choosing and unwinds, so it returns `130` rather than dying
+of it — see §Exit codes. A second Ctrl-C is fatal, as it should be, and goes
+through the handler on its way out.
+
 Do not expose unstable internal ranking internals unless `--debug` is used.
 
 ---
