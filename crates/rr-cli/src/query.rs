@@ -120,6 +120,17 @@ struct Workspace {
     repo: Option<GitRepo>,
     root: PathBuf,
     snapshot: Arc<Snapshot>,
+    /// The identity of the snapshot *file* this run's snapshot came out of, or
+    /// `None` when the load could not be pinned to one.
+    ///
+    /// Every memo under `.rr/local/memo/` is a claim about these exact bytes, so
+    /// it is read and written against this one stamp rather than against
+    /// whatever the file happens to be when a memo is reached. Taken on both
+    /// sides of the load and kept only if it did not move, because a
+    /// publication landing mid-load would otherwise pair one snapshot's stamp
+    /// with another snapshot's contents — and that pairing is a wrong answer
+    /// rather than a slow one.
+    stamp: Option<String>,
 }
 
 impl Workspace {
@@ -138,6 +149,7 @@ impl Workspace {
             None => (canonical, None),
         };
 
+        let before = rr_core::workspace::snapshot_stamp(&root);
         let snapshot = match SnapshotStore::new(&root)
             .load()
             .map_err(|err| anyhow::anyhow!("{err}"))?
@@ -146,12 +158,16 @@ impl Workspace {
             LoadOutcome::Missing => bail!("index missing; run 'rr map'"),
             LoadOutcome::NeedsRebuild(_) => bail!("index invalid; run 'rr map'"),
         };
+        let stamp = rr_core::workspace::snapshot_stamp(&root)
+            .filter(|after| before.as_deref() == Some(after.as_str()));
 
         if repo.is_some() {
             if snapshot.meta.no_git {
                 bail!("index repository mismatch; run 'rr map'");
             }
-            if snapshot.meta.repo_head_oid != head_oid && !index_still_holds(&root, head_oid)? {
+            if snapshot.meta.repo_head_oid != head_oid
+                && !index_still_holds(&root, stamp.as_deref(), head_oid)?
+            {
                 bail!("index is stale; run 'rr refresh'");
             }
         } else if !snapshot.meta.no_git {
@@ -162,6 +178,7 @@ impl Workspace {
             repo,
             root,
             snapshot,
+            stamp,
         })
     }
 }
@@ -180,8 +197,10 @@ impl Workspace {
 /// Only reached when the ids differ, and then **once**. The window this opens is
 /// the one a user meets first — `rr map`, commit the generated maps, ask
 /// something — and it lasts until the next `rr refresh`, so a walk per query
-/// would make every query in it slow rather than the first. The answer is
-/// therefore memoized against the commit it was reached for.
+/// would make every query in it slow rather than the first. A walk that
+/// *observed* agreement is therefore memoized against the commit it was reached
+/// for; one that could only report ignorance is not, because ignorance is a
+/// condition that clears and a memo would outlive it.
 ///
 /// The memo is stamped against the snapshot file, so a rebuilt index is never
 /// answered from it. Within one snapshot and one commit it says exactly what the
@@ -190,9 +209,16 @@ impl Workspace {
 /// it — and equally invisible to the equal-ids branch, which never walks at all.
 /// This grants the moved-`HEAD` window the same trust as the unmoved one, which
 /// is the whole claim of the commit that opened it.
-fn index_still_holds(root: &Path, head: Option<rr_core::oid::Oid>) -> anyhow::Result<bool> {
+fn index_still_holds(
+    root: &Path,
+    stamp: Option<&str>,
+    head: Option<rr_core::oid::Oid>,
+) -> anyhow::Result<bool> {
     let verified = head.map_or_else(|| "none".to_owned(), |oid| oid.to_hex());
-    if rr_core::workspace::read_memo(root, HEAD_VERIFIED_MEMO).as_deref() == Some(verified.as_str())
+    if stamp
+        .and_then(|stamp| rr_core::workspace::read_memo(root, HEAD_VERIFIED_MEMO, stamp))
+        .as_deref()
+        == Some(verified.as_str())
     {
         return Ok(true);
     }
@@ -208,11 +234,21 @@ fn index_still_holds(root: &Path, head: Option<rr_core::oid::Oid>) -> anyhow::Re
         report.snapshot,
         SnapshotLabel::Fresh | SnapshotLabel::Unknown
     );
-    // Only agreement is remembered. A refusal is the state a user is about to
+    // Only an *observation* is remembered, which `Unknown` is not: it means the
+    // tree could not be compared at all — a clean filter that died, a `git`
+    // holding the index lock — and that is a condition which clears. Memoizing
+    // it would turn one transient failure into standing trust in an index the
+    // very next walk would have called stale, for as long as this snapshot and
+    // this commit last. Answering the query on it is the documented trade; not
+    // re-asking afterwards is not.
+    //
+    // A refusal is not remembered either: it is the state a user is about to
     // change by running `rr refresh`, and a memo saying "stale" would have to be
     // invalidated by the very thing that fixes it.
-    if holds {
-        rr_core::workspace::write_memo(root, HEAD_VERIFIED_MEMO, &verified);
+    if report.snapshot == SnapshotLabel::Fresh {
+        if let Some(stamp) = stamp {
+            rr_core::workspace::write_memo(root, HEAD_VERIFIED_MEMO, stamp, &verified);
+        }
     }
     Ok(holds)
 }
@@ -241,7 +277,13 @@ fn route_lookup(workspace: &Workspace, key: &RouteKey) -> Option<Candidate> {
     let (table, _) = load_routes(&workspace.root);
     let record = table.get(key)?;
     let symbol = resolve_route_anchor(&workspace.snapshot, &record.anchor)?;
-    let identity = api_identity(&workspace.root, &workspace.snapshot, DEFAULT_MAP_BUDGET).ok()?;
+    let identity = api_identity(
+        &workspace.root,
+        workspace.stamp.as_deref(),
+        &workspace.snapshot,
+        DEFAULT_MAP_BUDGET,
+    )
+    .ok()?;
     if identity != record.api_identity {
         return None;
     }
@@ -281,7 +323,9 @@ fn learn_route(workspace: &Workspace, key: Option<&RouteKey>, result: &QueryResu
     let Ok(catalog) = projected_map_catalog(&workspace.snapshot, DEFAULT_MAP_BUDGET) else {
         return;
     };
-    catalog.remember(&workspace.root);
+    if let Some(stamp) = workspace.stamp.as_deref() {
+        catalog.remember(&workspace.root, stamp);
+    }
     let Some(owner) = catalog.owner(symbol) else {
         return;
     };

@@ -71,6 +71,14 @@ fn reconcile_routes(
     // The same corpus-wide test `rr query` applies, spelled once here so the two
     // cannot disagree about which routes this generation still believes.
     let identity = catalog.api_identity();
+    // Filed here because this run projected the snapshot anyway, and because it
+    // is the only moment in a publication where the snapshot on disk and the one
+    // in hand are the same bytes by construction: the guard is held and
+    // `publish` has already landed. Without it the first query after every
+    // refresh re-projects to learn a digest this function had in a local.
+    if let Some(stamp) = rr_core::workspace::snapshot_stamp(root) {
+        catalog.remember(root, &stamp);
+    }
     let mut retired = 0_u32;
     let update = rr_core::text::update_routes(root, |table| {
         table.retain(|record| {

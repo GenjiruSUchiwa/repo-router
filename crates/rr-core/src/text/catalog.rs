@@ -97,8 +97,13 @@ impl MapCatalog {
     /// Called from the paths that had to build a catalog anyway — learning a
     /// route, and reconciling them after a publication — so the memo costs the
     /// run that fills it nothing it had not already spent.
-    pub fn remember(&self, root: &Path) {
-        crate::workspace::write_memo(root, API_IDENTITY_MEMO, &self.api_identity.to_text());
+    ///
+    /// `stamp` is [`crate::workspace::snapshot_stamp`] for the snapshot this
+    /// catalog was projected from, and it is a parameter rather than something
+    /// read here because the file on disk may already be a later one: see
+    /// [`crate::workspace::write_memo`].
+    pub fn remember(&self, root: &Path, stamp: &str) {
+        crate::workspace::write_memo(root, API_IDENTITY_MEMO, stamp, &self.api_identity.to_text());
     }
 
     /// How many symbols have an owning map.
@@ -212,18 +217,29 @@ fn catalog_of(projection: &TextProjection) -> MapCatalog {
 ///
 /// A memo filed against some other snapshot is not read at all — see
 /// [`crate::workspace::read_memo`] — so the fallback is a fresh projection and
-/// never a stale identity.
+/// never a stale identity. `stamp` is
+/// [`crate::workspace::snapshot_stamp`] for `snapshot` itself, taken by whoever
+/// loaded it; `None` says the loader could not stamp what it read, and then
+/// there is nothing a memo could safely be filed under or matched against.
 ///
 /// # Errors
 /// Returns what [`projected_map_catalog`] returns, and only when the memo missed.
-pub fn api_identity(root: &Path, snapshot: &Snapshot, budget: u32) -> crate::Result<Digest> {
-    if let Some(digest) = crate::workspace::read_memo(root, API_IDENTITY_MEMO)
+pub fn api_identity(
+    root: &Path,
+    stamp: Option<&str>,
+    snapshot: &Snapshot,
+    budget: u32,
+) -> crate::Result<Digest> {
+    if let Some(digest) = stamp
+        .and_then(|stamp| crate::workspace::read_memo(root, API_IDENTITY_MEMO, stamp))
         .and_then(|text| Digest::parse(&text).ok())
     {
         return Ok(digest);
     }
     let catalog = projected_map_catalog(snapshot, budget)?;
-    catalog.remember(root);
+    if let Some(stamp) = stamp {
+        catalog.remember(root, stamp);
+    }
     Ok(catalog.api_identity())
 }
 

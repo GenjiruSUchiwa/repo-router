@@ -85,31 +85,42 @@ pub fn snapshot_stamp(root: &Path) -> Option<String> {
     Some(format!("{}:{}", meta.len(), modified.as_nanos()))
 }
 
-/// What a memo says, but only if it was filed against the snapshot on disk now.
+/// What a memo says, but only if it was filed against the snapshot `stamp`
+/// names.
 ///
-/// The stamp is checked here and not by the caller, so a memo can never be read
-/// without it. Every failure — no snapshot, no memo, a memo for some other
-/// snapshot, a torn one — is the same `None`: a miss, which costs the caller the
-/// work it was trying to skip and never a wrong answer.
+/// The stamp is the caller's and not this function's, and that is the whole
+/// correctness argument. A memo is a claim about the bytes a value was derived
+/// from, so it may only be read by a run holding *those* bytes — read the stamp
+/// off disk here instead and a run holding the previous snapshot would answer
+/// from a memo another process filed against the one that replaced it. The
+/// caller stamps the snapshot it loaded, once, and passes the same stamp to
+/// [`write_memo`].
+///
+/// Every failure — no memo, a memo for some other snapshot, a torn one — is the
+/// same `None`: a miss, which costs the caller the work it was trying to skip
+/// and never a wrong answer.
 #[must_use]
-pub fn read_memo(root: &Path, name: &str) -> Option<String> {
-    let stamp = snapshot_stamp(root)?;
+pub fn read_memo(root: &Path, name: &str, stamp: &str) -> Option<String> {
     let text = std::fs::read_to_string(memo_path(root, name)).ok()?;
     let (found, value) = text.split_once('\t')?;
     (found == stamp).then(|| value.trim_end_matches('\n').to_owned())
 }
 
-/// Files a memo against the snapshot on disk now.
+/// Files a memo against the snapshot `stamp` names.
+///
+/// `stamp` is the snapshot the *value* was derived from, not the file on disk
+/// now, and the difference is a wrong answer rather than a slow one: a
+/// publication landing between a query's snapshot load and this call would
+/// otherwise file an identity computed from bytes that are gone under the stamp
+/// of the bytes that replaced them, and every later reader would trust it.
+/// Stamping what the caller actually read makes that race a miss.
 ///
 /// Best-effort in the same sense as the route cache: a caller that could not
 /// record a shortcut has still answered the question it was asked. Written to a
 /// unique temporary and renamed, because two `rr query` processes memoizing the
 /// same fact at the same time would otherwise interleave into a line that is
 /// neither of theirs.
-pub fn write_memo(root: &Path, name: &str, value: &str) {
-    let Some(stamp) = snapshot_stamp(root) else {
-        return;
-    };
+pub fn write_memo(root: &Path, name: &str, stamp: &str, value: &str) {
     let dir = local_dir(root).join("memo");
     if std::fs::create_dir_all(&dir).is_err() {
         return;
