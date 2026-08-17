@@ -230,6 +230,44 @@ fn a_clean_filter_that_stops_reading_does_not_kill_the_run() {
     assert!(!lock.exists(), "the claim outlived the run that held it");
 }
 
+/// The filter runs on a second path, and it is the one a real repository takes.
+/// A truncating filter makes every tracked file's recorded size disagree with
+/// the file on disk, so `gix-status` cannot settle the entry by `stat` and
+/// streams the worktree copy through the filter itself to compare hashes. That
+/// write is outside `convert_to_git`, so guarding only that one left the
+/// commonest case — a clean worktree, nothing modified — still dying with 141.
+#[test]
+fn a_clean_filter_does_not_kill_a_run_over_an_unmodified_worktree() {
+    let repo = common::empty_repo();
+    common::git(repo.path(), &["config", "filter.trunc.clean", "head -c 8"]);
+    common::write(repo.path(), ".gitattributes", "*.rs filter=trunc\n");
+    common::write(repo.path(), "src/token.rs", &wider_than_a_pipe(1));
+    common::commit_all(repo.path(), "add token behind a truncating filter");
+    // The same bytes again: the content is unchanged, but the fresh mtime means
+    // `stat` alone can no longer settle the entry, which is what sends the scan
+    // through the filter. Without it the run only sometimes takes that path.
+    common::write(repo.path(), "src/token.rs", &wider_than_a_pipe(1));
+
+    let mapped = common::run(repo.path(), &["map"]);
+    assert_eq!(
+        mapped.status.signal(),
+        None,
+        "the status scan's own filter write killed rr (status {:?}, stderr {:?})",
+        mapped.status,
+        common::stderr(&mapped)
+    );
+    assert_eq!(common::code(&mapped), 0, "{}", common::stderr(&mapped));
+
+    let observed = common::run(repo.path(), &["status"]);
+    assert_eq!(
+        observed.status.signal(),
+        None,
+        "rr status died on the same write (status {:?})",
+        observed.status
+    );
+    assert_eq!(common::code(&observed), 0, "{}", common::stderr(&observed));
+}
+
 /// A source file with more in it than the filter will read before exiting, so
 /// the write that feeds it is still going when the read end closes.
 fn wider_than_a_pipe(seed: usize) -> String {
