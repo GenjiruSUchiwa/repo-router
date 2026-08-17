@@ -54,8 +54,7 @@ fn status_json_carries_the_versioned_contract() {
 
     assert_eq!(value["schema_version"], 3);
     assert_eq!(value["command"], "status");
-    // A generation writes committed maps, so it leaves the tree dirty until the
-    // user commits them. `dirty` here is the artifacts, not stale work.
+
     assert_eq!(value["git"], "dirty");
     assert_eq!(value["snapshot"], "fresh");
     assert!(value["head"].is_string());

@@ -27,7 +27,6 @@ fn a_file_is_never_served_another_languages_facts() {
     let cache = FactCache::open(root.path()).unwrap();
     let mut worker = Worker::new(root.path());
 
-    // Rust first, so its entry is the one sitting there when Python asks.
     let (rust, _) = worker.process(&source("a.rs", Lang::Rust), &cache).unwrap();
     assert!(
         !rust.unwrap().facts.defs().is_empty(),
@@ -53,8 +52,7 @@ fn a_file_is_never_served_another_languages_facts() {
 #[test]
 fn an_identical_file_in_two_languages_does_not_share_a_cache_entry() {
     let root = tempfile::tempdir().unwrap();
-    // Deliberately JSX-free, so both grammars parse it and the two results are
-    // separated by the key rather than by one of them having failed.
+
     let identical =
         "export class Badge {\n    render(): string {\n        return \"x\";\n    }\n}\n";
     write(root.path(), "badge.ts", identical);
@@ -76,8 +74,6 @@ fn an_identical_file_in_two_languages_does_not_share_a_cache_entry() {
     assert_eq!(typescript.defs().len(), 2);
     assert_eq!(tsx.defs().len(), 2);
 
-    // Same bytes, same defs, and still two entries — which is the only thing
-    // that makes the *next* file, the one with JSX in it, come out right.
     let (again, _) = worker
         .process(&source("badge.tsx", Lang::Tsx), &cache)
         .unwrap();
@@ -106,7 +102,6 @@ fn facts_made_without_an_extractor_are_never_cached() {
     let cache = FactCache::open(root.path()).unwrap();
     let mut worker = Worker::new(root.path());
 
-    // Phase one: the same bytes, read as a language rr cannot parse.
     let (unsupported, _) = worker
         .process(&source("service.py", Lang::CSharp), &cache)
         .unwrap();
@@ -121,8 +116,6 @@ fn facts_made_without_an_extractor_are_never_cached() {
     assert!(unsupported.defs().is_empty());
     let misses = cache.stats().misses();
 
-    // Phase two: the same bytes, and therefore the same OID, under a language
-    // that has one.
     let (supported, _) = worker
         .process(&source("service.py", Lang::Python), &cache)
         .unwrap();
@@ -189,8 +182,7 @@ fn an_unsupported_language_degrades_without_being_cached() {
 #[test]
 fn a_file_its_own_parser_could_not_read_is_still_cached() {
     let root = tempfile::tempdir().unwrap();
-    // Invalid UTF-8 is the degrade the Rust extractor reaches without needing a
-    // pathological source: it is reproducible from these exact bytes.
+
     std::fs::write(root.path().join("broken.rs"), [0xFF, 0xFE, b'f', b'n']).unwrap();
 
     let cache = FactCache::open(root.path()).unwrap();

@@ -57,8 +57,7 @@ pub fn apply_block(
         return Ok(block.to_owned());
     };
     let normalized = super::parse::normalize_newlines_public(existing)?;
-    // That call refuses a file mixing the two endings, so a carriage return
-    // surviving here means every line in the original ended CRLF.
+
     let was_crlf = existing.contains('\r');
     let applied = apply_to_lf(&normalized, markers, block)?;
     Ok(if was_crlf {
@@ -115,9 +114,7 @@ fn append_block(existing: &str, block: &str) -> String {
         if !existing.ends_with('\n') {
             out.push('\n');
         }
-        // `out` now ends in exactly the newlines `existing` did, plus at most the
-        // one just added, so one test covers both: a file already ending in a
-        // blank line does not gain a second one.
+
         if !out.ends_with("\n\n") {
             out.push('\n');
         }
@@ -162,7 +159,7 @@ mod tests {
         assert!(updated.ends_with("after\n"));
         assert!(updated.contains(replacement));
         assert!(!updated.contains("/SYMBOLS.md"));
-        // Content before AND after the region is byte-identical afterwards.
+
         let before = "before\n";
         let after = "after\n";
         assert_eq!(&updated[..before.len()], before);
@@ -244,7 +241,6 @@ mod tests {
         assert!(updated_contract.contains(BLOCK.trim_end()));
         assert!(updated_contract.contains(CONTRACT_BLOCK.trim_end()));
 
-        // Applying one must not disturb the other set's markers as whole lines.
         let other_begins: Vec<_> = updated
             .lines()
             .filter(|line| *line == CONTRACT_MARKERS.begin)

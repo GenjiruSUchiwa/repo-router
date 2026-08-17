@@ -85,14 +85,9 @@ pub fn run_refresh(args: &RefreshArgs, command: RefreshCommand) -> anyhow::Resul
         Some(root) => root,
         None => std::env::current_dir().context("resolve current directory")?,
     };
-    // Rejected by the parser rather than here, so a thread count of zero is a
-    // usage error with `clap`'s own exit code instead of a failure that looks
-    // like the repository was at fault.
+
     let threads = usize::from(args.threads.unwrap_or(1));
 
-    // `rr map` means "rebuild everything" by name, so the flag decides nothing
-    // there: a `--full` that could only ever be true says nothing, and a
-    // `--full=false` that quietly rebuilt anyway would be worse than silent.
     let mode = if args.full || command == RefreshCommand::Map {
         RefreshMode::Full
     } else {
@@ -159,9 +154,6 @@ pub fn run_status(args: &StatusArgs) -> anyhow::Result<u8> {
         Output::print_text(&render_status_text(&report))?;
     }
 
-    // Producing the report *is* the job, so producing one is success whatever
-    // it says. Callers branch on `snapshot`, which distinguishes five states
-    // where an exit code could only ever distinguish two.
     Ok(exit::OK)
 }
 
@@ -207,18 +199,13 @@ fn publish(
     };
 
     match prepared {
-        // The snapshot is current, so the guard is worth taking only if the
-        // text derived from it is not. Checking first keeps the common "nothing
-        // happened" run lock-free.
+
         rr_git::Refresh::UpToDate {
             report,
             snapshot,
             work_root,
         } => {
-            // The work root, never the supplied directory: artifact paths are
-            // repository-relative, so staging them against a subdirectory finds
-            // every one of them missing and takes the guard this branch exists
-            // to avoid.
+
             let staged = text_artifacts::stage(&snapshot, &work_root, budget)?;
             if staged.validation().is_up_to_date() {
                 return Ok(RunReport {
@@ -257,8 +244,7 @@ fn republish_text(
     refresh: RefreshReport,
 ) -> Result<RunReport, Published> {
     let Some(held) = rr_git::hold(root, threads).map_err(anyhow::Error::new)? else {
-        // The snapshot vanished between the two reads. Nothing to project from,
-        // and the next run rebuilds it.
+
         return Ok(RunReport {
             refresh,
             text: TextReport::default(),
@@ -296,24 +282,15 @@ fn refusal(refresh: RefreshReport, staged: &StagedText) -> Published {
 fn install_interrupt() -> CancelToken {
     use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
 
-    // The handler cannot own an `Arc`, so it reaches the flag through a raw
-    // pointer to one that is deliberately never dropped. A leak of a single
-    // bool that lives exactly as long as the process is the cheapest way to
-    // guarantee the pointer stays valid for as long as a signal can arrive.
     static FLAG: AtomicPtr<AtomicBool> = AtomicPtr::new(std::ptr::null_mut());
 
     extern "C" fn handle(_signal: libc::c_int) {
         let flag = FLAG.load(Ordering::SeqCst);
         if !flag.is_null() {
-            // Storing to an `AtomicBool` is async-signal-safe; nothing else
-            // here allocates, locks, or formats.
+
             unsafe { &*flag }.store(true, Ordering::SeqCst);
         }
-        // Hand the next one back to the handler `main` installed rather than to
-        // `SIG_DFL`: an impatient second Ctrl-C should still be immediate, but
-        // it arrives while the claim is held and must not strand it. Best
-        // effort — it races a shutdown that is touching the same registry — and
-        // strictly better than the `SIG_DFL` that stranded the claim outright.
+
         let next = crate::release_and_die as extern "C" fn(libc::c_int);
         unsafe {
             libc::signal(libc::SIGINT, next as libc::sighandler_t);

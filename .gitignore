@@ -2,7 +2,6 @@ target/
 .rr/local/
 *.tar.gz
 
-# AI-agent-specific files and directories - never commit
 .claude/
 .agents/
 .cursor/

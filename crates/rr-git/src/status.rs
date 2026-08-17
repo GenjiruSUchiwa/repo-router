@@ -32,23 +32,18 @@ use crate::{Error, Result};
 /// discovery failures. A repository whose working tree cannot be compared is
 /// not an error — it is reported as [`GitLabel::Unavailable`].
 pub fn status(root: &Path, cancel: &CancelToken) -> Result<StatusReport> {
-    // One thread: status observes and reads, and never runs the parser pool.
+
     let context = BuildContext::open(root, 1)?;
     let store = SnapshotStore::new(&context.work_root);
     let published = Published::load(&store)?;
 
-    // Read from the snapshot regardless of what the repository turns out to
-    // say: this describes the file queries will actually use, and it stays true
-    // whether that file is fresh, stale, or merely unverifiable.
     let unresolved = published
         .snapshot()
         .map_or(0, |snapshot| snapshot.unresolved_count());
 
     let observed = match observe(&context, cancel) {
         Ok(observed) => observed,
-        // An interrupted scan has observed nothing, and "nothing observed" is
-        // indistinguishable from "nothing to observe". Reporting a cancelled
-        // run as a clean tree is the failure this guard exists to prevent.
+
         Err(Error::Cancelled) => return Err(Error::Cancelled),
         Err(_) => {
             let (git, head, snapshot) = unobservable(&context, &published)?;
@@ -64,8 +59,7 @@ pub fn status(root: &Path, cancel: &CancelToken) -> Result<StatusReport> {
 
     let repo = context.repo()?;
     let digest = discovery_digest(repo.as_ref(), &context.walk, observed.as_ref());
-    // Status reports no counters, so what deciding cost is dropped here rather
-    // than reported. It is the same cost the refresh it describes would pay.
+
     let plan = plan_for(
         RefreshMode::Incremental,
         &published,
@@ -97,9 +91,6 @@ fn unobservable(
 ) -> Result<(GitLabel, Option<Oid>, SnapshotLabel)> {
     let head = context.repo()?.map(|repo| repo.head_oid()).transpose()?;
 
-    // There is a snapshot and no way to tell whether it still holds. Saying
-    // `stale` would be a claim with no evidence for it, and `fresh` a claim
-    // with no evidence against it.
     let snapshot = match published {
         Published::Ready(_) => SnapshotLabel::Unknown,
         Published::Unusable(reason) => unusable_label(*reason),
@@ -130,9 +121,7 @@ fn snapshot_label(plan: &RefreshPlan) -> SnapshotLabel {
         (RefreshMode::Incremental, _) if plan.is_empty_delta() => SnapshotLabel::Fresh,
         (RefreshMode::Incremental, _) => SnapshotLabel::Stale,
         (RefreshMode::Full, Some(reason)) => unusable_label(reason),
-        // A full rebuild nobody had to justify is one that was asked for
-        // outright, and asking for it says nothing about the snapshot. Status
-        // never requests one, so this is a guard rather than a path.
+
         (RefreshMode::Full, None) => SnapshotLabel::Unknown,
     }
 }

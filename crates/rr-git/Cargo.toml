@@ -8,10 +8,6 @@ repository.workspace = true
 
 [dependencies]
 thiserror = { workspace = true }
-# `sha256` is not optional in the way it looks. This crate already hashes and
-# compares thirty-two-byte object names, so without it a SHA-256 repository
-# fails while *opening*, on an unreadable `extensions.objectFormat` error, long
-# before anything that could explain itself.
 gix = { version = "0.86.0", default-features = false, features = [
     "index",
     "sha1",
@@ -21,9 +17,6 @@ gix = { version = "0.86.0", default-features = false, features = [
     "dirwalk",
 ] }
 gix-lock = "24.0.0"
-# The registry behind `gix-lock`. A terminating signal skips `Drop`, and this is
-# the only door to the lock files that would otherwise survive it; already in
-# the tree through `gix-lock`, so this costs no new build.
 gix-tempfile = "24.0.0"
 blake3 = { workspace = true }
 sha1 = { workspace = true }
@@ -32,8 +25,6 @@ serde = { workspace = true }
 rr-core = { path = "../rr-core" }
 rayon = { workspace = true }
 
-# Safe wrappers for the descriptor-relative no-follow opens source verification
-# needs; already in the tree through gix-index, so this costs no new build.
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "1", features = ["fs"] }
 libc = { workspace = true }
@@ -43,9 +34,6 @@ proptest = { workspace = true }
 serde_json = { workspace = true }
 tempfile = { workspace = true }
 
-# Already built for the library above; tests use it to set timestamps rather
-# than wait for them, which is the only way a racy-clean fixture is a fixture
-# and not a race of its own.
 [target.'cfg(unix)'.dev-dependencies]
 rustix = { version = "1", features = ["fs"] }
 

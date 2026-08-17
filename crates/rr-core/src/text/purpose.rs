@@ -87,8 +87,7 @@ pub fn read_existing_purposes(
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
             Err(error) => return Err(crate::Error::Io(error)),
         };
-        // A map this crate cannot parse keeps its bytes and blocks the run
-        // elsewhere; here it simply contributes nothing.
+
         if let Ok(parsed) = super::parse_map(&bytes) {
             if let Some(text) = parsed.purpose() {
                 purposes.insert(map_path, text.to_owned());
@@ -179,8 +178,7 @@ fn ranked_terms(scope: &Scope) -> Vec<String> {
         {
             continue;
         }
-        // Once per symbol: a name whose lexemes repeat inside it says the term
-        // once, not twice.
+
         let mut seen: Vec<&str> = Vec::new();
         for term in &terms {
             let Some(text) = lexicon.resolve(term.term) else {

@@ -238,8 +238,7 @@ pub fn route_exact(snapshot: &Snapshot, query: &ParsedQuery<'_>) -> ExactOutcome
                 symbols,
                 effective_path_qualifier,
             ) {
-                // Every match for this atom was filtered out by the path
-                // qualifier; later atoms may still route.
+
                 ExactOutcome::Miss => {}
                 outcome => return outcome,
             }
@@ -258,8 +257,7 @@ pub fn route_exact(snapshot: &Snapshot, query: &ParsedQuery<'_>) -> ExactOutcome
                 symbols,
                 effective_path_qualifier,
             ) {
-                // Every match for this atom was filtered out by the path
-                // qualifier; later atoms may still route.
+
                 ExactOutcome::Miss => {}
                 outcome => return outcome,
             }

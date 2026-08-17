@@ -59,14 +59,6 @@ pub fn run(args: &Args) -> anyhow::Result<u8> {
     let parsed = parse_query(&workspace.snapshot, request).map_err(anyhow::Error::new)?;
     let mut scratch = RankingScratch::new();
 
-    // A cache hit is only a shortcut, so it must cost less than the work it
-    // skips: `route_lookup` reads two small files and resolves one anchor, while
-    // `route_query` on a miss ranks the whole corpus. The projection that names
-    // the corpus identity is paid once per published snapshot, by the miss that
-    // learns a route and not by the hits that follow. A `--path` query is
-    // neither read nor learned — the qualifier is part of the question and is
-    // not part of the key, so caching one would let a later unqualified
-    // question receive a qualified answer.
     let key = args
         .path
         .is_none()
@@ -160,20 +152,7 @@ impl Workspace {
             if snapshot.meta.no_git {
                 bail!("index repository mismatch; run 'rr map'");
             }
-            // A moved `HEAD` is not a stale index. The commit that moves it most
-            // often is the one that commits the generated maps, which touches no
-            // indexed source at all — and `rr status` already knows that,
-            // because #44 gave it the `HEAD`-to-`HEAD` tree diff. Comparing
-            // commit ids alone left the two commands contradicting each other on
-            // the same snapshot in the same second: `snapshot: fresh,
-            // stale_paths: 0` from one, `index is stale` from the other.
-            //
-            // Asked out of the commit's own tree diff, on every query rather
-            // than once. The window this covers — `rr map`, commit the generated
-            // maps, ask something — lasts until the next `rr refresh`, so the
-            // question has to be cheap enough to repeat, and a diff of what was
-            // committed is. Re-deriving it also means nothing here can outlive
-            // the state it was true of, which a remembered answer would.
+
             if snapshot.meta.repo_head_oid != head_oid
                 && !rr_git::commits_left_index_true(&root, &snapshot, head_oid)
                     .context("compare index to repository")?
@@ -241,22 +220,14 @@ fn learn_route(workspace: &Workspace, key: Option<&RouteKey>, result: &QueryResu
     let QueryResult::Direct { candidate, .. } = result else {
         return;
     };
-    // Only a symbol: a file target has no owning scope and so could never be
-    // told it went stale.
+
     let TargetId::Symbol(symbol) = candidate.target else {
         return;
     };
     let Some(confidence) = candidate.confidence else {
         return;
     };
-    // Projected, not validated: the weaker guarantee is that the map may not be
-    // on disk, which costs a reader one `MAP.md` they cannot open, against
-    // reading every artifact in the repository to learn one route.
-    //
-    // This is the one place on the query path that projects, and it is on the
-    // miss — the run that already paid for a full ranking pass. `remember` files
-    // the corpus identity it computed here, so the hits that follow read a memo
-    // instead of projecting again.
+
     let Ok(catalog) = projected_map_catalog(&workspace.snapshot, DEFAULT_MAP_BUDGET) else {
         return;
     };
@@ -272,8 +243,7 @@ fn learn_route(workspace: &Workspace, key: Option<&RouteKey>, result: &QueryResu
 
     let record = RouteRecord {
         key: key.clone(),
-        // The spelling `rr query` prints, so what is cached and what was shown
-        // are one string.
+
         anchor: encode_anchor(anchor.path, anchor.symbol),
         map: encode_map_destination(owner.path().as_str()),
         api_identity: catalog.api_identity(),
@@ -314,14 +284,10 @@ fn attach_source(workspace: &Workspace, result: &mut QueryResult) -> anyhow::Res
         PendingSource::Pending(pending) => pending,
     };
 
-    // A pending packet only exists for an acquisition that carried content, so
-    // this holds; failing closed is still cheaper than assuming it.
     let AcquireOutcome::Acquired(content) = &acquired else {
         bail!("verified source for {} without content", path.as_str());
     };
 
-    // The packet exists but cannot be read yet: only a fresh final check
-    // releases its content.
     let final_state = revalidate_source(workspace.repo.as_ref(), &workspace.root, path, content)
         .with_context(|| format!("revalidate source for {}", path.as_str()))?;
 

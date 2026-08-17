@@ -243,14 +243,12 @@ fn a_symbol_record_names_the_map_that_owns_it() {
         .iter()
         .find(|record| record.symbol.ends_with("verify_token"))
         .expect("the symbol index lists verify_token");
-    // The displayed name is qualified; the anchor is the bare one `rr query`
-    // prints, so the two columns are not the same string.
+
     assert_eq!(verify.symbol, "auth::token::verify_token");
     assert_eq!(verify.map, "src/auth/MAP.md");
     assert_eq!(verify.anchor, "src/auth/token.rs#verify_token");
     assert_eq!(verify.visibility, "public");
 
-    // The map it names must carry the api_hash the record claims.
     let owner = parse_map(files.get(&verify.map).unwrap().as_bytes()).unwrap();
     assert_eq!(owner.api_hash(), verify.api_hash);
 }
@@ -293,9 +291,6 @@ fn a_written_purpose_survives_regeneration_byte_for_byte() {
     let purposes = read_existing_purposes(root.path(), &projection).unwrap();
     assert_eq!(purposes.for_map(MAP_FILE_NAME), Some(written));
 
-    // Regeneration reproduces the purpose exactly, and its own `tokens` — the
-    // hand-edit above could not recompute that, and a stale count is what a
-    // real editor would leave behind too.
     let regenerated = projection.render(&purposes).unwrap();
     let rendered_root = texts(&regenerated).remove(MAP_FILE_NAME).unwrap();
     assert_eq!(
@@ -308,7 +303,6 @@ fn a_written_purpose_survives_regeneration_byte_for_byte() {
         "regeneration changed something other than the token count"
     );
 
-    // And it is a fixed point: publishing it and reading it back changes nothing.
     publish(root.path(), &regenerated);
     let again = read_existing_purposes(root.path(), &projection).unwrap();
     let twice = texts(&projection.render(&again).unwrap());
@@ -617,10 +611,6 @@ fn an_oversize_purpose_is_a_conflict_and_is_never_trimmed() {
     let oversize = "x".repeat(PURPOSE_MAX_BYTES + 1);
     fs::write(&map, replace_purpose(&text, &oversize)).unwrap();
 
-    // Reading purposes is deliberately lenient — it contributes nothing rather
-    // than stopping the run. Validation is what has to catch this, because
-    // classifying the file as merely stale would let a caller replace 161 bytes
-    // of somebody's writing with a fresh `TODO:`.
     let validation =
         rr_core::text::validate_text_artifacts(&snapshot, root.path(), DEFAULT_MAP_BUDGET).unwrap();
     let conflict = validation

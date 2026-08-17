@@ -185,12 +185,9 @@ pub fn render_refresh_text(report: &RunReport, command: RefreshCommand) -> Strin
         format!(" (full fallback: {})", reason.as_text())
     });
 
-    // `reparsed` is always present: it is the one counter whose absence would
-    // be read as "the number is unknown" rather than "the number is zero".
     let mut counters = vec![format!("{} reparsed", snapshot.reparsed)];
     match outcome {
-        // Nothing was published, so the interesting question is what it cost to
-        // find that out — which is content reads, not cache hits.
+
         RefreshOutcome::Unchanged => {
             counters.push(format!("{} content reads", snapshot.content_reads));
         }
@@ -359,8 +356,6 @@ pub fn render_refresh_json(
         elapsed_ms: snapshot.elapsed_ms,
     })
 }
-
-// --- status -----------------------------------------------------------------
 
 /// How the working tree relates to the index and `HEAD`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]

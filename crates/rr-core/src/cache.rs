@@ -128,9 +128,7 @@ impl FactCache {
     /// # Errors
     /// Returns [`Error::CacheIo`] if the directory cannot be created or is not writable.
     pub fn open(repo_root: &Path) -> Result<Self> {
-        // Marking the state directory ignored before creating the cache inside
-        // it means Git never observes a moment where thousands of cache files
-        // exist without the rule that hides them.
+
         crate::workspace::ensure_private(repo_root).map_err(|source| Error::CacheIo {
             path: crate::workspace::state_dir(repo_root),
             source,
@@ -298,12 +296,6 @@ mod tests {
         assert_eq!(cache.stats().corrupt(), 0, "a stale entry was even opened");
         assert_eq!(cache.stats().misses(), 1);
 
-        // Reparsing writes the entry this schema asks for beside — not over —
-        // the one the previous schema left, so no reader ever has to decide
-        // between them. Nothing reclaims the old file: there is no pruner in
-        // this workspace, and a bump strands every entry written before it
-        // until the cache directory is deleted. That is a disk cost, paid once
-        // per bump, and it is the price of the miss being unmistakable.
         let rebuilt = DummyFacts {
             symbols: vec!["written_by_schema_3".to_string()],
             imports: Vec::new(),

@@ -261,7 +261,6 @@ fn a_broken_python_indent_recovers_rather_than_truncating() {
         }
     ));
 
-    // Every definition survives, on both sides of the break and inside it.
     assert_eq!(def(&facts, "before").kind.to_string(), "function");
     assert_eq!(def(&facts, "Service").kind.to_string(), "class");
     assert_eq!(
@@ -270,10 +269,6 @@ fn a_broken_python_indent_recovers_rather_than_truncating() {
     );
     assert_eq!(def(&facts, "after").kind.to_string(), "function");
 
-    // And the reshaping is visible rather than papered over. The dedented
-    // `return result` leaves the method the file wrote it inside and lands on
-    // the class the grammar hung it on; what the method keeps is the line
-    // above it, which was indented correctly.
     let method = def(&facts, "run");
     let class = def(&facts, "Service");
     assert!(method.body_idents.iter().any(|ident| ident == "helper"));
@@ -335,7 +330,7 @@ fn a_typescript_member_reports_the_visibility_it_declares() {
     );
     assert_eq!(visibility("baseUrl"), "Public");
     assert_eq!(visibility("send"), "Public");
-    // Nesting is spelled the language's way, not Rust's.
+
     assert_eq!(
         def(&facts, "send").local_qualified.as_deref(),
         Some("Client.send")
@@ -350,8 +345,7 @@ fn a_typescript_binding_is_a_function_only_when_its_initializer_is_one() {
     assert_eq!(def(&facts, "makeClient").kind.to_string(), "function");
     assert_eq!(def(&facts, "DEFAULT_CEILING").kind.to_string(), "variable");
     assert_eq!(def(&facts, "INTERNAL_PREFIX").kind.to_string(), "variable");
-    // A binding whose initializer starts on the next line: the signature ends
-    // at the line break, so there is nothing left to read it from.
+
     assert_eq!(def(&facts, "later").kind.to_string(), "variable");
 }
 
@@ -372,7 +366,7 @@ fn a_containers_body_idents_do_not_absorb_member_doc_prose() {
         "container absorbed member doc prose: {:?}",
         options.body_idents
     );
-    // The member's span reaches back over the comment; the signature does not.
+
     assert!(base_url.span.start_byte() < base_url.signature_span.start_byte());
     assert_eq!(base_url.signature, "readonly baseUrl: string");
 }
@@ -384,16 +378,13 @@ fn typescript_documentation_is_the_comment_run_and_not_the_body() {
     let (_, facts) = facts_for(Lang::TypeScript, "typescript", "surface.ts");
     let ceiling = def(&facts, "DEFAULT_CEILING");
     assert!(ceiling.doc_idents.iter().any(|ident| ident == "ceiling"));
-    // The boundary the query header states: a binding that is not exported is
-    // matched by a parent-anchored pattern, and a parent-anchored pattern
-    // cannot carry a comment run. It is indexed; it is not documented.
+
     assert!(def(&facts, "INTERNAL_PREFIX").doc_idents.is_empty());
 
     let join = def(&facts, "join");
     assert!(join.doc_idents.iter().any(|ident| ident == "Joins"));
     assert!(join.body_idents.iter().any(|ident| ident == "strict"));
 
-    // A decorator reaches back into the span, exactly as a Python decorator does.
     assert!(def(&facts, "Client")
         .attribute_idents
         .iter()
@@ -523,12 +514,9 @@ fn a_typescript_ambient_declaration_keeps_the_declare_keyword() {
         .iter()
         .any(|ident| ident == "transport"));
 
-    // Nesting deeper must not cost the members or the modifiers on them.
     assert_eq!(def(&facts, "token").visibility, Visibility::Private);
     assert_eq!(def(&facts, "release").kind.to_string(), "method");
 
-    // Declaration merging is two definitions sharing a name, not one of them
-    // overwriting the other: `Session` is a class here *and* a namespace.
     let sessions: Vec<_> = facts
         .defs()
         .iter()
@@ -627,8 +615,7 @@ fn every_import_kind_variant_has_a_producer() {
             produced.insert(import.kind);
         }
     }
-    // `BTreeSet` iterates in `Ord` order, which is declaration order, which is
-    // the order of `ALL`.
+
     assert_eq!(
         produced.into_iter().collect::<Vec<_>>(),
         ImportKind::ALL.to_vec()

@@ -932,10 +932,7 @@ fn validate_facts(
                 reason: "signature span is not contained by definition span",
             });
         }
-        // Checked on the way in rather than on the way out: these facts also
-        // arrive from the on-disk cache, where a file written by a build with a
-        // different idea of canonical form would otherwise reach a renderer
-        // that has no source left to re-derive it from.
+
         if def.signature.is_empty() {
             return Err(Error::InvalidFacts {
                 reason: "definition signature is empty",
@@ -1314,9 +1311,7 @@ mod tests {
         let unique = names.len();
         names.dedup();
         assert_eq!(names.len(), unique, "a kind is listed in ALL twice");
-        // Duplicate-freedom is only half of it: a kind missing from `ALL`
-        // weakens every ALL-driven test, including the one asserting that every
-        // kind reaches a map.
+
         assert_variant_count::<DefKind>(DefKind::ALL.len(), "DefKind::ALL");
     }
 
@@ -1395,8 +1390,7 @@ mod tests {
 
     #[test]
     fn import_kind_round_trips_and_says_which_paths_resolve() {
-        // Only `use` resolves, and deliberately: the resolver splits on `::`,
-        // which no other kind's path uses. See `ImportKind::resolves_by_path`.
+
         let all = [
             (ImportKind::Use, "\"use\"", true),
             (ImportKind::ExternCrate, "\"extern-crate\"", false),
@@ -1441,9 +1435,7 @@ mod tests {
             assert_eq!(back, reason);
             assert_eq!(reason.is_cacheable(), cacheable, "{reason:?}");
         }
-        // A reason missing from the list is a reason nothing here asks
-        // `is_cacheable` about, and the answer it would inherit by default is
-        // the one that puts facts into the cache.
+
         assert_variant_count::<DegradedReason>(all.len(), "the list above");
     }
 

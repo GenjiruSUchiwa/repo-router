@@ -63,7 +63,6 @@ fn mixed_repo() -> TempDir {
 fn rr_query_routes_into_typescript_and_python_definitions() {
     let repo = mixed_repo();
 
-    // TypeScript, by the qualified spelling TypeScript uses.
     let typescript = run(repo.path(), &["query", "--json", "client.Client.describe"]);
     assert_eq!(code(&typescript), 0, "{}", stdout(&typescript));
     let typescript = json(&typescript);
@@ -72,7 +71,6 @@ fn rr_query_routes_into_typescript_and_python_definitions() {
     assert_eq!(typescript["anchor"]["symbol"], "describe");
     assert_eq!(typescript["anchor"]["lines"], serde_json::json!([14, 17]));
 
-    // Python, by its own.
     let python = run(
         repo.path(),
         &["query", "--json", "service.Service.dispatch"],
@@ -83,8 +81,6 @@ fn rr_query_routes_into_typescript_and_python_definitions() {
     assert_eq!(python["anchor"]["path"], "src/service.py");
     assert_eq!(python["anchor"]["symbol"], "dispatch");
 
-    // And the text rendering says the same thing, since that is what a reader
-    // who did not pass `--json` actually sees.
     let text = run(repo.path(), &["query", "client.Client.describe"]);
     assert_eq!(code(&text), 0);
     let text = stdout(&text);

@@ -191,14 +191,9 @@ pub fn prepare(
 
     let context = BuildContext::open(root, threads)?;
     let store = SnapshotStore::new(&context.work_root);
-    // One handle for both planning passes and for the confirmation that follows
-    // them. Opening a repository means reading refs, config, and the index, and
-    // none of that changes between the three — so it is discovered once here
-    // rather than three times over.
+
     let repo = context.repo()?;
 
-    // Everything needed to *decide* is gathered before anything is claimed or
-    // created: a run with no work to do must leave no trace that it ran.
     let published = Published::load(&store)?;
     let observed = observe(&context, cancel)?;
     let digest = discovery_digest(repo.as_ref(), &context.walk, observed.as_ref());
@@ -228,10 +223,6 @@ pub fn prepare(
 
     let guard = RepositoryWriteGuard::acquire(&context.work_root)?;
 
-    // The repository is observed again under the lock. Between the first
-    // observation and the claim, anything at all could have happened; planning
-    // from the earlier reading would build a snapshot describing a repository
-    // that no longer exists.
     let observed = observe(&context, cancel)?;
     let digest = discovery_digest(repo.as_ref(), &context.walk, observed.as_ref());
     let planned = plan_for(
@@ -243,8 +234,7 @@ pub fn prepare(
         &context.walk,
     );
     let plan = planned.plan;
-    // Both planning passes read, and both reads happened. A counter that
-    // reported only the second would understate a cost the caller paid.
+
     report.content_reads += planned.content_reads;
     record_plan(&mut report, &plan);
 
@@ -284,16 +274,12 @@ pub fn prepare(
     report.tags = built.stats().tags;
     report.tags_recovered = built.stats().tags_recovered;
     report.content_reads += built.stats().clean_blob_reads + built.stats().filtered_raw_reads;
-    // Derived before the inputs are consumed by assembly: this is the list of
-    // claims the run has to stand behind.
+
     let read = acquired(&published, &plan, &built);
 
     let outcome = context.assemble(built, observed.as_ref())?;
     let envelope = store.encode(&outcome.snapshot)?;
 
-    // Validation happens after the bytes exist and before they are published,
-    // because the question is not "was the repository stable while we read it"
-    // but "is this snapshot true right now".
     confirm_unchanged(&context, observed.as_ref(), digest, cancel)?;
     confirm_content(repo.as_ref(), &read, &mut report.content_reads)?;
     check_cancelled(cancel)?;
@@ -327,9 +313,6 @@ fn is_no_op(store: &SnapshotStore, plan: &RefreshPlan, head_settled: bool) -> Re
         return Ok(false);
     }
 
-    // The published file has to still be there. Checking costs one read, and
-    // the alternative is reporting success for a snapshot someone deleted —
-    // leaving the repository with no index and this run claiming it has one.
     Ok(store.read_published()?.is_some())
 }
 
@@ -359,16 +342,12 @@ fn build(
     let cache = FactCache::open(&context.work_root)?;
     check_cancelled(cancel)?;
 
-    // A full rebuild retains nothing, which is the whole of the difference
-    // between the two modes: same files, same pipeline, no shortcut.
     let retainable = published
         .snapshot()
         .filter(|_| plan.mode() == RefreshMode::Incremental);
 
     context.run(&files, |worker, source| {
-        // Cancellation is checked per file rather than per batch, because a
-        // repository large enough to be worth interrupting is one where a
-        // batch takes long enough that the interruption would not be felt.
+
         check_cancelled(cancel)?;
 
         match retainable.and_then(|snapshot| {
@@ -398,9 +377,7 @@ fn retained(
         return None;
     }
     let record = snapshot.file_by_path(path.as_str())?;
-    // A file whose language or generated classification changed is a different
-    // file as far as the index is concerned, even at identical content — and
-    // neither of those is something Git status would ever report.
+
     if record.language != language || record.generated != generated {
         return None;
     }
@@ -456,25 +433,19 @@ fn confirm_content(
     reads: &mut u64,
 ) -> Result<()> {
     let Some(repo) = repo else {
-        // Outside Git every run is a full rebuild from the bytes just read, so
-        // there is no earlier claim left to re-confirm.
+
         return Ok(());
     };
 
     for (path, oid, representation) in acquired {
         match repo.probe_content(path)? {
-            // Git certifies the identity from the index stat, so the two names
-            // can be compared as they are. Fetching the blob to look at its
-            // name would only hand back the name the probe just supplied — a
-            // full object read, and a decompression, for an answer already in
-            // hand.
+
             ContentProbe::CleanGitBlob(current) => {
                 if current != *oid || *representation != ContentRepresentation::GitCanonical {
                     return Err(Error::RepositoryChanged);
                 }
             }
-            // Nothing but the bytes settles this one, and a path that no longer
-            // yields any is a path that moved after it was read.
+
             ContentProbe::ReadRequired => {
                 *reads += 1;
                 let content = repo
@@ -511,9 +482,7 @@ fn confirm_unchanged(
     if now.as_ref() != before {
         return Err(Error::RepositoryChanged);
     }
-    // The observation matching does not settle the rules: an edit to a rule
-    // file that was already dirty changes its contents without changing the
-    // delta entry that reports it.
+
     if discovery_digest(context.repo()?.as_ref(), &context.walk, now.as_ref()) != digest {
         return Err(Error::RepositoryChanged);
     }

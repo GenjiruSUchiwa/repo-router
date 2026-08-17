@@ -270,8 +270,7 @@ pub fn render_init_json(targets: &[InitTarget<'_>]) -> String {
         schema_version: INIT_SCHEMA_VERSION,
         targets,
     };
-    // A struct of `&str` has no map key, no non-finite float and no non-string
-    // key, which are the only three things `to_string` can fail on.
+
     serde_json::to_string(&report)
         .unwrap_or_else(|_| String::from("{\"schema_version\":1,\"targets\":[]}"))
 }

@@ -85,8 +85,7 @@ fn apply(dir: &Path, op: &Op, step: usize) {
         Op::Stage => git(dir, &["add", "-A"]),
         Op::Commit => {
             git(dir, &["add", "-A"]);
-            // Nothing staged is not a failure, it is a history that happened to
-            // commit twice in a row.
+
             let _ = Command::new("git")
                 .args(["commit", "-qm", "step"])
                 .current_dir(dir)
@@ -169,14 +168,11 @@ const SEED: [u8; 32] = *b"repo-router differential oracle!";
 
 #[test]
 fn any_history_of_ordinary_edits_agrees_with_a_full_rebuild() {
-    // Small on purpose: every step runs two real refreshes over a real
-    // repository, and a case that takes a minute is a case nobody runs.
+
     let config = ProptestConfig {
         cases: 12,
         max_shrink_iters: 64,
-        // Failures are reported here rather than written beside the source.
-        // A persisted regression file is a second, invisible input to a test
-        // whose whole point is that its input is written down.
+
         failure_persistence: None,
         ..ProptestConfig::default()
     };
@@ -192,8 +188,6 @@ fn any_history_of_ordinary_edits_agrees_with_a_full_rebuild() {
         Ok(())
     });
 
-    // Printed rather than unwrapped: the shrunk counterexample is the whole
-    // value of the failure, and `unwrap` would show the wrapper instead.
     if let Err(error) = outcome {
         panic!("{error}");
     }

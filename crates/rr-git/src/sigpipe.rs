@@ -53,9 +53,7 @@ mod unix {
             return;
         };
         if state.depth == 0 {
-            // SAFETY: `SIGPIPE` is a catchable signal, so `signal` cannot
-            // fail, and `SIG_IGN` installs no handler that would disagree
-            // about re-arming. The mutex serialises this with `release`.
+
             state.previous = unsafe { libc::signal(libc::SIGPIPE, libc::SIG_IGN) };
         }
         state.depth += 1;
@@ -67,8 +65,7 @@ mod unix {
         };
         state.depth = state.depth.saturating_sub(1);
         if state.depth == 0 {
-            // SAFETY: restoring the disposition we saved in `acquire`.
-            // The mutex still serialises this with the next `acquire`.
+
             unsafe {
                 libc::signal(libc::SIGPIPE, state.previous);
             }

@@ -179,9 +179,7 @@ fn catalog_of(projection: &TextProjection) -> MapCatalog {
     let mut stream = HashStream::new("route-corpus");
     stream.count(projection.scopes().len());
     for scope in projection.scopes() {
-        // Hashed before the `continue` below, not after: a scope whose map path
-        // this crate cannot spell still has a public API, and leaving it out
-        // would make the corpus identity blind to changes inside it.
+
         stream.text(scope.path.as_str());
         stream.digest(scope.api_hash.digest());
 

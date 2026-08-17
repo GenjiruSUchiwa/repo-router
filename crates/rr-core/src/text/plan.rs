@@ -204,16 +204,9 @@ impl ScopePlan {
             [0, 1, 2].map(|index| keep_prefix(records, SECTIONS[index], alloc[index], capacity));
         let mut over_budget = plans.iter().any(|plan| plan.over_budget);
 
-        // A section that could not afford one record still spends a remainder
-        // line, and that line was never charged against the share that bought
-        // nothing — three sections in that position can outrun a capacity that
-        // fit none of them. The shares are what went wrong, so the page is
-        // what fixes it: give records back, least valuable section first,
-        // until the measured total fits.
         while plans.iter().map(|plan| plan.bytes).sum::<usize>() > capacity {
             let Some(index) = SHED_ORDER.into_iter().find(|&index| plans[index].kept > 0) else {
-                // Nothing left to give back. The remainder lines alone are the
-                // page and they do not fit, so no plan of this scope does.
+
                 over_budget = true;
                 break;
             };

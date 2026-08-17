@@ -33,9 +33,6 @@ pub fn build_map(root: &Path, threads: usize) -> Result<BuildReport> {
     let files = discover(&context.work_root, &context.walk)?;
     let cache = FactCache::open(&context.work_root)?;
 
-    // Observed even though a full build consults no delta: the *next* run needs
-    // to know which files this snapshot recorded from a dirty working tree, and
-    // which rule files it recorded them under.
     let observed = match context.repo()? {
         Some(repo) => Some(repo.observe_state(&CancelToken::new())?),
         None => None,
@@ -76,9 +73,7 @@ fn dirty_paths(state: &RepoState, indexed: &BTreeSet<&RelPath>) -> DirtyPaths {
         } else if change.kind != ChangeKind::Deleted {
             split.skipped.push(change.path.clone());
         }
-        // A path that moved away is one whose absence the snapshot recorded,
-        // and it can come back — so it stays in the dirty set even though no
-        // record was written for it.
+
         if let Some(source) = &change.source {
             split.indexed.push(source.clone());
         }
@@ -224,9 +219,7 @@ impl BuildContext {
         let mut inputs = Vec::with_capacity(results.len());
         let mut stats = WorkerStats::default();
         let mut vanished = Vec::new();
-        // `par_iter().collect()` preserves input order, so each result still
-        // sits opposite the file it came from — which is the only way to name
-        // the path behind a `None`.
+
         for (source, result) in files.iter().zip(results) {
             let (input, file_stats) = result?;
             stats.add_assign(file_stats);

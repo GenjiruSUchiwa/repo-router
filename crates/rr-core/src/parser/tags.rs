@@ -263,9 +263,6 @@ impl TagsExtractor {
             reference.owner = owners.nearest(reference.span);
         }
 
-        // Runs here and not earlier: it needs the same `OwnerIndex` the
-        // references were assigned from, so a block-local import and a call in
-        // the same block cannot disagree about which definition owns them.
         let imports = self.collect_imports(source, &lines, &owners)?;
 
         Facts::from_parts(
@@ -354,11 +351,7 @@ fn compile_imports(
         return Err("imports query has no @import.<kind> anchor".to_string());
     }
     if spec.markers.is_empty() {
-        // `collect_imports` reads an empty marker list as "no file can contain
-        // an import" and returns none for every file in the language. Caught
-        // here because nothing downstream can: the language extracts zero
-        // imports, quietly, and no test can tell that apart from a language
-        // that genuinely has none.
+
         return Err("imports spec has no markers prefilter".to_string());
     }
     if callee.is_some() && spec.callee_names.is_empty() {
@@ -400,9 +393,7 @@ impl TagsExtractor {
         }
 
         let Some(tree) = pass.parser.parse(source.as_bytes(), None) else {
-            // The tags pass parsed these bytes with this grammar, so this
-            // cannot fail for a reason the file explains. Reporting an empty
-            // import list would state that the file has none.
+
             return Err(Error::ExtractionInvariant {
                 message: "imports pass could not parse a source the tags pass parsed",
             });
@@ -466,17 +457,6 @@ fn build_import(
         });
     };
 
-    // `require` is a function name, not a keyword: only a call to one of the
-    // names this language uses for it imports anything, and a file that
-    // declares its own `require` declares a function. Read here rather than
-    // through `#eq?` for the reason `LanguageSpec::refine` gives — this crate
-    // does not depend on predicate evaluation.
-    //
-    // Name equality is the whole test. There is no scope analysis behind it, so
-    // a file that shadows `require` with its own function or parameter still
-    // records the call; the unit test pins that. What it costs is one specifier
-    // no module graph would have resolved anyway, and resolving bindings inside
-    // a pass whose only job is reading declarations costs more than that.
     if let Some(callee) = callee_node {
         if !compiled.callee_names.contains(&node_text(callee, source)?) {
             return Ok(None);
@@ -485,7 +465,7 @@ fn build_import(
 
     let path = unquote(node_text(path_node, source)?);
     if path.is_empty() {
-        // `import ""` names no module. Nothing to record and nothing to claim.
+
         return Ok(None);
     }
 
@@ -605,7 +585,7 @@ impl LineIndex {
     /// The byte offset at which the line containing `offset` starts.
     fn line_start(&self, offset: usize) -> usize {
         let offset = u32::try_from(offset).unwrap_or(u32::MAX);
-        // `partition_point >= 1` because `starts[0]` is `0`.
+
         let line = self.starts.partition_point(|start| *start <= offset);
         self.starts[line - 1] as usize
     }
@@ -679,10 +659,7 @@ fn definition_from_tag(
         name: name.to_owned(),
         local_qualified: None,
         kind,
-        // A `local-` capture is the query stating this declaration is not
-        // on the file's surface, which outranks anything the name suggests:
-        // `LanguageSpec::visibility` reads name shape — a `#` prefix, a PEP 8
-        // underscore — and a name shape cannot see an absent `export`.
+
         visibility: if is_local {
             Visibility::Private
         } else {
@@ -716,9 +693,7 @@ struct Header {
 
 fn header_for(
     span: Span,
-    // Byte offset where the definition node itself begins — after any comment
-    // run `preceding_comment_run_start` folded into `span`. Attributes live
-    // between this and the name line; the comment run does not.
+
     decl_start: usize,
     name_start: usize,
     name: &str,
@@ -729,10 +704,7 @@ fn header_for(
     let span_start = span.start_byte() as usize;
     let span_end = span.end_byte() as usize;
     let decl_start = decl_start.clamp(span_start, span_end);
-    // The line that names the definition opens the header. Everything from the
-    // declaration node to that line is attached attributes — a decorated
-    // Python definition's node starts at its first decorator. Comments folded
-    // into the span sit *before* `decl_start` and are not attributes.
+
     let line_start = lines.line_start(name_start).max(decl_start);
     let item_start = source
         .get(line_start..span_end)
@@ -765,9 +737,7 @@ fn header_for(
             displayed
         }
     };
-    // Compared against the name as the scanner sees it: a sigil is not part of
-    // an identifier, so a TypeScript `#private` name would otherwise never
-    // match itself and every such definition would carry its own name.
+
     let scanned_name = name.trim_start_matches('#');
     let signature_idents = scan_idents(raw)
         .into_iter()
@@ -904,7 +874,7 @@ fn signature_end(source: &str, start: usize, span_end: usize) -> usize {
         if let Some(open) = quote {
             match byte {
                 b'\\' => index += 1,
-                // A header never wraps inside a string; treat it as malformed.
+
                 b'\n' => {
                     first_newline.get_or_insert(index);
                     break;
@@ -948,7 +918,7 @@ fn docstring_range(source: &str, from: usize, span_end: usize) -> Option<Range<u
         index += 1;
     }
     let start = index;
-    // String prefixes such as `r`, `b`, `f`, `u`, alone or paired.
+
     while index < span_end && bytes[index].is_ascii_alphabetic() {
         index += 1;
     }
@@ -1018,9 +988,7 @@ fn assign_nesting(
                 segments.push(defs[index].name.as_str());
                 defs[index].local_qualified = Some(segments.join(separator));
             }
-            // The exclusion parent stays the lexical one: a parameter property
-            // is written inside the constructor's text, so it is the
-            // constructor that must not count it twice.
+
             direct_children[parent].push(defs[index].span);
         }
         let inside_test_scope = stack
@@ -1272,7 +1240,7 @@ fn initializer_of(signature: &str) -> Option<&str> {
         }
         let previous = index.checked_sub(1).map(|before| bytes[before]);
         let next = bytes.get(index + 1).copied();
-        // `=>`, `==`, and the tail of `!=`, `<=`, `>=`, `===`.
+
         !matches!(next, Some(b'=' | b'>')) && !matches!(previous, Some(b'=' | b'!' | b'<' | b'>'))
     })?;
     signature.get(assignment + 1..)
@@ -1395,10 +1363,7 @@ fn strip_leading_decorations(signature: &str) -> &str {
         if !bytes[cursor..].starts_with(b"#[") && bytes.get(cursor) != Some(&b'@') {
             return signature.get(cursor..).unwrap_or("");
         }
-        // Both openers advance by one byte, and for different reasons: a PHP
-        // `#[` leaves the scan standing on the bracket that opens its group,
-        // while a Java or Swift `@` introduces a bare name that may or may not
-        // be followed by one.
+
         let mut index = cursor + 1;
 
         let mut depth = 0usize;
@@ -1407,8 +1372,7 @@ fn strip_leading_decorations(signature: &str) -> &str {
                 b'(' | b'[' => depth += 1,
                 b')' | b']' => {
                     if depth == 0 {
-                        // A closer with no opener: the signature is not the
-                        // shape this reads, so stop rather than run past it.
+
                         break;
                     }
                     depth -= 1;
@@ -1608,10 +1572,7 @@ pub(crate) static JSX: LanguageSpec = javascript_spec(Lang::Jsx, &JSX_IMPORTS);
 const GO_KINDS: &[(&str, DefKind)] = &[
     ("function", DefKind::Function),
     ("method", DefKind::Method),
-    // One capture for `type X struct`, `type X interface` and `type X = Y`
-    // alike: upstream's query does not separate them, and `Struct` would be a
-    // guess about two thirds of them. `TypeAlias` is the kind that claims
-    // least, and claiming least is what tier 2 is.
+
     ("type", DefKind::TypeAlias),
 ];
 
@@ -1671,10 +1632,7 @@ const JAVA_KINDS: &[(&str, DefKind)] = &[
     ("method", DefKind::Method),
     ("constructor", DefKind::Constructor),
     ("enum", DefKind::Enum),
-    // A record is `DefKind::Struct` and not `DefKind::Class`: it is the nominal
-    // product type its components spell out, which is what `Struct` names, and
-    // filing it under `Class` would erase the one thing that distinguishes it
-    // from the class it desugars to.
+
     ("record", DefKind::Struct),
 ];
 
@@ -1825,10 +1783,7 @@ pub(crate) static C: LanguageSpec = LanguageSpec {
     tags_query: tree_sitter_c::TAGS_QUERY,
     locals_query: "",
     kinds: C_KINDS,
-    // Empty, and correct: upstream's C tags query declares no `reference.*`
-    // capture, so `validate_kind_maps` has nothing to check and the extractor
-    // produces a definitions-only `Facts`. A map that guessed at entries for
-    // captures the query does not have would fail nothing and mean nothing.
+
     reference_kinds: &[],
     imports: Some(&C_IMPORTS),
     visibility: c_visibility,
@@ -1843,10 +1798,7 @@ pub(crate) static C: LanguageSpec = LanguageSpec {
 static C_IMPORTS: ImportSpec = ImportSpec {
     query: include_str!("queries/c-imports.scm"),
     kinds: &[("include", ImportKind::Include)],
-    // `include` and not `#include`: the directive is `#[ \t]*include`, so
-    // `#  include <stdio.h>` is one, and a marker carrying the `#` would read a
-    // file full of them as having no imports at all. The looser marker costs a
-    // second parse of a file that only mentions the word.
+
     markers: &["include"],
     callee_names: &[],
     compiled: OnceLock::new(),
@@ -1879,7 +1831,7 @@ pub(crate) static CPP: LanguageSpec = LanguageSpec {
 static CPP_IMPORTS: ImportSpec = ImportSpec {
     query: include_str!("queries/cpp-imports.scm"),
     kinds: &[("include", ImportKind::Include)],
-    // `include` and not `#include`, for `C_IMPORTS`'s reason.
+
     markers: &["include"],
     callee_names: &[],
     compiled: OnceLock::new(),
@@ -1998,16 +1950,10 @@ static LUA_IMPORTS: ImportSpec = ImportSpec {
 const PHP_KINDS: &[(&str, DefKind)] = &[
     ("module", DefKind::Namespace),
     ("class", DefKind::Class),
-    // A PHP `trait` is captured as `definition.interface` by upstream's query.
-    // Mapped to `Interface` and not to `Trait`, because `Trait` would then be
-    // right for half the matches and wrong for the other half, and the query
-    // gives no way to tell which is which. Recorded here rather than fixed.
+
     ("interface", DefKind::Interface),
     ("field", DefKind::Field),
-    // Upstream's query captures methods and free functions with the same
-    // capture. `php_refine` promotes the ones whose declaration text gives them
-    // away — a leading modifier, or no body — and only a free function reaches
-    // the index with this kind.
+
     ("function", DefKind::Function),
 ];
 
@@ -2129,9 +2075,7 @@ static PHP_IMPORTS: ImportSpec = ImportSpec {
 };
 
 const SWIFT_KINDS: &[(&str, DefKind)] = &[
-    // Upstream's query files `struct`, `enum` and `class` under one capture.
-    // `Class` is the one of the three that is never wrong about being a named
-    // type with members, and `Struct` would be wrong for two thirds of them.
+
     ("class", DefKind::Class),
     ("interface", DefKind::Interface),
     ("method", DefKind::Method),
@@ -2171,8 +2115,7 @@ fn swift_declared_visibility(signature: &str) -> Option<Visibility> {
             "private" => Some(Visibility::Private),
             "internal" => Some(Visibility::Internal),
             "fileprivate" => Some(Visibility::FilePrivate),
-            // Swift 5.9's `package` is module-group scope, which is what
-            // `Visibility::Package` names.
+
             "package" => Some(Visibility::Package),
             _ => None,
         })
@@ -2333,7 +2276,7 @@ mod tests {
             strip_leading_decorations("@objc @MainActor public func run()"),
             "public func run()"
         );
-        // A truncated decoration leaves nothing rather than looping.
+
         assert_eq!(strip_leading_decorations("@Override(value"), "");
         assert_eq!(strip_leading_decorations("@"), "");
     }
@@ -2353,17 +2296,17 @@ mod tests {
 
     #[test]
     fn a_bodyless_java_member_with_no_modifier_is_public() {
-        // An interface method, which the language makes public.
+
         assert!(java_states_no_modifier_and_is_public("void run();"));
         assert!(java_states_no_modifier_and_is_public(
             "@Override java.util.List<String> names();"
         ));
-        // An abstract or native class method, which stays package-private.
+
         assert!(!java_states_no_modifier_and_is_public(
             "abstract void run();"
         ));
         assert!(!java_states_no_modifier_and_is_public("native void run();"));
-        // A class method with a body, and one whose brace is on the next line.
+
         assert!(!java_states_no_modifier_and_is_public("void run() {}"));
         assert!(!java_states_no_modifier_and_is_public("void run()"));
     }
@@ -2391,8 +2334,7 @@ mod tests {
             swift_declared_visibility("internal var shared: Int"),
             Some(Visibility::Internal)
         );
-        // The unwritten default stays `Internal`: saying nothing is not the
-        // same claim as writing `fileprivate` down.
+
         assert_eq!(swift_visibility("shared"), Visibility::Internal);
     }
 
@@ -2414,7 +2356,7 @@ mod tests {
                 .map(|def| def.kind)
         };
         assert_eq!(kind("Service"), Some(DefKind::Class));
-        // The constructor shares its name with the class; both are recorded.
+
         assert_eq!(
             facts
                 .defs()
@@ -2451,13 +2393,13 @@ mod tests {
 
     #[test]
     fn a_php_declaration_without_a_body_is_a_member() {
-        // What an interface declares: no modifier, no body.
+
         assert!(php_has_no_body("function run(): void;"));
         assert!(!php_opens_with_modifier("function run(): void;"));
-        // What a free function looks like, both brace placements.
+
         assert!(!php_has_no_body("function bare(string $name): string"));
         assert!(!php_has_no_body("function bare(): string { return 'x'; }"));
-        // A modifier that states no access still states membership.
+
         assert!(php_opens_with_modifier("abstract function run();"));
         assert!(php_opens_with_modifier("static function make(): self"));
         assert!(!php_opens_with_modifier("function bare(): string"));
@@ -2693,10 +2635,10 @@ mod tests {
             .body_idents
             .iter()
             .any(|ident| ident == "frobnicate"));
-        // helper is in the method body, excluded from the class via the member span.
+
         assert!(!service.body_idents.iter().any(|ident| ident == "helper"));
         assert!(run.body_idents.iter().any(|ident| ident == "helper"));
-        // The class still owns its own doc prose in doc_idents, not body.
+
         assert!(service.doc_idents.iter().any(|ident| ident == "container"));
         assert!(!service.body_idents.iter().any(|ident| ident == "container"));
     }
@@ -2718,7 +2660,6 @@ mod tests {
             "a blank line breaks adjacency"
         );
 
-        // A TypeScript private field is not a comment, even though it starts with `#`.
         let private_field = "    #attempts = 0;\n    private secret: string;\n";
         let secret_at = private_field.find("private").unwrap();
         assert_eq!(
@@ -2726,7 +2667,7 @@ mod tests {
             None,
             "private fields must not be absorbed as comments"
         );
-        // Python does treat `#` as a line comment.
+
         let py = "# note about widget\ndef run():\n    pass\n";
         let def_at = py.find("def").unwrap();
         let start = preceding_comment_run_start(py, def_at, &["#"]).unwrap();
@@ -2778,8 +2719,7 @@ mod tests {
             .find(|def| def.name == "#hidden")
             .unwrap();
         assert_eq!(hidden.visibility, Visibility::Private);
-        // The sigil is not part of an identifier, so the definition's own name
-        // has to be recognised without it or it lands in its own signature.
+
         assert!(!hidden
             .signature_idents
             .iter()
@@ -2843,7 +2783,6 @@ mod tests {
         assert_eq!(kind_of(&facts, "nested"), "function");
         assert_eq!(kind_of(&facts, "compared"), "variable");
 
-        // The same `<`, under the grammar where it really does open an element.
         let mut tsx = TagsExtractor::new(&TSX).unwrap();
         let facts = tsx
             .extract(b"const element = <Badge onClick={() => go()} />;\n")
@@ -2909,15 +2848,10 @@ mod tests {
             );
         }
 
-        // The modifier is what makes it a declaration. A parameter without one
-        // declares nothing, and neither does a default value that happens to be
-        // an identifier sitting beside the name.
         assert!(!facts.defs().iter().any(|def| def.name == "plain"));
         assert!(!facts.defs().iter().any(|def| def.name == "fallbackish"));
         assert!(!facts.defs().iter().any(|def| def.name == "defaulted"));
 
-        // And each modifier still means what it means everywhere else, with
-        // bare `readonly` saying nothing about visibility.
         assert_eq!(field("repo").visibility, Visibility::Private);
         assert_eq!(field("label").visibility, Visibility::Public);
         assert_eq!(field("retries").visibility, Visibility::Protected);
@@ -3246,24 +3180,15 @@ mod tests {
         assert_eq!(imports.len(), 1);
         assert_eq!(imports[0].kind, ImportKind::Require);
         assert_eq!(imports[0].path, "m");
-        // The binding is already a variable definition in `typescript.scm`;
-        // recording it as an alias would file one declaration under two names.
+
         assert!(imports[0].alias.is_none());
-        // Nor does the binding own it: this is where JavaScript writes a
-        // module-scope import, so it has to reach every symbol in the file,
-        // exactly as `import cj from "m"` does.
+
         assert!(imports[0].owner.is_none());
 
-        // Matches the pattern, and only the callee guard rejects it. Deleting
-        // the guard makes this case fail, which the shadowing case below cannot
-        // do — every `describe("…")` in the repository would become an import.
         assert!(typescript("describe(\"a case\");\n").imports().is_empty());
-        // Rejected a step earlier, by `function: (identifier)`: a member call
-        // is a `member_expression` and never reaches the guard.
+
         assert!(typescript("thing.require(\"m\");\n").imports().is_empty());
-        // Pinned as a limitation on record, not as correct behaviour: the guard
-        // compares text and does no scope analysis, so a shadowed `require`
-        // still records.
+
         assert_eq!(
             typescript("function require(p: string) { return p; }\nrequire(\"./shim\");\n")
                 .imports()
@@ -3324,7 +3249,7 @@ mod tests {
         );
         let imports = facts.imports();
         assert_eq!(imports.len(), 2);
-        // Sorted by the key's first component, the span start: source order.
+
         assert_eq!(imports[0].path, "m-top");
         assert!(imports[0].owner.is_none());
         assert_eq!(imports[1].path, "m-nested");

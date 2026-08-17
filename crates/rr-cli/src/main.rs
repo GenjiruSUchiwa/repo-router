@@ -74,8 +74,7 @@ fn main() -> ExitCode {
             Ok(code) => ExitCode::from(code),
             Err(err) => {
                 diagnose(&format!("rr: query: {}", one_line(&err)));
-                // Exit 1 for all errors: SPEC reserves 2 for the candidates
-                // outcome, so errors must not collide with it.
+
                 ExitCode::from(1)
             }
         },
@@ -164,15 +163,13 @@ fn one_line(err: &anyhow::Error) -> String {
     let mut line = String::with_capacity(rendered.len());
     let mut pending_space = false;
     for character in rendered.chars() {
-        // U+2028/U+2029 are not control characters but still break a line for
-        // any reader that splits on Unicode line boundaries rather than on LF.
+
         if character.is_control() || matches!(character, '\u{2028}' | '\u{2029}') {
             pending_space = !line.is_empty();
             continue;
         }
         if pending_space {
-            // The whitespace that followed a break was indentation for a line
-            // that no longer exists, so it joins the break rather than the text.
+
             if character.is_whitespace() {
                 continue;
             }

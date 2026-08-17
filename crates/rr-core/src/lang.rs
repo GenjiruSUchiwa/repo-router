@@ -231,36 +231,32 @@ impl Lang {
             .rsplit_once('.')
             .map_or(file_name, |(stem, _)| stem);
         match self {
-            // `foo_test.rs`, `foo_tests.rs`, and the `tests` submodule.
+
             Self::Rust => {
                 stem == "test" || stem == "tests" || has_suffix(stem, &["_test", "_tests"])
             }
-            // `pytest` collects `test_*.py` and `*_test.py`; shell suites
-            // follow the same two shapes.
+
             Self::Python | Self::Shell => stem.starts_with("test_") || has_suffix(stem, &["_test"]),
-            // `foo.test.ts` and `foo.spec.ts`, the two names every JS runner knows.
+
             Self::TypeScript | Self::Tsx | Self::JavaScript | Self::Jsx => {
                 has_suffix(stem, &[".test", ".spec"])
             }
-            // The Go toolchain compiles exactly `*_test.go` into the test
-            // binary, and Zig's convention borrows the same name.
+
             Self::Go | Self::Zig => has_suffix(stem, &["_test"]),
-            // These languages name the test type, and the file takes the
-            // type's name; the suffix is therefore capitalized.
+
             Self::Java | Self::CSharp | Self::Kotlin | Self::Scala | Self::Swift => {
                 has_suffix(stem, &["Test", "Tests", "TestCase", "Spec"])
             }
-            // Minitest and RSpec, whose names Lua's busted mirrors.
+
             Self::Ruby | Self::Lua => {
                 stem.starts_with("test_") || has_suffix(stem, &["_test", "_spec"])
             }
-            // PHPUnit requires the `Test` suffix on the class and its file.
+
             Self::Php => has_suffix(stem, &["Test"]),
             Self::C | Self::Cpp => {
                 stem.starts_with("test_") || has_suffix(stem, &["_test", "_tests"])
             }
-            // Data and markup languages have no test-file convention worth
-            // guessing at; a wrong guess here would hide real definitions.
+
             Self::Toml
             | Self::Json
             | Self::Yaml

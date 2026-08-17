@@ -95,9 +95,7 @@ impl Worker {
                 .put(&CacheKey::new(content.oid, source.lang), &facts)
                 .is_err()
         {
-            // A cache that cannot be written still lets this run finish; only
-            // the next one pays for it. Failing here would turn a full disk
-            // into an unusable tool.
+
             stats.cache_write_failures += 1;
         }
 
@@ -136,11 +134,6 @@ impl Worker {
             return Ok((Some(input), stats));
         }
 
-        // The lookup already counted why retention failed, and rebuilding
-        // counts its own work from zero. Both halves belong to this path, so
-        // the fallback's work is added to what has been counted rather than
-        // replacing it — a plain `return self.process(..)` here would silently
-        // discard the evidence that a retention was even attempted.
         let (input, rebuilt) = self.process(source, cache)?;
         stats.add_assign(rebuilt);
         Ok((input, stats))
@@ -158,9 +151,7 @@ impl Worker {
         };
 
         match repo.probe_content(&source.path)? {
-            // Git already knows this file's identity, so its facts can be
-            // looked up before a single byte is read. This is the whole reason
-            // a clean repository costs nothing.
+
             ContentProbe::CleanGitBlob(oid) => {
                 stats.clean_probes += 1;
                 if let Some(facts) = lookup(cache, oid, source.lang, stats)? {
@@ -176,9 +167,7 @@ impl Worker {
                 let Some(content) = repo.acquire_content(&source.path, probe)? else {
                     return Ok(Acquired::Vanished);
                 };
-                // The probe promised these bytes. If the object store hands
-                // back different ones, the identity that names them is wrong,
-                // and everything keyed on it afterwards would be wrong too.
+
                 if content.oid != oid {
                     return Err(Error::Content(format!(
                         "clean object identity mismatch for {}",
@@ -188,9 +177,7 @@ impl Worker {
                 stats.clean_blob_reads += 1;
                 Ok(Acquired::Pending(content))
             }
-            // The identity is only knowable by reading, so the cache can only
-            // be consulted afterwards — and often still hits, because an edit
-            // that restores previous content restores its identity too.
+
             ContentProbe::ReadRequired => {
                 let Some(content) =
                     repo.acquire_content(&source.path, ContentProbe::ReadRequired)?
@@ -221,9 +208,7 @@ impl Worker {
         match self.registry.for_lang(lang) {
             Some(Ok(extractor)) => extractor.extract(&content.bytes).map_err(Error::Core),
             Some(Err(message)) => Err(Error::Content(message)),
-            // Not `ParserReturnedNone`: no parser was asked. The distinction is
-            // what keeps these facts out of the cache, and it now lives in the
-            // status rather than in a flag beside it.
+
             None => Ok(degraded_facts(&content.bytes, DegradedReason::NoExtractor)),
         }
     }

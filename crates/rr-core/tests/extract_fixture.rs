@@ -441,7 +441,7 @@ fn invalid_utf8_fixture_degrades() {
 /// edit to `rust.rs` can quietly start emitting one.
 #[test]
 fn a_rust_repository_indexes_identically_across_the_schema_bump() {
-    // Everything `DefKind` held before #31 widened it.
+
     const RUST_KINDS: [DefKind; 13] = [
         DefKind::Function,
         DefKind::Method,
@@ -487,9 +487,7 @@ fn a_rust_repository_indexes_identically_across_the_schema_bump() {
                 "{path:?} produced {:?}, a visibility Rust does not have",
                 def.visibility
             );
-            // `inside_cfg_test` keeps meaning `#[cfg(test)]`; the neutral field
-            // beside it belongs to languages that state test scope some other
-            // way, and Rust must never set it.
+
             assert!(
                 !def.test_signals.inside_test_scope,
                 "{path:?} set the language-neutral test signal on `{}`",

@@ -199,7 +199,6 @@ pub fn commits_left_index_true(
         return Ok(true);
     }
 
-    // One thread, and no pool: nothing here parses.
     let context = BuildContext::open(root, 1)?;
     let Some(repo) = context.repo()? else {
         return Ok(false);
@@ -225,8 +224,6 @@ pub fn commits_left_index_true(
         }
     }
 
-    // A draft that will not build is a contradiction, which is a reason to
-    // refresh and not a reason to trust.
     Ok(draft.build().is_ok_and(|plan| plan.is_empty_delta()))
 }
 
@@ -281,24 +278,14 @@ fn draft_from(
     for change in &observed.changes {
         match change.kind {
             ChangeKind::Deleted => evidence.remove(&mut draft, &change.path),
-            // A conflicted path this index would collect is flagged whatever
-            // its content says. It may well match what was recorded, but an
-            // unmerged path is one the user is mid-decision on, and the cheap
-            // answer is not worth weakening the one invariant conflicts carry.
-            // A conflict in a file the index never held is a different matter:
-            // it says nothing about whether the index is true, and reporting it
-            // would mark the snapshot untrustworthy for the whole of a merge.
+
             ChangeKind::Conflicted => evidence.conflict(&mut draft, &change.path),
             ChangeKind::Renamed => match change.source.clone() {
                 Some(source) => evidence.rename(&mut draft, source, &change.path),
-                // A rename that lost its source is just a new file, which is
-                // the safe reading: the old path will be reconsidered anyway
-                // because something must have reported its disappearance.
+
                 None => draft.recheck(change.path.clone()),
             },
-            // A copy leaves its source in place, so only the target is new.
-            // Decomposing it the way a rename is decomposed would delete a file
-            // that is still there.
+
             ChangeKind::Copied
             | ChangeKind::Added
             | ChangeKind::Modified
@@ -307,11 +294,6 @@ fn draft_from(
         }
     }
 
-    // Not `GitStatusUnavailable`: the status was observed, and observed
-    // perfectly. Two of its items simply cannot both be true about one path.
-    // Reporting the delta's own contradiction as an unreadable repository sends
-    // whoever is holding the tool to look at Git, which is the one place the
-    // problem is not.
     let plan = draft
         .build()
         .unwrap_or_else(|_| RefreshPlan::full(FullReason::ContradictoryDelta));
@@ -430,11 +412,7 @@ impl Evidence<'_> {
     /// work and cannot cost correctness, and the failure resurfaces in the
     /// pipeline where it has somewhere to go.
     fn already_recorded(&mut self, path: &RelPath) -> bool {
-        // Only a path the snapshot recorded *from a dirty tree* can differ from
-        // `HEAD` and still match what was recorded. If it was clean then, the
-        // snapshot holds `HEAD`'s content, so "differs from `HEAD`" is already
-        // proof that it differs from the record — and proving it again is a
-        // read for an answer that is settled.
+
         if self.snapshot.meta.dirty_paths.binary_search(path).is_err() {
             return false;
         }
@@ -447,14 +425,12 @@ impl Evidence<'_> {
         };
 
         match probe {
-            // Git certified the identity from the index stat: this cost nothing.
+
             ContentProbe::CleanGitBlob(oid) => {
                 oid == record.content_oid
                     && record.representation == ContentRepresentation::GitCanonical
             }
-            // Only reading settles it. The read is bounded by the delta, which
-            // is the premise the whole fast path rests on, and when the answer
-            // is "it changed" it replaces a read the pipeline would have done.
+
             ContentProbe::ReadRequired => {
                 self.content_reads += 1;
                 repo.acquire_content(path, ContentProbe::ReadRequired)

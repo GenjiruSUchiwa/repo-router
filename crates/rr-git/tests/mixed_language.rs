@@ -59,7 +59,6 @@ class Service:
     def run(self, value):
         return helper(value)
 
-
 def _internal(value):
     return value
 ";
@@ -93,7 +92,6 @@ fn a_mixed_language_repository_produces_one_coherent_snapshot() {
     let snapshot = build(temp.path());
     snapshot.validate().unwrap();
 
-    // One snapshot holding all four, each recorded as the language it is.
     assert_eq!(snapshot.files.len(), 4);
     assert_eq!(record(&snapshot, "src/router.rs").language, Lang::Rust);
     assert_eq!(
@@ -103,8 +101,6 @@ fn a_mixed_language_repository_produces_one_coherent_snapshot() {
     assert_eq!(record(&snapshot, "src/badge.tsx").language, Lang::Tsx);
     assert_eq!(record(&snapshot, "src/service.py").language, Lang::Python);
 
-    // Two tiers, reported as two tiers. Rust has a hand-written extractor and
-    // says `Complete`; the other three are read off a tags query and say so.
     assert!(matches!(
         record(&snapshot, "src/router.rs").parse_status,
         ParseStatus::Complete
@@ -122,15 +118,11 @@ fn a_mixed_language_repository_produces_one_coherent_snapshot() {
         );
     }
 
-    // Every file contributed symbols; none of them was indexed as an empty
-    // shell that happens to sit in the file list.
     for file in &snapshot.files {
         let path = snapshot.file_path(file).unwrap();
         assert!(file.symbol_count > 0, "{path} produced no symbols");
     }
 
-    // One hierarchy. Four languages in one directory produce one `src/MAP.md`
-    // under one root `MAP.md`, not one tree per language.
     let projection = TextProjection::from_snapshot(&snapshot, DEFAULT_MAP_BUDGET).unwrap();
     let rendered = projection.render(&ExistingPurposes::none()).unwrap();
     let text = |path: &str| {
@@ -178,8 +170,7 @@ fn a_mixed_language_repository_produces_one_coherent_snapshot() {
     assert!(src.contains("Service.run"), "{src}");
     assert!(src.contains("Router::route"), "{src}");
     assert!(!src.contains("client.ts::"), "{src}");
-    // One symbol index over all four, and the fidelity each was read at is
-    // recorded rather than levelled up to Rust's.
+
     let symbols = text(".rr/SYMBOLS.md");
     for name in ["Router", "Client", "Badge", "Service"] {
         assert!(symbols.contains(name), "{name} is missing from SYMBOLS.md");
@@ -210,12 +201,8 @@ fn a_rust_only_repository_is_indexed_exactly_as_before() {
     assert_eq!(router.language, Lang::Rust);
     assert!(matches!(router.parse_status, ParseStatus::Complete));
 
-    // Rust's extractor version is what keys its cache entries and its
-    // freshness. Untouched, so no Rust file is reparsed on upgrade.
     assert_eq!(rr_core::extractor_version(Lang::Rust), 3);
 
-    // Nothing in a Rust-only repository is read at the tags tier, whatever
-    // else the registry has learned to read.
     for file in &snapshot.files {
         assert!(
             !matches!(file.parse_status, ParseStatus::Tags { .. }),
@@ -223,10 +210,6 @@ fn a_rust_only_repository_is_indexed_exactly_as_before() {
         );
     }
 
-    // Byte-identical on disk across a second full rebuild, which is the form
-    // of "unaffected" one binary can actually prove: the snapshot a Rust-only
-    // repository writes is a function of the Rust half alone, and the Rust
-    // half did not move.
     let path = SnapshotStore::new(temp.path()).path().to_path_buf();
     let first = std::fs::read(&path).unwrap();
     drop(build(temp.path()));

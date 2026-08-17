@@ -4,7 +4,6 @@
 //! in a module both include. Only the mechanics are here — the fixtures are
 //! not, because each file wants a differently shaped repository.
 
-// Every test binary uses a different subset of these.
 #![allow(dead_code)]
 
 use std::path::Path;

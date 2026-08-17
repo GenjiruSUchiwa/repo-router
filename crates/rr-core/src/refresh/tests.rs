@@ -25,8 +25,6 @@ fn built(draft: PlanDraft) -> RefreshPlan {
     }
 }
 
-// --- dispositions -----------------------------------------------------------
-
 #[test]
 fn an_empty_draft_is_the_no_op_precondition() {
     let plan = built(PlanDraft::new());
@@ -136,8 +134,7 @@ fn recheck_outranks_remove_whichever_order_status_reported_them_in() {
 
 #[test]
 fn a_rename_source_that_is_immediately_recreated_is_not_a_contradiction() {
-    // `git mv a b` and then a fresh untracked `a`: the move away from `a` and a
-    // worktree entry at `a` are both true.
+
     let mut draft = PlanDraft::new();
     draft.rename(path("src/a.rs"), path("src/b.rs"));
     draft.recheck(path("src/a.rs"));
@@ -148,8 +145,6 @@ fn a_rename_source_that_is_immediately_recreated_is_not_a_contradiction() {
     assert!(plan.remove().is_empty());
     assert_eq!(plan.renames().len(), 1);
 }
-
-// --- normalization ----------------------------------------------------------
 
 #[test]
 fn status_order_and_repetition_cannot_reach_the_plan() {
@@ -184,8 +179,6 @@ fn only_untouched_paths_may_keep_their_recorded_facts() {
     assert!(!plan.may_retain(&path("src/edited.rs")));
     assert!(!plan.may_retain(&path("src/gone.rs")));
 }
-
-// --- contradictions ---------------------------------------------------------
 
 #[test]
 fn a_self_rename_is_rejected() {
@@ -234,8 +227,6 @@ fn the_first_contradiction_is_the_one_reported() {
         "unexpected error: {error}"
     );
 }
-
-// --- discovery identity -----------------------------------------------------
 
 fn digest(walk: &WalkCfg) -> [u8; 32] {
     DiscoveryIdentity::new(walk).finish()
@@ -351,8 +342,6 @@ fn labelled_fields_cannot_be_confused_with_each_other() {
     assert_ne!(split(b"xy", b"z"), split(b"x", b"yz"));
 }
 
-// --- published spellings ----------------------------------------------------
-
 #[test]
 fn text_and_json_spell_every_enum_the_same_way() {
     #[track_caller]
@@ -430,8 +419,6 @@ fn text_and_json_spell_every_enum_the_same_way() {
     }
 }
 
-// --- rendering --------------------------------------------------------------
-
 /// A run whose text pass did nothing.
 fn run(refresh: RefreshReport) -> RunReport {
     RunReport {
@@ -486,8 +473,7 @@ fn tags_are_named_in_text_and_json_reports() {
         ..RefreshReport::default()
     });
     let text = render_refresh_text(&report, RefreshCommand::Refresh);
-    // The text label is the JSON field name, so a consumer grepping either
-    // rendering for `tags` finds the counter.
+
     assert!(text.contains("2 tags"), "{text}");
     assert!(text.contains("1 tags recovered"), "{text}");
     let json =
@@ -564,8 +550,6 @@ fn the_json_object_carries_every_documented_field() {
     assert!(json.contains(r#""command":"map""#), "{json}");
     assert!(json.contains(r#""fallback_reason":null"#), "{json}");
 }
-
-// --- outcome ----------------------------------------------------------------
 
 #[test]
 fn a_run_that_only_rewrote_maps_is_not_unchanged() {
@@ -649,8 +633,6 @@ fn a_refused_run_reports_its_conflicts_and_no_work() {
     assert!(json.contains(r#""outcome":"refused""#), "{json}");
     assert!(json.contains(r#""written":0"#), "{json}");
 }
-
-// --- the published key set --------------------------------------------------
 
 #[track_caller]
 fn keys(json: &str) -> Vec<String> {
