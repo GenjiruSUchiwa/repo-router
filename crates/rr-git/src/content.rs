@@ -133,11 +133,18 @@ impl GitRepo {
     /// map-pipeline acquisition, and source acquisition all reach the filter
     /// through here, so none of them can normalize content differently.
     ///
+    /// A driver that closes stdin before consuming the blob is survivable:
+    /// `gix-filter` treats the resulting `EPIPE` as success when the driver
+    /// itself exited 0. That only holds if the write is allowed to fail. The
+    /// process-wide SIGPIPE disposition `rr` installs for its own stdout would
+    /// otherwise kill the run, so the ignore is held for this call only.
+    ///
     /// # Errors
     /// Returns [`Error::Content`] when the pipeline is unavailable or a filter
     /// fails, and [`Error::Io`] when the converted stream cannot be read.
     pub(crate) fn convert_to_git(&self, source: impl Read, rel: &RelPath) -> Result<Vec<u8>> {
         counters::record_conversion();
+        let _sigpipe = crate::sigpipe::ignore();
         let (mut pipeline, index) = self
             .gix_repo()
             .filter_pipeline(None)
@@ -659,5 +666,37 @@ mod tests {
             expect_refused(acquire_for_source(None, temp.path(), &link).unwrap()),
             ContentPathState::Symlink
         );
+    }
+
+    /// A driver that stops reading is how #59 used to kill `rr`. The
+    /// disposition here is the one `main` installs; without the ignore around
+    /// convert-to-Git this process dies before the assertion.
+    #[cfg(unix)]
+    #[test]
+    #[allow(unsafe_code)]
+    fn a_clean_filter_that_closes_stdin_returns_what_the_driver_wrote() {
+        let (temp, _repo) = committed_repo();
+        git(temp.path(), &["config", "filter.trunc.clean", "head -c 8"]);
+        write(temp.path(), ".gitattributes", b"*.rs filter=trunc\n");
+        let input = format!(
+            "pub fn verify_token() -> bool {{ true }}\n// {}\n",
+            "x".repeat(256 * 1024)
+        );
+        write(temp.path(), SOURCE, input.as_bytes());
+        let repo = GitRepo::discover(temp.path()).unwrap().unwrap();
+
+        // SAFETY: test-only. Restored to SIG_IGN below so later tests in this
+        // binary keep Rust's default rather than a terminating disposition.
+        unsafe {
+            libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+        }
+
+        let bytes = repo.convert_to_git(input.as_bytes(), &source()).unwrap();
+
+        unsafe {
+            libc::signal(libc::SIGPIPE, libc::SIG_IGN);
+        }
+
+        assert_eq!(bytes, b"pub fn v");
     }
 }

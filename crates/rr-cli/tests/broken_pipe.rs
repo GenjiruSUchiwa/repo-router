@@ -188,20 +188,17 @@ fn a_signalled_run_leaves_no_publication_lock_behind() {
     );
 }
 
-/// The claim also has to survive its holder being killed *while it is held*,
-/// which the test above cannot arrange: nothing prints between the claim and
-/// the report, so no closed pipe reaches `rr` inside that window. A Git clean
-/// filter does. `head -c 8` stops reading long before `rr` has finished
-/// streaming the blob to it, and the EPIPE on that write raises SIGPIPE
-/// against the same process-wide disposition — from under the guard.
+/// A Git clean filter that stops reading used to raise SIGPIPE against the
+/// process-wide disposition, from under the publication claim. The run died
+/// with 141 — the code that means "the consumer went away" — and left no
+/// diagnostic. `gix-filter` treats that early close as success when the
+/// driver exits 0; once the write is allowed to fail, so does `rr map`.
 ///
-/// That `rr` dies here at all is a separate defect, filed as #59: a filter that
-/// exits early is survivable, and `rr-git` is written to report it as
-/// `Error::Content`. This test pins only what becomes of the lock. When #59 is
-/// fixed the signal assertion fails loudly rather than passing on a window it
-/// no longer enters, and the test needs a new vector.
+/// The lock-under-signal coverage this used to piggy-back on lives in
+/// `interrupted.rs`. What remains here is the #59 contract: the filter is
+/// not a consumer, so it must not produce 141.
 #[test]
-fn a_signal_raised_while_the_claim_is_held_still_releases_it() {
+fn a_clean_filter_that_stops_reading_does_not_kill_the_run() {
     let repo = common::empty_repo();
     common::git(repo.path(), &["config", "filter.trunc.clean", "head -c 8"]);
     common::write(repo.path(), ".gitattributes", "*.rs filter=trunc\n");
@@ -210,11 +207,19 @@ fn a_signal_raised_while_the_claim_is_held_still_releases_it() {
     // Dirty the worktree copy: a clean file never reaches the filter at all.
     common::write(repo.path(), "src/token.rs", &wider_than_a_pipe(2));
 
-    let killed = common::run(repo.path(), &["map"]);
+    let mapped = common::run(repo.path(), &["map"]);
     assert_eq!(
-        killed.status.signal(),
-        Some(libc::SIGPIPE),
-        "the clean filter no longer kills rr, so this no longer covers the window it exists for"
+        mapped.status.signal(),
+        None,
+        "a filter that closed stdin killed rr (status {:?}, stderr {:?})",
+        mapped.status,
+        common::stderr(&mapped)
+    );
+    assert_eq!(
+        common::code(&mapped),
+        0,
+        "rr map failed instead of taking the filter's output: {}",
+        common::stderr(&mapped)
     );
 
     let lock = repo
@@ -223,16 +228,6 @@ fn a_signal_raised_while_the_claim_is_held_still_releases_it() {
         .join("local")
         .join("publication.lock");
     assert!(!lock.exists(), "the claim outlived the run that held it");
-
-    // With the filter gone, only a leaked claim could refuse the next run.
-    common::git(repo.path(), &["config", "--unset", "filter.trunc.clean"]);
-    std::fs::remove_file(repo.path().join(".gitattributes")).unwrap();
-    let again = common::run(repo.path(), &["map"]);
-    assert!(
-        again.status.success(),
-        "a later refresh was refused, so the claim was never released: {}",
-        common::stderr(&again)
-    );
 }
 
 /// A source file with more in it than the filter will read before exiting, so
