@@ -31,10 +31,20 @@ defs:
       - final
       - int
       - MAX
+    doc_idents: []
+    attribute_idents: []
+  - name: Service
+    local_qualified: Service.Service
+    kind: constructor
+    visibility: public
+    start_line: 9
+    end_line: 9
+    signature: "public Service(String name) {}"
+    signature_idents:
       - public
-      - Service
       - String
       - name
+    body_idents: []
     doc_idents: []
     attribute_idents: []
   - name: run
@@ -105,12 +115,43 @@ defs:
   - name: run
     local_qualified: Runner.run
     kind: method
-    visibility: package
+    visibility: public
     start_line: 24
     end_line: 24
     signature: void run();
     signature_idents:
       - void
+    body_idents: []
+    doc_idents: []
+    attribute_idents: []
+  - name: Mode
+    local_qualified: ~
+    kind: enum
+    visibility: package
+    start_line: 27
+    end_line: 30
+    signature: "enum Mode {"
+    signature_idents:
+      - enum
+    body_idents:
+      - FAST
+      - SLOW
+    doc_idents: []
+    attribute_idents: []
+  - name: Point
+    local_qualified: ~
+    kind: struct
+    visibility: public
+    start_line: 32
+    end_line: 32
+    signature: "public record Point(int x, int y) {}"
+    signature_idents:
+      - public
+      - record
+      - int
+      - x
+      - int
+      - y
     body_idents: []
     doc_idents: []
     attribute_idents: []

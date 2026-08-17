@@ -114,6 +114,7 @@ fn visibility_label(vis: &rr_core::Visibility) -> String {
         rr_core::Visibility::Internal => "internal".into(),
         rr_core::Visibility::Crate => "crate".into(),
         rr_core::Visibility::Package => "package".into(),
+        rr_core::Visibility::FilePrivate => "fileprivate".into(),
         rr_core::Visibility::Restricted(path) => format!("restricted({path})"),
     }
 }
@@ -523,5 +524,8 @@ fn versions_are_pinned() {
     assert_eq!(extractor_version(Lang::TypeScript), 5);
     assert_eq!(extractor_version(Lang::Tsx), 5);
     assert_eq!(extractor_version(Lang::JavaScript), 1);
-    assert_eq!(FACT_SCHEMA_VERSION, 8);
+    assert_eq!(extractor_version(Lang::Java), 2);
+    assert_eq!(extractor_version(Lang::Php), 2);
+    assert_eq!(extractor_version(Lang::Swift), 2);
+    assert_eq!(FACT_SCHEMA_VERSION, 9);
 }

@@ -30,14 +30,17 @@ impl Output {
     /// about it; a table that listed the languages this build parses would
     /// answer a question they did not ask.
     ///
+    /// Read from `Registry::indexable` — the list the walk allowlist itself
+    /// comes from — rather than from a second filter over `Lang::ALL`. A table
+    /// that derived the set on its own could advertise a language the walk had
+    /// stopped visiting, and a user comparing the two would have no way to tell
+    /// which one was lying.
+    ///
     /// # Errors
     ///
     /// Returns an [`io::Error`] if writing fails.
     pub fn write_languages<W: Write>(mut writer: W) -> io::Result<()> {
-        for lang in rr_core::Lang::ALL {
-            if !lang.is_code() {
-                continue;
-            }
+        for lang in rr_core::parser::Registry::indexable() {
             let tier = rr_core::tier(lang);
             let version = rr_core::extractor_version(lang);
             writeln!(

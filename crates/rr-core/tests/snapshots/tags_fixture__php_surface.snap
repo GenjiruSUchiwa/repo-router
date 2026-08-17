@@ -108,7 +108,7 @@ defs:
     attribute_idents: []
   - name: run
     local_qualified: Contract.run
-    kind: function
+    kind: method
     visibility: public
     start_line: 27
     end_line: 27

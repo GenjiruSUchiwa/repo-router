@@ -28,3 +28,5 @@ enum Mode {
     FAST,
     SLOW
 }
+
+public record Point(int x, int y) {}

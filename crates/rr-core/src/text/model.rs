@@ -194,11 +194,38 @@ impl VisibilityLabel {
                 label: "package",
                 key: "package".to_owned(),
             }),
+            // Shown rather than withheld for the reason `protected` and
+            // `internal` are: another declaration in the same file reaches it,
+            // so it is not the one-definition scope `Private` names.
+            Visibility::FilePrivate => Some(Self {
+                label: "fileprivate",
+                key: "fileprivate".to_owned(),
+            }),
             Visibility::Restricted(path) => Some(Self {
                 label: "restricted",
                 key: format!("restricted({path})"),
             }),
         }
+    }
+
+    /// Whether `label` is one this type writes, which is the question
+    /// [`super::parse`] has to answer when it reads a record back.
+    ///
+    /// One function rather than a list repeated on each side: the two drifted
+    /// apart once already — `package` rendered for a year before the reader
+    /// would accept it, so every Java repository wrote a `.rr/SYMBOLS.md` that
+    /// rr then refused to read.
+    pub(crate) fn is_known(label: &str) -> bool {
+        matches!(
+            label,
+            "public"
+                | "protected"
+                | "internal"
+                | "crate"
+                | "restricted"
+                | "package"
+                | "fileprivate"
+        )
     }
 }
 
@@ -859,5 +886,40 @@ impl Ord for ScopePath {
 impl PartialOrd for ScopePath {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Visibility, VisibilityLabel};
+    use crate::test_support::assert_variant_count;
+
+    /// Every label the renderer can write is a label the reader accepts.
+    ///
+    /// The list is spelled out rather than derived, and `assert_variant_count`
+    /// guards it: a new `Visibility` variant fails this test until someone has
+    /// decided what it renders as and whether the reader knows the word.
+    #[test]
+    fn every_rendered_visibility_label_parses_back() {
+        let all = [
+            Visibility::Private,
+            Visibility::Public,
+            Visibility::Protected,
+            Visibility::Internal,
+            Visibility::Crate,
+            Visibility::Restricted("self".to_owned()),
+            Visibility::Package,
+            Visibility::FilePrivate,
+        ];
+        assert_variant_count::<Visibility>(all.len(), "the list above");
+        for visibility in &all {
+            if let Some(label) = VisibilityLabel::of(visibility) {
+                assert!(
+                    VisibilityLabel::is_known(label.label),
+                    "{visibility:?} renders as {:?}, which the reader refuses",
+                    label.label
+                );
+            }
+        }
     }
 }

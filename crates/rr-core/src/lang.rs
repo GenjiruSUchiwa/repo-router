@@ -159,14 +159,35 @@ impl Lang {
     /// not even the lexical one — turns it into one. `Lang` recognises them so
     /// the walk can classify and skip them, which is what it should keep doing.
     ///
-    /// Written as an exhaustive match rather than a list, so a new variant
-    /// fails to compile until someone decides which side it falls on.
+    /// Written as an exhaustive match with no wildcard arm, so a new variant
+    /// fails to compile until someone decides which side it falls on. A `_`
+    /// arm here would answer `true` for a format nobody classified, and the
+    /// walk would index it before anyone noticed.
     #[must_use]
-    #[allow(clippy::match_like_matches_macro)]
     pub const fn is_code(self) -> bool {
         match self {
+            Self::Rust
+            | Self::Python
+            | Self::TypeScript
+            | Self::Tsx
+            | Self::JavaScript
+            | Self::Jsx
+            | Self::Go
+            | Self::Java
+            | Self::CSharp
+            | Self::C
+            | Self::Cpp
+            | Self::Ruby
+            | Self::Php
+            | Self::Swift
+            | Self::Kotlin
+            | Self::Scala
+            | Self::Zig
+            | Self::Lua
+            | Self::Shell
+            | Self::Sql
+            | Self::Proto => true,
             Self::Toml | Self::Json | Self::Yaml | Self::Markdown | Self::Html | Self::Css => false,
-            _ => true,
         }
     }
 
@@ -304,6 +325,7 @@ impl fmt::Display for Lang {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::assert_variant_count;
 
     #[test]
     fn test_language_detection() {
@@ -396,19 +418,5 @@ mod tests {
         assert!(!Lang::Css.is_code());
         assert!(Lang::CSharp.is_code());
         assert!(Lang::Go.is_code());
-    }
-
-    /// postcard writes a fieldless variant as its index, so the last listed
-    /// index must decode and the next one must not.
-    fn assert_variant_count<T: serde::de::DeserializeOwned>(count: usize, listed: &str) {
-        let last = u8::try_from(count - 1).unwrap();
-        assert!(
-            postcard::from_bytes::<T>(&[last]).is_ok(),
-            "{listed} lists more variants than the enum has"
-        );
-        assert!(
-            postcard::from_bytes::<T>(&[last + 1]).is_err(),
-            "a variant was added to the enum and not to {listed}"
-        );
     }
 }

@@ -10,7 +10,7 @@ defs:
     kind: method
     visibility: public
     start_line: 3
-    end_line: 17
+    end_line: 19
     signature: "public func run() { helper(name) }"
     signature_idents:
       - public
@@ -31,6 +31,10 @@ defs:
       - var
       - group
       - String
+      - fileprivate
+      - var
+      - shared
+      - Int
       - private
       - var
       - secret
@@ -46,13 +50,15 @@ defs:
       - group
       - x
       - self
+      - shared
+      - self
       - secret
   - name: Service
     local_qualified: ~
     kind: class
     visibility: public
     start_line: 3
-    end_line: 17
+    end_line: 19
     signature: "public class Service {"
     signature_idents:
       - public
@@ -66,6 +72,10 @@ defs:
       - var
       - group
       - String
+      - fileprivate
+      - var
+      - shared
+      - Int
       - private
       - var
       - secret
@@ -80,6 +90,8 @@ defs:
       - self
       - group
       - x
+      - self
+      - shared
       - self
       - secret
       - public
@@ -94,13 +106,17 @@ defs:
     kind: property
     visibility: package
     start_line: 3
-    end_line: 17
+    end_line: 19
     signature: "package var group: String"
     signature_idents:
       - package
       - var
       - String
     body_idents:
+      - fileprivate
+      - var
+      - shared
+      - Int
       - private
       - var
       - secret
@@ -115,6 +131,8 @@ defs:
       - self
       - group
       - x
+      - self
+      - shared
       - self
       - secret
       - public
@@ -136,7 +154,7 @@ defs:
     kind: property
     visibility: public
     start_line: 3
-    end_line: 17
+    end_line: 19
     signature: "public var name: String"
     signature_idents:
       - public
@@ -147,6 +165,10 @@ defs:
       - var
       - group
       - String
+      - fileprivate
+      - var
+      - shared
+      - Int
       - private
       - var
       - secret
@@ -161,6 +183,8 @@ defs:
       - self
       - group
       - x
+      - self
+      - shared
       - self
       - secret
       - public
@@ -178,7 +202,7 @@ defs:
     kind: property
     visibility: private
     start_line: 3
-    end_line: 17
+    end_line: 19
     signature: "private var secret: Int"
     signature_idents:
       - private
@@ -195,6 +219,60 @@ defs:
       - self
       - group
       - x
+      - self
+      - shared
+      - self
+      - secret
+      - public
+      - func
+      - run
+      - helper
+      - name
+    doc_idents: []
+    attribute_idents:
+      - public
+      - class
+      - Service
+      - public
+      - var
+      - name
+      - String
+      - package
+      - var
+      - group
+      - String
+      - fileprivate
+      - var
+      - shared
+      - Int
+  - name: shared
+    local_qualified: ~
+    kind: property
+    visibility: fileprivate
+    start_line: 3
+    end_line: 19
+    signature: "fileprivate var shared: Int"
+    signature_idents:
+      - fileprivate
+      - var
+      - Int
+    body_idents:
+      - private
+      - var
+      - secret
+      - Int
+      - public
+      - init
+      - name
+      - String
+      - self
+      - name
+      - name
+      - self
+      - group
+      - x
+      - self
+      - shared
       - self
       - secret
       - public
@@ -220,8 +298,8 @@ defs:
     kind: constructor
     visibility: public
     start_line: 3
-    end_line: 17
-    signature: "public init(name: String) { self.name = name self.group = \"x\" self.secret = 1 }"
+    end_line: 19
+    signature: "public init(name: String) { self.name = name self.group = \"x\" self.shared = 0 self.secret = 1 }"
     signature_idents:
       - public
       - name
@@ -232,6 +310,8 @@ defs:
       - self
       - group
       - x
+      - self
+      - shared
       - self
       - secret
     body_idents:
@@ -253,6 +333,10 @@ defs:
       - var
       - group
       - String
+      - fileprivate
+      - var
+      - shared
+      - Int
       - private
       - var
       - secret
@@ -261,8 +345,8 @@ defs:
     local_qualified: ~
     kind: method
     visibility: internal
-    start_line: 19
-    end_line: 21
+    start_line: 21
+    end_line: 23
     signature: func run()
     signature_idents:
       - func
@@ -275,8 +359,8 @@ defs:
     local_qualified: ~
     kind: interface
     visibility: internal
-    start_line: 19
-    end_line: 21
+    start_line: 21
+    end_line: 23
     signature: "protocol Runner {"
     signature_idents:
       - protocol
@@ -289,8 +373,8 @@ defs:
     local_qualified: ~
     kind: class
     visibility: internal
-    start_line: 23
-    end_line: 25
+    start_line: 25
+    end_line: 27
     signature: "enum Mode {"
     signature_idents:
       - enum
@@ -304,8 +388,8 @@ defs:
     local_qualified: ~
     kind: class
     visibility: internal
-    start_line: 27
-    end_line: 30
+    start_line: 29
+    end_line: 32
     signature: "struct Point {"
     signature_idents:
       - struct
@@ -322,8 +406,8 @@ defs:
     local_qualified: ~
     kind: property
     visibility: internal
-    start_line: 27
-    end_line: 30
+    start_line: 29
+    end_line: 32
     signature: "var x: Int"
     signature_idents:
       - var
@@ -340,8 +424,8 @@ defs:
     local_qualified: ~
     kind: property
     visibility: internal
-    start_line: 27
-    end_line: 30
+    start_line: 29
+    end_line: 32
     signature: "var y: Int"
     signature_idents:
       - var
@@ -358,8 +442,8 @@ defs:
     local_qualified: ~
     kind: function
     visibility: public
-    start_line: 32
-    end_line: 34
+    start_line: 34
+    end_line: 36
     signature: "public func bare(_ value: Int) -> Int {"
     signature_idents:
       - public
