@@ -7,6 +7,7 @@
 //! and index-based OID resolution with zero content reads on clean files.
 
 pub mod content;
+pub mod diff;
 pub mod guard;
 pub mod map;
 pub mod oid;
@@ -24,6 +25,7 @@ pub use content::{
     acquire_for_source, acquire_non_git, revalidate_source, AcquireOutcome, AcquiredContent,
     ContentProbe, ContentRepresentation,
 };
+pub use diff::{change_set, ChangeSet, ChangeTarget, FileDelta, Hunk};
 pub use guard::{release_locks_signal_safe, RepositoryWriteGuard};
 pub use map::build_map;
 pub use oid::{hash_blob, HashAlgo, Oid, OidError};
