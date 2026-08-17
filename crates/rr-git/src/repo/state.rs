@@ -181,12 +181,23 @@ impl GitRepo {
     /// Submodules are excluded rather than entered — a dirty nested repository
     /// is that repository's business — and counted so the exclusion is visible.
     ///
+    /// The scan runs clean filters of its own: an entry `stat` cannot settle —
+    /// a changed mtime, a racy timestamp — sends `gix-status` streaming the
+    /// worktree file through the filter to compare hashes, which is most of
+    /// them once a filter makes recorded and on-disk sizes disagree in the
+    /// first place. A driver that closes stdin early
+    /// raises `EPIPE` on that write exactly as [`GitRepo::convert_to_git`]
+    /// does, so the same ignore is held here — for the whole iteration, since
+    /// the filter runs lazily as items are pulled.
+    ///
     /// # Errors
     /// Returns [`Error::Content`] when the status cannot be produced or reports
     /// an item this version does not understand, and [`Error::Cancelled`] when
     /// cancellation was requested mid-scan.
     pub fn observe_state(&self, cancel: &CancelToken) -> Result<RepoState> {
         use gix::status::{Submodule, UntrackedFiles};
+
+        let _sigpipe = crate::sigpipe::ignore();
 
         let head = match self.head_oid()? {
             Some(oid) => HeadState::Commit(oid),
