@@ -62,6 +62,35 @@
 //! surface makes once, and the report surfaces make it in favour of additive
 //! evolution.
 //!
+//! # The frozen v1 query surface
+//!
+//! **v1 of `rr query` is closed.** No member is added, removed, renamed or
+//! reordered; no variant is added to a serialized enum; no exit code is
+//! re-meant; no byte of a text marker changes. Anything else ships as `v: 2`
+//! beside v1 for one minor release, so that a consumer has a release in which
+//! both answers are available and it can be moved without being broken first.
+//!
+//! Five things are frozen, and each has a test rather than a promise:
+//!
+//! 1. the `v: 1` literal and the three response shapes
+//!    ([`render_json`](crate::render::render_json));
+//! 2. `crates/rr-cli/tests/query.schema.json` byte for byte — its `$id`, its
+//!    title `RepoRouterQueryResultV1`, and `additionalProperties: false` at
+//!    every object;
+//! 3. the exit codes [`QueryResult::exit_code`](crate::result::QueryResult::exit_code)
+//!    chooses — `0` direct, `2` candidates, `3` none, `4` refused — plus the `1`
+//!    the CLI returns for an error, which must never collide with the `2` that
+//!    means the answer arrived and is not one to act on;
+//! 4. the closed inventory of text markers in [`crate::render::marker`];
+//! 5. this list.
+//!
+//! The trade named under *What a bump means* is why the promise has to be this
+//! strict. The report surfaces are open, so they may grow a key. `rr query` is
+//! closed, so it may not: an added member does not extend the answer, it makes
+//! every validator reject the answer — silently, inside an agent's parser, on a
+//! response whose other members are all correct. That is a worse failure than a
+//! version bump, and it is why v1 grows a sibling instead of growing a member.
+//!
 //! # Enum spellings
 //!
 //! A published enum spelling is part of the contract. In code, `as_str()`
