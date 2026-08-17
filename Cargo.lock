@@ -2095,6 +2095,7 @@ dependencies = [
  "blake3",
  "gix",
  "gix-lock",
+ "gix-tempfile",
  "proptest",
  "rayon",
  "rr-core",

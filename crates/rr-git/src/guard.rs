@@ -64,6 +64,20 @@ impl RepositoryWriteGuard {
     }
 }
 
+/// Removes the lock files this process still holds, from inside a signal handler.
+///
+/// A signal that terminates the process never runs [`Drop`], so the marker
+/// above does not get to remove what it created. The file left behind is not a
+/// stale hint a later run can weigh: acquisition fails on its mere existence,
+/// so every subsequent refresh of that repository is refused until a human
+/// deletes it. This is the last chance to prevent that, which is why the
+/// caller is a signal handler and why the work is delegated to a routine
+/// written to a handler's rules — no allocation, no mutex, no diagnostic. It
+/// removes what it can reach without blocking and abandons the rest.
+pub fn release_locks_signal_safe() {
+    gix_tempfile::registry::cleanup_tempfiles_signal_safe();
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {

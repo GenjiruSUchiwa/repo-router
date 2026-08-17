@@ -21,6 +21,10 @@ gix = { version = "0.86.0", default-features = false, features = [
     "dirwalk",
 ] }
 gix-lock = "24.0.0"
+# The registry behind `gix-lock`. A terminating signal skips `Drop`, and this is
+# the only door to the lock files that would otherwise survive it; already in
+# the tree through `gix-lock`, so this costs no new build.
+gix-tempfile = "24.0.0"
 blake3 = { workspace = true }
 sha1 = { workspace = true }
 sha2 = { workspace = true }

@@ -1105,15 +1105,25 @@ Exit codes:
 - `4`: expected source refusal
 
 A caller that stops reading before `rr` has finished writing sees none of these.
-`rr` restores the default SIGPIPE disposition before its first print, so
-`rr query … | head -1` is *terminated* by SIGPIPE and a shell reports `141` —
-the same thing `head`, `grep` and `sort` do, and the reason the failure is
-silent: nothing is written to stderr and no backtrace is produced. `rr` never
+`rr` points SIGPIPE at a handler before its first print, so a write into a pipe
+nobody is reading *terminates* `rr` and a shell reports `141` — the
+same thing `head`, `grep` and `sort` do, and the reason the failure is
+silent: nothing is written to stderr and no backtrace is produced. It is a race
+and not a guarantee: `rr query … | head -1` ordinarily exits `0`, because the
+whole answer fits the pipe buffer and is written before `head` has read its line
+and left. 141 is what a consumer that was *already* gone produces. `rr` never
 returns 141; it is killed, so `WIFSIGNALED` is what distinguishes it from an
 ordinary exit. This applies to every command, `--help` and `--version` included,
 and to a closed stderr exactly as to a closed stdout. Redirecting a stream is not
 closing it: `rr … 2>/dev/null` is unaffected. On a platform without SIGPIPE the
 write fails instead and the broken pipe is reported as the ordinary `1`.
+
+The handler earns its place by releasing the publication claim before it lets
+the process go. Termination runs no destructor, and a run killed while it held
+the claim would leave a lock file that refuses every later refresh of that
+repository until a human deletes it. Having released it, the handler re-raises
+the signal against the default disposition, so what a caller observes is what
+`SIG_DFL` would have produced and nothing above changes.
 
 Do not expose unstable internal ranking internals unless `--debug` is used.
 

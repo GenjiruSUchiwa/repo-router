@@ -22,7 +22,7 @@ pub use content::{
     acquire_for_source, acquire_non_git, revalidate_source, AcquireOutcome, AcquiredContent,
     ContentProbe, ContentRepresentation,
 };
-pub use guard::RepositoryWriteGuard;
+pub use guard::{release_locks_signal_safe, RepositoryWriteGuard};
 pub use map::build_map;
 pub use oid::{hash_blob, HashAlgo, Oid, OidError};
 pub use refresh::{hold, prepare, refresh, HeldSnapshot, PreparedRefresh, Refresh};
