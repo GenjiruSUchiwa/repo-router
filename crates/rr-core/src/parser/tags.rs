@@ -1675,11 +1675,6 @@ mod tests {
             .unwrap()
     }
 
-    /// The defect #53 owns: a member's doc comment sits inside its container
-    /// and, before the span grew backward, outside the member — so the
-    /// container's `body_idents` swallowed the prose. The member's span now
-    /// covers the adjacent comment run, and the existing child exclusion
-    /// keeps those words out of the container.
     #[test]
     fn a_containers_body_idents_do_not_absorb_member_doc_prose() {
         let facts = typescript(
