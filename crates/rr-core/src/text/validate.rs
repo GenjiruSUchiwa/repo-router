@@ -22,8 +22,19 @@ use super::{parse_map, parse_symbols, ArtifactKind, RenderedArtifactSet, Rendere
 
 /// Why one path cannot be written.
 ///
-/// A closed set rather than a string, because the CLI prints these and issue
-/// #14 will branch on them. A message is a description; this is a decision.
+/// A closed set rather than a string, because the CLI prints these and
+/// [`crate::check`] branches on them. A message is a description; this is a
+/// decision — and the decision is now spent twice. `check::class_of` sorts these
+/// variants into "rr must not write this path at all" and "rr owns the path and
+/// its contents no longer parse as what rr wrote", which are different rule ids
+/// with different fixes (`RR0106`/`RR0206` against `RR0102`/`RR0202`), and
+/// `check::remediation_for` gives each variant its own sentence, because moving
+/// an unrelated file and regenerating a stale one are not the same instruction.
+/// Neither split could have been recovered from a rendered message, which is the
+/// whole argument for the enum.
+///
+/// [`Self::as_str`] is also the serde name, so a checker's `actual` field and a
+/// human's message carry one string rather than two renderings that can drift.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ConflictReason {

@@ -32,6 +32,7 @@ pub(crate) mod test_support {
 pub mod agent;
 pub mod cache;
 pub mod cancel;
+pub mod check;
 pub mod content;
 pub mod facts;
 pub mod index;
@@ -41,6 +42,7 @@ pub mod lex;
 pub mod oid;
 pub mod parser;
 pub mod path;
+pub mod quality;
 pub mod query;
 pub mod ranking;
 pub mod refresh;
@@ -54,6 +56,18 @@ pub mod workspace;
 
 pub use cache::{CacheKey, CacheOutcome, CacheStats, FactCache};
 pub use cancel::CancelToken;
+/// The entry point [`check::check`] is deliberately **not** re-exported here.
+///
+/// A `pub use` of it would make `crate::check` name both a module and a
+/// function, which is ambiguous in every doc link the rest of this crate writes
+/// to reach the module. A caller spells the one function `rr_core::check::check`
+/// and reads the module's own documentation on the way past, which is where the
+/// read-only guarantee is stated.
+pub use check::{
+    conflict_diagnostic, render_check_json, render_check_text, CheckCounts, CheckResultV1,
+    CheckStatus, DiagnosticV1, Severity, CHECK_COMMAND, CHECK_SCHEMA_VERSION, EMITTED_RULES,
+    RESERVED_RULES,
+};
 pub use content::AcquiredContent;
 pub use facts::{
     Def, DefKind, DegradedReason, Facts, Import, ImportKind, LocalDefId, ParseStatus, Reference,
@@ -76,6 +90,10 @@ pub use refresh::{
 
 pub use parser::{extractor_version, tier, Tier};
 pub use path::{RelPath, RelPathError};
+pub use quality::{
+    adjudicate, Adjudication, QualityFault, QualityFinding, QualityReportV1, QualitySummary,
+    ADJUDICABLE_RULES, MAX_QUALITY_REPORT_BYTES, QUALITY_SCHEMA_VERSION,
+};
 pub use query::{
     finish_exact, parse_query, resolve_route_anchor, route_exact, route_query, ExactAtom,
     ExactAtomKind, ExactOutcome, ParsedQuery, QueryRequest,

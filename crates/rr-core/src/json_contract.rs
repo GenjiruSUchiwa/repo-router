@@ -30,6 +30,7 @@
 //! | [`REFRESH_SCHEMA_VERSION`](crate::REFRESH_SCHEMA_VERSION) | `rr refresh`, `rr map` | 4 |
 //! | [`STATUS_SCHEMA_VERSION`](crate::STATUS_SCHEMA_VERSION) | `rr status` | 3 |
 //! | [`INIT_SCHEMA_VERSION`](crate::agent::INIT_SCHEMA_VERSION) | `rr init` | 1 |
+//! | [`CHECK_SCHEMA_VERSION`](crate::CHECK_SCHEMA_VERSION) | `rr check` | 1 |
 //!
 //! `rr refresh` and `rr map` share one because they share a report: `rr map` is
 //! `rr refresh --full` under another name.
@@ -126,6 +127,14 @@
 //! - **1** — the surface as #13 shipped it. It published this value under the
 //!   key `v` for the few hours between PR #50 and this change; the object is
 //!   otherwise unchanged, so the version does not move.
+//!
+//! ## `rr check`
+//!
+//! - **1** — the surface as #14 shipped it: `schema_version`, `command`,
+//!   `status`, `counts`, `diagnostics`, and `quality` when a `--quality-report`
+//!   was adjudicated. A rule id added later adds no key and does not bump this;
+//!   a *rule id spelling* removed or re-meant does, because a pipeline greps for
+//!   those the way a consumer matches on an enum.
 //!
 //! ## `rr query`
 //!

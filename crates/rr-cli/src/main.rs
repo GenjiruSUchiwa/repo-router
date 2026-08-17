@@ -1,3 +1,4 @@
+mod check;
 mod init;
 mod output;
 mod query;
@@ -36,6 +37,8 @@ enum Commands {
     Status(StatusArgs),
     /// Install the agent navigation contract. Safe to run again.
     Init(init::Args),
+    /// Report every numbered diagnostic this repository's artifacts raise.
+    Check(check::Args),
     Query(query::Args),
 }
 
@@ -70,6 +73,13 @@ fn main() -> ExitCode {
         Commands::Map(args) => finish("map", refresh::run_refresh(&args, RefreshCommand::Map)),
         Commands::Status(args) => finish("status", refresh::run_status(&args)),
         Commands::Init(args) => finish("init", init::run(&args)),
+        Commands::Check(args) => match check::run(&args) {
+            Ok(code) => ExitCode::from(code),
+            Err(err) => {
+                diagnose(&format!("rr: check: {}", one_line(&err)));
+                ExitCode::from(check::NOT_EVALUATED)
+            }
+        },
         Commands::Query(args) => match query::run(&args) {
             Ok(code) => ExitCode::from(code),
             Err(err) => {
