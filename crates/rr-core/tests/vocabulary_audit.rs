@@ -39,7 +39,7 @@ const EXEMPT_ENUMS: &[(&str, &str)] = &[];
 /// A row is a debt with a creditor. The audit fails if the enum or the variant
 /// stops existing, and fails if the variant gains a producer — at which point
 /// the debt is paid and the row goes.
-const RESERVED_VARIANTS: &[(&str, &str, &str)] = &[("Pipeline", "Route", "#12")];
+const RESERVED_VARIANTS: &[(&str, &str, &str)] = &[];
 
 /// Derives whose generated code constructs variants no source file spells.
 ///

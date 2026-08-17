@@ -48,8 +48,8 @@ pub use refresh::{
 pub use parser::extractor_version;
 pub use path::{RelPath, RelPathError};
 pub use query::{
-    finish_exact, parse_query, route_exact, route_query, ExactAtom, ExactAtomKind, ExactOutcome,
-    ParsedQuery, QueryRequest,
+    finish_exact, parse_query, resolve_route_anchor, route_exact, route_query, ExactAtom,
+    ExactAtomKind, ExactOutcome, ParsedQuery, QueryRequest,
 };
 pub use ranking::{
     decide, rank, route_lexical, CorpusStats, DecisionThresholds, FieldParams, FieldStats,

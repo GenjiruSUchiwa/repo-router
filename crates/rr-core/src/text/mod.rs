@@ -7,7 +7,11 @@
 //!
 //! Submodules, in reading order: [`block`], [`digest`], [`encode`], [`model`],
 //! [`plan`], [`render`], [`parse`], [`purpose`], [`ignore`], [`validate`],
-//! [`report`].
+//! [`catalog`], [`report`], [`routes`].
+//!
+//! [`routes`] is the one exception to the paragraph above: `.rr/ROUTES.md` is
+//! learned rather than derived, so nothing can regenerate it and a damaged one
+//! is discarded rather than repaired. Its header says why.
 //!
 //! # Where this reads issue #11 rather than quotes it
 //!
@@ -24,6 +28,7 @@
 //!   them.
 
 mod block;
+mod catalog;
 mod digest;
 mod encode;
 mod ignore;
@@ -33,9 +38,11 @@ mod plan;
 mod purpose;
 mod render;
 mod report;
+mod routes;
 mod validate;
 
 pub use block::{apply_block, BlockMarkers, DUPLICATE_MARKERS_REASON, MALFORMED_MARKERS_REASON};
+pub use catalog::{projected_map_catalog, validated_map_catalog, MapCatalog, MapIdentity};
 pub use digest::{ApiHash, Digest};
 pub use ignore::{
     apply_managed_block, managed_ignore_block, IGNORE_BEGIN_MARKER, IGNORE_END_MARKER,
@@ -48,9 +55,13 @@ pub use parse::{
 pub use purpose::{read_existing_purposes, ExistingPurposes};
 pub use render::{ArtifactKind, RenderedArtifactSet, RenderedFile};
 pub use report::{SymbolsState, TextReport};
+pub use routes::{
+    encode_map_destination, load_routes, parse_routes, render_routes, update_routes, RouteFault,
+    RouteKey, RouteRecord, RouteTable, MAX_ROUTES, ROUTES_PATH,
+};
 pub use validate::{
-    stage_text_artifacts, validate_text_artifacts, validated_map_catalog, Conflict, ConflictReason,
-    MapCatalog, MapIdentity, StagedText, TextValidation,
+    stage_text_artifacts, validate_text_artifacts, Conflict, ConflictReason, StagedText,
+    TextValidation,
 };
 
 /// The on-disk format version of every artifact this module writes.

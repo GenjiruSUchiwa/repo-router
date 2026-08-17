@@ -161,6 +161,22 @@ fn query(repo: &TempDir, args: &[&str]) -> std::process::Output {
         .unwrap()
 }
 
+/// Discards issue #12's learned route cache.
+///
+/// A test that pins what a *pipeline* prints has to ask its question for the
+/// first time every time: the second run of one question is answered from
+/// `.rr/ROUTES.md` and prints `"pipeline":"route"`, which is the cache working,
+/// not the ranker disagreeing with itself. Removing the file is enough — a
+/// missing cache is not a fault, and the next query rebuilds it.
+fn forget_routes(repo: &TempDir) {
+    let path = repo.path().join(".rr/ROUTES.md");
+    match fs::remove_file(&path) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => panic!("discard the route cache: {error}"),
+    }
+}
+
 fn run_cmd(dir: &Path, program: &str, args: &[&str]) {
     let output = Command::new(program)
         .current_dir(dir)
@@ -468,6 +484,7 @@ fn query_contract_lexical_repeats_byte_for_byte_across_processes() {
     let repo = setup_lexical_repo();
     let first = query(&repo, &["--json", "how do we create a session?"]).stdout;
     for run in 0..4 {
+        forget_routes(&repo);
         let again = query(&repo, &["--json", "how do we create a session?"]).stdout;
         assert_eq!(first, again, "run {run} printed a different answer");
     }
@@ -490,6 +507,7 @@ fn query_contract_default_output_is_unchanged_by_the_explain_flag() {
          of its members is as much a part of the contract as their values"
     );
 
+    forget_routes(&repo);
     let explained = query(&repo, &["--json", "--explain", DIRECT_QUESTION]).stdout;
     let explained = String::from_utf8(explained).unwrap();
     let opening = DIRECT_RESPONSE.trim_end_matches('}');
@@ -538,6 +556,7 @@ fn query_contract_explain_reports_an_exact_route_as_unranked() {
         "an exact match reads no posting list, so it has no candidate cap to explain: {text}"
     );
 
+    forget_routes(&repo);
     let output = query(&repo, &["--json", "--explain", "create_session"]);
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(value["pipeline"], "exact");

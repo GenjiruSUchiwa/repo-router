@@ -101,9 +101,9 @@ const fn hex_value(byte: u8) -> Option<u8> {
 
 /// The identity of one directory scope's public API surface.
 ///
-/// A separate type from [`Digest`] because it is the key issue #12 stores
-/// against a route: handing out a bare digest would let a caller store the
-/// wrong one and never find out.
+/// A separate type from [`Digest`] because it is the key `.rr/ROUTES.md`
+/// stores against a route: handing out a bare digest would let a caller store
+/// the wrong one and never find out.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ApiHash(Digest);
 

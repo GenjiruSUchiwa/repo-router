@@ -237,7 +237,7 @@ pub fn render_refresh_verbose(report: &RunReport) -> String {
     let mut out = format!(
         "  plan: {} mode, {} changed, {} removed, {} renamed, {} conflicted\n  \
          work: {} reparsed, {} cached, {} content reads, {} degraded, {} {}, {} {}\n  \
-         cache: {} corrupt\n  snapshot: {}",
+         cache: {} corrupt, {} routes retired\n  snapshot: {}",
         snapshot.mode.as_str(),
         snapshot.changed,
         snapshot.removed,
@@ -252,6 +252,7 @@ pub fn render_refresh_verbose(report: &RunReport) -> String {
         snapshot.tags_recovered,
         TAGS_RECOVERED_COUNTER_LABEL,
         snapshot.cache_corrupt,
+        report.text.routes_retired,
         if snapshot.snapshot_updated {
             "republished"
         } else {

@@ -13,10 +13,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::path::Path;
 
-use crate::index::{Snapshot, SymbolId};
-use crate::path::RelPath;
+use crate::index::Snapshot;
 
-use super::digest::{ApiHash, Digest};
+use super::digest::Digest;
 use super::model::TextProjection;
 use super::purpose::read_existing_purposes;
 use super::{parse_map, parse_symbols, ArtifactKind, RenderedArtifactSet, RenderedFile};
@@ -693,102 +692,4 @@ fn owned_paths_on_disk(root: &Path, planned: &BTreeSet<&str>) -> Vec<String> {
 fn read_and_classify_existing(root: &Path, path: &str) -> Result<bool, ConflictReason> {
     let bytes = std::fs::read(root.join(path)).map_err(|_| ConflictReason::Unreadable)?;
     ownership_of(&bytes, ArtifactKind::Page)
-}
-
-/// Which committed map owns each symbol, and at what API identity.
-///
-/// Issue #12 stores exactly this pair against a learned route. It deliberately
-/// does not expose `generated_hash`: a route invalidated by somebody rewording
-/// a purpose would be a route that never survives a day.
-#[derive(Debug, Clone)]
-pub struct MapCatalog {
-    owners: BTreeMap<SymbolId, MapIdentity>,
-    index_hash: Digest,
-}
-
-/// One committed map and the API identity of its scope.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MapIdentity {
-    path: RelPath,
-    api_hash: ApiHash,
-}
-
-impl MapIdentity {
-    /// The canonical repository-relative path of the owning map.
-    #[must_use]
-    pub const fn path(&self) -> &RelPath {
-        &self.path
-    }
-
-    /// The scope's API identity, which is the invalidation key.
-    #[must_use]
-    pub const fn api_hash(&self) -> ApiHash {
-        self.api_hash
-    }
-}
-
-impl MapCatalog {
-    /// The map that lists this symbol, if any does.
-    #[must_use]
-    pub fn owner(&self, symbol: SymbolId) -> Option<&MapIdentity> {
-        self.owners.get(&symbol)
-    }
-
-    /// The projection this catalog was built from.
-    #[must_use]
-    pub const fn index_hash(&self) -> Digest {
-        self.index_hash
-    }
-
-    /// How many symbols have an owning map.
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.owners.len()
-    }
-
-    /// Whether no symbol has an owning map.
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.owners.is_empty()
-    }
-}
-
-/// Builds the catalog, but only from artifacts that are actually valid on disk.
-///
-/// A catalog built from a projection alone would name maps that may not exist,
-/// leaving issue #12 with routes to files no reader can open.
-///
-/// # Errors
-/// When the snapshot cannot be projected, and [`super::TextError::IndexHashMismatch`]
-/// when the artifacts on disk disagree with it — repair before trusting a route.
-pub fn validated_map_catalog(
-    snapshot: &Snapshot,
-    root: &Path,
-    budget: u32,
-) -> crate::Result<MapCatalog> {
-    let projection = TextProjection::from_snapshot(snapshot, budget)?;
-    let validation = validate_text_artifacts(snapshot, root, budget)?;
-    if !validation.is_up_to_date() {
-        return Err(crate::Error::Text(super::TextError::IndexHashMismatch));
-    }
-
-    let mut owners = BTreeMap::new();
-    for scope in projection.scopes() {
-        let Ok(path) = RelPath::new(scope.path.map_path()) else {
-            continue;
-        };
-        for record in &scope.api {
-            owners.insert(
-                record.symbol,
-                MapIdentity {
-                    path: path.clone(),
-                    api_hash: scope.api_hash,
-                },
-            );
-        }
-    }
-    Ok(MapCatalog {
-        owners,
-        index_hash: projection.index_hash(),
-    })
 }

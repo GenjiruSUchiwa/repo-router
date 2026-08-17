@@ -12,11 +12,17 @@ use std::sync::Arc;
 use anyhow::{bail, Context};
 use rr_core::index::Snapshot;
 use rr_core::path::RelPath;
-use rr_core::query::{parse_query, route_query, QueryRequest};
+use rr_core::query::{parse_query, resolve_route_anchor, route_query, QueryRequest};
 use rr_core::ranking::{RankingScratch, DEFAULT_RANKING_PROFILE};
-use rr_core::render::{render_json, render_json_explained, render_text, render_text_explained};
-use rr_core::result::QueryResult;
+use rr_core::render::{
+    encode_anchor, render_json, render_json_explained, render_text, render_text_explained,
+};
+use rr_core::result::{resolve_anchor, Candidate, Pipeline, QueryResult, TargetId};
 use rr_core::snapshot::{LoadOutcome, SnapshotStore};
+use rr_core::text::{
+    encode_map_destination, load_routes, projected_map_catalog, update_routes, RouteKey,
+    RouteRecord, DEFAULT_MAP_BUDGET,
+};
 use rr_core::verify::{
     finish_source, resolve_indexed_source, verify_source, PendingSource, SourceResult,
 };
@@ -52,13 +58,41 @@ pub fn run(args: &Args) -> anyhow::Result<u8> {
     let request = QueryRequest::new(&args.query, args.path.as_ref());
     let parsed = parse_query(&workspace.snapshot, request).map_err(anyhow::Error::new)?;
     let mut scratch = RankingScratch::new();
-    let (mut result, evidence) = route_query(
-        &workspace.snapshot,
-        &parsed,
-        &DEFAULT_RANKING_PROFILE,
-        &mut scratch,
-    )
-    .map_err(anyhow::Error::new)?;
+
+    // A cache hit is only a shortcut, so it must cost less than the work it
+    // skips: `route_lookup` reads one file and projects the snapshot, while
+    // `route_query` on a miss ranks the whole corpus. A `--path` query is
+    // neither read nor learned — the qualifier is part of the question and is
+    // not part of the key, so caching one would let a later unqualified
+    // question receive a qualified answer.
+    let key = args
+        .path
+        .is_none()
+        .then(|| RouteKey::new(&args.query))
+        .flatten();
+    let cached = key.as_ref().and_then(|key| route_lookup(&workspace, key));
+
+    let (mut result, evidence) = match cached {
+        Some(candidate) => (
+            QueryResult::Direct {
+                candidate,
+                pipeline: Pipeline::Route,
+                source: None,
+            },
+            None,
+        ),
+        None => route_query(
+            &workspace.snapshot,
+            &parsed,
+            &DEFAULT_RANKING_PROFILE,
+            &mut scratch,
+        )
+        .map_err(anyhow::Error::new)?,
+    };
+
+    if cached.is_none() {
+        learn_route(&workspace, key.as_ref(), &result);
+    }
 
     if args.source {
         attach_source(&workspace, &mut result)?;
@@ -114,7 +148,13 @@ impl Workspace {
                 bail!("index repository mismatch; run 'rr map'");
             }
             if snapshot.meta.repo_head_oid != head_oid {
-                bail!("index is stale; run 'rr refresh'");
+                // The route cache is not slow in this window, it is
+                // unreachable: routing never runs, so committing the maps and
+                // then asking a question makes the cache look broken on the
+                // first day of use. Whether this refusal stays at all is #44's
+                // HEAD-to-HEAD fast path to decide, so the refusal names it
+                // rather than quietly implementing an answer here.
+                bail!("index is stale; run 'rr refresh' (until then no query is answered, cached or not; see #44)");
             }
         } else if !snapshot.meta.no_git {
             bail!("index repository mismatch; run 'rr map'");
@@ -126,6 +166,74 @@ impl Workspace {
             snapshot,
         })
     }
+}
+
+/// The cached answer to this question, if there is one that is still true.
+///
+/// Three things have to hold, and each of them is a way a route dies: the
+/// record exists, its anchor still names exactly one symbol, and the scope that
+/// owns that symbol still hashes to what the record was learned against. The
+/// third is the one that matters: an `api_hash` covers path, name, anchor name,
+/// kind, visibility and signature of every public record in the directory, so a
+/// renamed or re-signed neighbour retires this route without anybody having to
+/// notice.
+fn route_lookup(workspace: &Workspace, key: &RouteKey) -> Option<Candidate> {
+    let (table, _) = load_routes(&workspace.root);
+    let record = table.get(key)?;
+    let symbol = resolve_route_anchor(&workspace.snapshot, &record.anchor)?;
+    // Projected, not validated: the weaker guarantee is that the map may not be
+    // on disk, which costs a reader one `MAP.md` they cannot open, against
+    // reading every artifact in the repository on every query.
+    let catalog = projected_map_catalog(&workspace.snapshot, DEFAULT_MAP_BUDGET).ok()?;
+    let identity = catalog.owner(symbol)?;
+    if identity.api_hash().digest() != record.api_hash {
+        return None;
+    }
+    Some(Candidate::new(
+        TargetId::Symbol(symbol),
+        Some(record.confidence),
+    ))
+}
+
+/// Records the answer, if it is the kind of answer that can be recorded.
+///
+/// Best-effort in the strongest sense: this returns `()` and every failure
+/// inside it is dropped. A query that answered correctly and then could not
+/// write its cache has still answered correctly, and turning that into a
+/// non-zero exit would make the cache a liability.
+fn learn_route(workspace: &Workspace, key: Option<&RouteKey>, result: &QueryResult) {
+    let Some(key) = key else { return };
+    let QueryResult::Direct { candidate, .. } = result else {
+        return;
+    };
+    // Only a symbol: a file target has no owning scope and so could never be
+    // told it went stale.
+    let TargetId::Symbol(symbol) = candidate.target else {
+        return;
+    };
+    let Some(confidence) = candidate.confidence else {
+        return;
+    };
+    let Ok(catalog) = projected_map_catalog(&workspace.snapshot, DEFAULT_MAP_BUDGET) else {
+        return;
+    };
+    let Some(identity) = catalog.owner(symbol) else {
+        return;
+    };
+    let Ok(anchor) = resolve_anchor(&workspace.snapshot, candidate.target) else {
+        return;
+    };
+
+    let record = RouteRecord {
+        key: key.clone(),
+        // The spelling `rr query` prints, so what is cached and what was shown
+        // are one string.
+        anchor: encode_anchor(anchor.path, anchor.symbol),
+        map: encode_map_destination(identity.path().as_str()),
+        api_hash: identity.api_hash().digest(),
+        confidence,
+    };
+    let _ = update_routes(&workspace.root, |table| table.insert(record));
 }
 
 /// Verifies and attaches the anchor's source, in the one order that keeps
