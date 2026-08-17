@@ -9,6 +9,115 @@ use crate::result::{resolve_anchor, Confidence, NoneReason, Pipeline, QueryResul
 use crate::verify::{SourcePacket, SourceResult, SourceStatus};
 use crate::{Error, Result};
 
+pub mod marker {
+    //! The frozen text markers of the v1 query answer.
+    //!
+    //! Every literal the text contract prints lives here once and is used from its
+    //! site, so the bytes an agent parses have a single definition. A marker spelled
+    //! at its site is a marker that can be half-renamed: the answer changes, the
+    //! prose in [`crate::agent::CONTRACT_BLOCK`] does not, and the agent that
+    //! followed the prose stops finding the line it was told to read.
+    //!
+    //! **The inventory is closed at sixteen.** These are every marker `rr query`
+    //! emits, they are frozen under the v1 promise stated on
+    //! [`crate::json_contract`], and
+    //! `crates/rr-cli/tests/frozen_v1.rs::every_text_marker_is_emitted_verbatim`
+    //! walks [`ALL`] to prove each one is still printed.
+    //!
+    //! [`SOURCE_BYTES`] is in the inventory, and leaving it out would have been the
+    //! one unsafe omission. It is the only marker an agent reads *positionally*:
+    //! [`crate::agent::CONTRACT_BLOCK`] publishes it as the last header line,
+    //! immediately above [`SEPARATOR`], and tells a reader to take exactly that many
+    //! bytes after the fence. Content may spell any line, including a second
+    //! [`FINAL_SOURCE_ANCHOR`], so the byte count is what stops a file from forging
+    //! the answer about itself. A marker left outside the freeze is a marker an edit
+    //! may move; moving this one silently redefines where every served packet ends.
+    //!
+    //! `SOURCE FINAL NEWLINE` is deliberately two consts rather than one with a
+    //! `{present|absent}` hole: a hole lets an edit change one arm while a test
+    //! written against the other keeps passing, and the two arms are how a consumer
+    //! tells a file's own last byte from the structural LF this encoding appends.
+    //!
+    //! # What is not in scope
+    //!
+    //! The markers in [`crate::agent`] — the contract block's own begin/end
+    //! delimiters, and its prose quotations of the lines below — are not here. They
+    //! belong to the `rr init` surface, which carries its own version constant and
+    //! its own tests, and `CONTRACT_BLOCK` is a `concat!` constant that cannot
+    //! interpolate one. What v1 freezes is the bytes `rr query` prints; a drift
+    //! between those bytes and the prose describing them is an `rr init` defect, not
+    //! a v1 break.
+    //!
+    //! The `explain:` lines are not here either. They are absent from the answer
+    //! unless `--explain` asked for them, so they are a diagnostic printed before
+    //! the answer rather than part of it, and `crates/rr-cli/tests/query_contract.rs`
+    //! pins them where they are produced.
+    /// The single line a direct answer prints, carrying the one anchor a caller
+    /// may act on.
+    pub const FINAL_SOURCE_ANCHOR: &str = "FINAL SOURCE ANCHOR (copy exactly): ";
+    /// The header above a numbered candidate list. Lowercase, as shipped.
+    pub const CANDIDATES_HEADER: &str = "source candidates:\n";
+    /// No match at all: the query's words are not in the index.
+    pub const NO_ANCHOR_NOT_FOUND: &str = "NO ANCHOR (index has no match); try: rr map\n";
+    /// A match too weak to name: the words are indexed, the best of them does
+    /// not clear the abstention margin.
+    pub const NO_ANCHOR_LOW_CONFIDENCE: &str =
+        "NO ANCHOR (confidence too low); refine the query or use --path\n";
+    /// The anchor resolved, but the file changed since indexing, so no bytes are
+    /// returned.
+    pub const STALE_SOURCE: &str = "STALE SOURCE (no content returned): ";
+    /// The anchor resolved and the file cannot be vouched for, for a reason the
+    /// status names.
+    pub const SOURCE_REFUSED: &str = "SOURCE REFUSED (";
+    /// The anchor's own line range in the verified content.
+    pub const SOURCE_SPAN: &str = "SOURCE SPAN (verified): ";
+    /// The line range actually served, which is the span plus surviving context.
+    pub const SOURCE_WINDOW: &str = "SOURCE WINDOW: ";
+    /// Whether the verified identity is a Git-canonical blob or a local hash.
+    pub const SOURCE_REPRESENTATION: &str = "SOURCE REPRESENTATION: ";
+    /// Every anchor line is present.
+    pub const SOURCE_COMPLETE: &str = "SOURCE COMPLETE\n";
+    /// Anchor lines were dropped by a budget, with what was dropped.
+    pub const SOURCE_TRUNCATED: &str = "SOURCE TRUNCATED (";
+    /// A context line that exists was dropped by a budget. Independent of
+    /// truncation, which is about the anchor itself.
+    pub const SOURCE_CONTEXT_CLIPPED: &str = "SOURCE CONTEXT CLIPPED\n";
+    /// The served content's own last byte is a line feed.
+    pub const SOURCE_FINAL_NEWLINE_PRESENT: &str = "SOURCE FINAL NEWLINE: present\n";
+    /// The served content does not end in a line feed; the LF after the content
+    /// is this encoding's, not the file's.
+    pub const SOURCE_FINAL_NEWLINE_ABSENT: &str = "SOURCE FINAL NEWLINE: absent\n";
+    /// How many bytes after [`SEPARATOR`] are content. The last header line.
+    pub const SOURCE_BYTES: &str = "SOURCE BYTES: ";
+    /// The fence between the header and the content it describes.
+    pub const SEPARATOR: &str = "---\n";
+
+    /// The closed inventory, in the order an answer can print it.
+    ///
+    /// Exists so that "closed" is checkable rather than asserted: a
+    /// seventeenth marker added above and not listed here, or listed here and
+    /// never emitted, fails
+    /// `crates/rr-cli/tests/frozen_v1.rs::every_text_marker_is_emitted_verbatim`.
+    pub const ALL: [&str; 16] = [
+        FINAL_SOURCE_ANCHOR,
+        CANDIDATES_HEADER,
+        NO_ANCHOR_NOT_FOUND,
+        NO_ANCHOR_LOW_CONFIDENCE,
+        STALE_SOURCE,
+        SOURCE_REFUSED,
+        SOURCE_SPAN,
+        SOURCE_WINDOW,
+        SOURCE_REPRESENTATION,
+        SOURCE_COMPLETE,
+        SOURCE_TRUNCATED,
+        SOURCE_CONTEXT_CLIPPED,
+        SOURCE_FINAL_NEWLINE_PRESENT,
+        SOURCE_FINAL_NEWLINE_ABSENT,
+        SOURCE_BYTES,
+        SEPARATOR,
+    ];
+}
+
 #[must_use]
 pub fn encode_anchor(path: impl AsRef<str>, symbol: Option<&str>) -> String {
     let mut out = String::new();
@@ -152,14 +261,14 @@ fn render_answer_text(snapshot: &Snapshot, result: &QueryResult) -> Result<Strin
         } => {
             let anchor = resolve_anchor(snapshot, candidate.target)?;
             let encoded = encode_anchor(anchor.path, anchor.symbol);
-            let mut out = format!("FINAL SOURCE ANCHOR (copy exactly): {encoded}\n");
+            let mut out = format!("{}{encoded}\n", marker::FINAL_SOURCE_ANCHOR);
             if let Some(source) = source {
                 write_source_text(&mut out, anchor.path, source)?;
             }
             Ok(out)
         }
         QueryResult::Candidates { candidates, .. } => {
-            let mut out = String::from("source candidates:\n");
+            let mut out = String::from(marker::CANDIDATES_HEADER);
             for (index, candidate) in candidates.iter().enumerate() {
                 let anchor = resolve_anchor(snapshot, candidate.target)?;
                 let encoded = encode_anchor(anchor.path, anchor.symbol);
@@ -169,10 +278,8 @@ fn render_answer_text(snapshot: &Snapshot, result: &QueryResult) -> Result<Strin
             Ok(out)
         }
         QueryResult::None { reason, .. } => match reason {
-            NoneReason::NotFound => Ok("NO ANCHOR (index has no match); try: rr map\n".to_string()),
-            NoneReason::LowConfidence => {
-                Ok("NO ANCHOR (confidence too low); refine the query or use --path\n".to_string())
-            }
+            NoneReason::NotFound => Ok(marker::NO_ANCHOR_NOT_FOUND.to_string()),
+            NoneReason::LowConfidence => Ok(marker::NO_ANCHOR_LOW_CONFIDENCE.to_string()),
         },
     }
 }
@@ -205,7 +312,8 @@ fn write_source_text(out: &mut String, path: &str, source: &SourceResult) -> Res
         } => {
             let _ = writeln!(
                 out,
-                "STALE SOURCE (no content returned): {path} changed since indexing; run `rr refresh`"
+                "{}{path} changed since indexing; run `rr refresh`",
+                marker::STALE_SOURCE
             );
             Ok(())
         }
@@ -217,7 +325,8 @@ fn write_source_text(out: &mut String, path: &str, source: &SourceResult) -> Res
         SourceResult::Refused { status } => {
             let _ = writeln!(
                 out,
-                "SOURCE REFUSED ({}; no content returned): {path} {}",
+                "{}{}; no content returned): {path} {}",
+                marker::SOURCE_REFUSED,
                 status.as_str(),
                 refusal_detail(*status)
             );
@@ -231,37 +340,44 @@ fn write_served_source_text(out: &mut String, path: &str, packet: &SourcePacket)
     let (window_start, window_end) = packet.served_lines();
     let _ = writeln!(
         out,
-        "SOURCE SPAN (verified): {path}:{}-{}",
+        "{}{path}:{}-{}",
+        marker::SOURCE_SPAN,
         span.start_line(),
         span.end_line()
     );
-    let _ = writeln!(out, "SOURCE WINDOW: {path}:{window_start}-{window_end}");
     let _ = writeln!(
         out,
-        "SOURCE REPRESENTATION: {}",
+        "{}{path}:{window_start}-{window_end}",
+        marker::SOURCE_WINDOW
+    );
+    let _ = writeln!(
+        out,
+        "{}{}",
+        marker::SOURCE_REPRESENTATION,
         packet.representation().as_str()
     );
     if packet.complete() {
-        out.push_str("SOURCE COMPLETE\n");
+        out.push_str(marker::SOURCE_COMPLETE);
     } else {
         let _ = writeln!(
             out,
-            "SOURCE TRUNCATED ({} anchor lines, {} anchor bytes omitted)",
+            "{}{} anchor lines, {} anchor bytes omitted)",
+            marker::SOURCE_TRUNCATED,
             packet.omitted_anchor_lines(),
             packet.omitted_anchor_bytes()
         );
     }
     if packet.context_clipped() {
-        out.push_str("SOURCE CONTEXT CLIPPED\n");
+        out.push_str(marker::SOURCE_CONTEXT_CLIPPED);
     }
     out.push_str(if packet.ends_with_newline() {
-        "SOURCE FINAL NEWLINE: present\n"
+        marker::SOURCE_FINAL_NEWLINE_PRESENT
     } else {
-        "SOURCE FINAL NEWLINE: absent\n"
+        marker::SOURCE_FINAL_NEWLINE_ABSENT
     });
     let content = packet.content();
-    let _ = writeln!(out, "SOURCE BYTES: {}", content.len());
-    out.push_str("---\n");
+    let _ = writeln!(out, "{}{}", marker::SOURCE_BYTES, content.len());
+    out.push_str(marker::SEPARATOR);
     out.push_str(content);
     out.push('\n');
 }
@@ -343,6 +459,19 @@ struct JsonEnvelope<'a> {
 }
 
 /// Renders a [`QueryResult`] into the single-line JSON v1 contract.
+///
+/// This function exists so that v1 has exactly one writer, because **v1 is
+/// closed**: no member is added, removed, renamed or reordered, no variant is
+/// added to a serialized enum, and no exit code is re-meant. Anything else ships
+/// as `v: 2` beside v1 for one minor release. `crates/rr-cli/tests/frozen_v1.rs`
+/// is what holds that promise, and [`crate::json_contract`] is where it is
+/// stated normatively.
+///
+/// "Additive is safe" is false here. The published schema says
+/// `additionalProperties: false` at every object, so one added member makes
+/// every conforming consumer reject the whole payload — not the new member, the
+/// answer — silently, inside an agent's parser. A second writer is how that
+/// member gets added: two renderers cannot both be the contract.
 ///
 /// # Errors
 /// Returns an error if anchor resolution or serialization fails.

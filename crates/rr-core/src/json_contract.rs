@@ -30,6 +30,8 @@
 //! | [`REFRESH_SCHEMA_VERSION`](crate::REFRESH_SCHEMA_VERSION) | `rr refresh`, `rr map` | 4 |
 //! | [`STATUS_SCHEMA_VERSION`](crate::STATUS_SCHEMA_VERSION) | `rr status` | 3 |
 //! | [`INIT_SCHEMA_VERSION`](crate::agent::INIT_SCHEMA_VERSION) | `rr init` | 1 |
+//! | [`CHECK_SCHEMA_VERSION`](crate::CHECK_SCHEMA_VERSION) | `rr check` | 1 |
+//! | [`IMPACT_SCHEMA_VERSION`](crate::IMPACT_SCHEMA_VERSION) | `rr impact` | 1 |
 //!
 //! `rr refresh` and `rr map` share one because they share a report: `rr map` is
 //! `rr refresh --full` under another name.
@@ -61,6 +63,35 @@
 //! addition, because a validator rejects the new key. That is the trade each
 //! surface makes once, and the report surfaces make it in favour of additive
 //! evolution.
+//!
+//! # The frozen v1 query surface
+//!
+//! **v1 of `rr query` is closed.** No member is added, removed, renamed or
+//! reordered; no variant is added to a serialized enum; no exit code is
+//! re-meant; no byte of a text marker changes. Anything else ships as `v: 2`
+//! beside v1 for one minor release, so that a consumer has a release in which
+//! both answers are available and it can be moved without being broken first.
+//!
+//! Five things are frozen, and each has a test rather than a promise:
+//!
+//! 1. the `v: 1` literal and the three response shapes
+//!    ([`render_json`](crate::render::render_json));
+//! 2. `crates/rr-cli/tests/query.schema.json` byte for byte — its `$id`, its
+//!    title `RepoRouterQueryResultV1`, and `additionalProperties: false` at
+//!    every object;
+//! 3. the exit codes [`QueryResult::exit_code`](crate::result::QueryResult::exit_code)
+//!    chooses — `0` direct, `2` candidates, `3` none, `4` refused — plus the `1`
+//!    the CLI returns for an error, which must never collide with the `2` that
+//!    means the answer arrived and is not one to act on;
+//! 4. the closed inventory of text markers in [`crate::render::marker`];
+//! 5. this list.
+//!
+//! The trade named under *What a bump means* is why the promise has to be this
+//! strict. The report surfaces are open, so they may grow a key. `rr query` is
+//! closed, so it may not: an added member does not extend the answer, it makes
+//! every validator reject the answer — silently, inside an agent's parser, on a
+//! response whose other members are all correct. That is a worse failure than a
+//! version bump, and it is why v1 grows a sibling instead of growing a member.
 //!
 //! # Enum spellings
 //!
@@ -97,6 +128,24 @@
 //! - **1** — the surface as #13 shipped it. It published this value under the
 //!   key `v` for the few hours between PR #50 and this change; the object is
 //!   otherwise unchanged, so the version does not move.
+//!
+//! ## `rr check`
+//!
+//! - **1** — the surface as #14 shipped it: `schema_version`, `command`,
+//!   `status`, `counts`, `diagnostics`, and `quality` when a `--quality-report`
+//!   was adjudicated. A rule id added later adds no key and does not bump this;
+//!   a *rule id spelling* removed or re-meant does, because a pipeline greps for
+//!   those the way a consumer matches on an enum.
+//!
+//! ## `rr impact`
+//!
+//! - **1** — the surface as #14 shipped it: `schema_version`, `command`,
+//!   `status`, `base`, `target`, `depth`, `changed_files`,
+//!   `changed_definitions`, `direct_edges`, `affected`, `dependencies`,
+//!   `cycles`, `tests`, `resolution`, `diagnostics`, `unfollowed_imports`. A
+//!   counter added to `resolution` adds a key and does not bump this; a widening
+//!   of what counts as an edge does, because a consumer that read `affected` as
+//!   "resolved edges only" would now be wrong about every entry.
 //!
 //! ## `rr query`
 //!
