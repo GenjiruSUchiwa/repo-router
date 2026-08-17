@@ -1,4 +1,5 @@
 mod check;
+mod impact;
 mod init;
 mod output;
 mod query;
@@ -39,6 +40,8 @@ enum Commands {
     Init(init::Args),
     /// Report every numbered diagnostic this repository's artifacts raise.
     Check(check::Args),
+    /// Report which definitions a change reaches, and the evidence for each.
+    Impact(impact::Args),
     Query(query::Args),
 }
 
@@ -80,6 +83,7 @@ fn main() -> ExitCode {
                 ExitCode::from(check::NOT_EVALUATED)
             }
         },
+        Commands::Impact(args) => impact::run(&args),
         Commands::Query(args) => match query::run(&args) {
             Ok(code) => ExitCode::from(code),
             Err(err) => {
