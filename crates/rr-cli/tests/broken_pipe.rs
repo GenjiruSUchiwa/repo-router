@@ -188,6 +188,62 @@ fn a_signalled_run_leaves_no_publication_lock_behind() {
     );
 }
 
+/// The claim also has to survive its holder being killed *while it is held*,
+/// which the test above cannot arrange: nothing prints between the claim and
+/// the report, so no closed pipe reaches `rr` inside that window. A Git clean
+/// filter does. `head -c 8` stops reading long before `rr` has finished
+/// streaming the blob to it, and the EPIPE on that write raises SIGPIPE
+/// against the same process-wide disposition — from under the guard.
+///
+/// That `rr` dies here at all is a separate defect, filed as #59: a filter that
+/// exits early is survivable, and `rr-git` is written to report it as
+/// `Error::Content`. This test pins only what becomes of the lock. When #59 is
+/// fixed the signal assertion fails loudly rather than passing on a window it
+/// no longer enters, and the test needs a new vector.
+#[test]
+fn a_signal_raised_while_the_claim_is_held_still_releases_it() {
+    let repo = common::empty_repo();
+    common::git(repo.path(), &["config", "filter.trunc.clean", "head -c 8"]);
+    common::write(repo.path(), ".gitattributes", "*.rs filter=trunc\n");
+    common::write(repo.path(), "src/token.rs", &wider_than_a_pipe(1));
+    common::commit_all(repo.path(), "add token behind a truncating filter");
+    // Dirty the worktree copy: a clean file never reaches the filter at all.
+    common::write(repo.path(), "src/token.rs", &wider_than_a_pipe(2));
+
+    let killed = common::run(repo.path(), &["map"]);
+    assert_eq!(
+        killed.status.signal(),
+        Some(libc::SIGPIPE),
+        "the clean filter no longer kills rr, so this no longer covers the window it exists for"
+    );
+
+    let lock = repo
+        .path()
+        .join(".rr")
+        .join("local")
+        .join("publication.lock");
+    assert!(!lock.exists(), "the claim outlived the run that held it");
+
+    // With the filter gone, only a leaked claim could refuse the next run.
+    common::git(repo.path(), &["config", "--unset", "filter.trunc.clean"]);
+    std::fs::remove_file(repo.path().join(".gitattributes")).unwrap();
+    let again = common::run(repo.path(), &["map"]);
+    assert!(
+        again.status.success(),
+        "a later refresh was refused, so the claim was never released: {}",
+        common::stderr(&again)
+    );
+}
+
+/// A source file with more in it than the filter will read before exiting, so
+/// the write that feeds it is still going when the read end closes.
+fn wider_than_a_pipe(seed: usize) -> String {
+    format!(
+        "pub fn verify_token() -> bool {{ true }}\n// {}\n",
+        "x".repeat(256 * 1024 + seed)
+    )
+}
+
 #[test]
 fn a_signalled_run_still_published_what_it_had_already_written() {
     let repo = mapped_repo();

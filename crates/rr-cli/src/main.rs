@@ -70,12 +70,36 @@ fn main() -> ExitCode {
     }
 }
 
-/// Restores SIGPIPE to `SIG_DFL`. Rust ignores it, so clap's prints panic
-/// on a closed pipe (exit 101). A disposition covers those writes too.
+/// Points SIGPIPE at a handler that dies the way `SIG_DFL` would, having first
+/// let go of what the death would otherwise strand.
+///
+/// Rust ignores SIGPIPE, so clap's prints panic on a closed pipe (exit 101);
+/// a disposition covers those writes too. A bare `SIG_DFL` would, but it also
+/// terminates without unwinding, and a run killed while it holds the
+/// publication claim leaves the lock file behind — which refuses every later
+/// refresh of that repository until a human deletes it. The handler buys the
+/// cleanup back without changing what a caller sees.
 #[cfg(unix)]
 fn restore_default_sigpipe() {
+    let handler = release_and_die as extern "C" fn(libc::c_int);
     unsafe {
-        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+        libc::signal(libc::SIGPIPE, handler as libc::sighandler_t);
+    }
+}
+
+/// Releases what `Drop` will not be reached to release, then re-raises the
+/// signal against the default disposition.
+///
+/// Re-raising rather than exiting is the whole point: a caller reads 141 as
+/// "SIGPIPE killed it", and a handler that returned an exit code instead would
+/// answer a question nobody asked. The signal stays blocked until this returns,
+/// so the second delivery lands on `SIG_DFL` and terminates the process.
+#[cfg(unix)]
+extern "C" fn release_and_die(signal: libc::c_int) {
+    rr_git::release_locks_signal_safe();
+    unsafe {
+        libc::signal(signal, libc::SIG_DFL);
+        libc::raise(signal);
     }
 }
 
