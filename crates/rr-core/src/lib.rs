@@ -6,6 +6,7 @@ pub mod cancel;
 pub mod content;
 pub mod facts;
 pub mod index;
+pub mod json_contract;
 pub mod lang;
 pub mod lex;
 pub mod oid;

@@ -277,9 +277,12 @@ repo-router/
 │   ├── radar-git/
 │   └── radar-mcp/              # later phase
 ├── fixtures/
-├── benches/
-└── docs/
+└── benches/
 ```
+
+Prose lives in the repository wiki, and the one machine-readable contract that
+was filed as documentation — the `rr query` JSON Schema — lives beside the test
+that enforces it, in `crates/rr-cli/tests/`.
 
 Recommended initial dependencies:
 
@@ -1059,9 +1062,9 @@ SOURCE REFUSED (not-text; no content returned): src/auth/token.rs is not UTF-8 t
 
 ## 16.2 JSON output (v1)
 
-This section describes `rr query` only. `docs/json-contract.md` is the authority
-for every shipped `--json` surface, including why `rr query` keeps the key `v`
-where the report surfaces publish `schema_version`.
+This section describes `rr query` only. The `rr_core::json_contract` module is
+the authority for every shipped `--json` surface, including why `rr query` keeps
+the key `v` where the report surfaces publish `schema_version`.
 
 ```bash
 rr query "verify_token" --json

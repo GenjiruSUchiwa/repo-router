@@ -551,7 +551,7 @@ fn query_contract_explain_reports_an_exact_route_as_unranked() {
 /// The published schema, read from the repository rather than restated here.
 fn published_schema() -> serde_json::Value {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../docs/query.schema.json")
+        .join("tests/query.schema.json")
         .canonicalize()
         .unwrap();
     serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap()
@@ -601,7 +601,7 @@ fn query_contract_json_carries_exactly_the_members_the_schema_declares() {
             rendered_members(&response),
             declared_members(&schema, shape),
             "the {shape} the renderer produces must carry exactly the members \
-             docs/query.schema.json declares, since the schema is what consumers validate \
+             tests/query.schema.json declares, since the schema is what consumers validate \
              against and nothing else compares the two"
         );
     }
