@@ -13,28 +13,37 @@ Coding agents burn their context window running `grep` and reading whole files. 
 - **Deterministic and incremental** — Git-OID-addressed index, atomic snapshots, fast git-gated `refresh`. No LLM in the retrieval loop.
 - **Agent-friendly contracts** — stable dual text/JSON output, committed and greppable `MAP.md`/`SYMBOLS.md`, and `rr init` to install the navigation contract (including a SKILL.md for Claude Code).
 
-## Commands (V1 targets)
+## Commands
+
+Shipped:
 
 | Command | Role |
 |---|---|
-| `rr map` | Index the repository (gitignore-aware traversal, Tree-sitter, fingerprints) |
-| `rr query [--json] [--explain] [--path <PATH>] <QUERY>` | Exact symbol/file query routing (text or versioned JSON v1); `--explain` reports the work the ranker did |
-| `rr refresh` | Update the index incrementally (git-gated) |
+| `rr map` | Rebuild the whole snapshot (gitignore-aware traversal, Tree-sitter, fingerprints) |
+| `rr refresh` | Bring the snapshot back into agreement with the repository, git-gated |
+| `rr status` | Report how repository and snapshot relate, changing neither |
+| `rr query [--json] [--explain] [--source] [--path <PATH>] <QUERY>` | Exact symbol/file query routing (text or versioned JSON v1); `--explain` reports the work the ranker did, `--source` returns the anchor's own verified bytes |
+| `rr init [--root <path>] [--json]` | Install the agent navigation contract; safe to run again (shipped by #13, PR #50) |
+| `rr version` | Version + build git SHA |
+
+Planned, not yet implemented:
+
+| Command | Role |
+|---|---|
 | `rr route` | Committable cache of resolved routes |
 | `rr impact <sym>` | Change impact radius (transitive callers) |
 | `rr check` | Guardrail: index/worktree consistency |
-| `rr init` | Install the navigation contract into the repository |
-| `rr version` | Version + build git SHA (implemented) |
 
 ## Project status
 
-Bootstrap phase. The V1 plan is **14 issues across 5 milestones** — see the [issues](../../issues) and [milestones](../../milestones):
+The V1 plan runs across six milestones — see the [issues](../../issues) and [milestones](../../milestones):
 
 - **M0 Bootstrap** — workspace, CI, hygiene (done)
-- **M1 Indexing** — traversal, OID cache, Tree-sitter (Rust first), fingerprints, snapshot
-- **M2 Query** — exact query contract; ranking, verified source, and refresh land in later slices.
+- **M1 Indexing** — traversal, OID cache, Tree-sitter extraction, fingerprints, snapshot (done)
+- **M2 Query** — exact query contract, ranking, verified source, incremental refresh (done)
 - **M3 Agent interface** — `MAP.md`/`SYMBOLS.md`, `rr route`, `rr init`
 - **M4 Impact & quality** — `impact`, `check`, frozen corpus and benchmarks
+- **M5 Multi-language** — the extractor seam, a language-neutral fact vocabulary, a generic `tags.scm` backend, and the languages it carries
 
 ## Development
 
