@@ -62,7 +62,6 @@ fn mixed_repo() -> TempDir {
 #[test]
 fn rr_query_routes_into_typescript_and_python_definitions() {
     let repo = mixed_repo();
-
     let typescript = run(repo.path(), &["query", "--json", "client.Client.describe"]);
     assert_eq!(code(&typescript), 0, "{}", stdout(&typescript));
     let typescript = json(&typescript);
@@ -70,7 +69,6 @@ fn rr_query_routes_into_typescript_and_python_definitions() {
     assert_eq!(typescript["anchor"]["path"], "src/client.ts");
     assert_eq!(typescript["anchor"]["symbol"], "describe");
     assert_eq!(typescript["anchor"]["lines"], serde_json::json!([14, 17]));
-
     let python = run(
         repo.path(),
         &["query", "--json", "service.Service.dispatch"],
@@ -80,7 +78,6 @@ fn rr_query_routes_into_typescript_and_python_definitions() {
     assert_eq!(python["result"], "direct");
     assert_eq!(python["anchor"]["path"], "src/service.py");
     assert_eq!(python["anchor"]["symbol"], "dispatch");
-
     let text = run(repo.path(), &["query", "client.Client.describe"]);
     assert_eq!(code(&text), 0);
     let text = stdout(&text);

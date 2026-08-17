@@ -226,7 +226,6 @@ fn a_revert_hidden_behind_an_unrelated_edit_agrees() {
     std::fs::write(&reverted, b"pub fn two() -> u32 { 99 }\n").expect("write failed");
     let dirtied = refresh(temp.path(), RefreshMode::Incremental);
     assert_eq!(dirtied.mode, ReportedMode::Incremental);
-
     std::fs::write(&reverted, &original).expect("restore failed");
     write(temp.path(), "src/unrelated.rs", "pub fn u() -> u32 { 8 }\n");
 
@@ -651,10 +650,8 @@ fn a_rewrite_git_cannot_see_is_invisible_to_a_full_rebuild_too() {
 
     let file = temp.path().join("src/other.rs");
     let (secs, nanos) = mtime_of(&file);
-
     write(temp.path(), "src/other.rs", "pub fn two() -> u32 { 7 }\n");
     set_mtime(&file, secs, nanos);
-
     set_index_mtime(temp.path(), 2_000_000_000, 0);
 
     assert_eq!(
@@ -733,7 +730,6 @@ fn an_uncommitted_attributes_change_rebuilds_and_agrees() {
 /// way.
 #[test]
 fn a_sha256_repository_refreshes_and_agrees() {
-
     let temp = init_git_repo_with(&["--object-format=sha256"]);
     write(temp.path(), "src/lib.rs", "pub fn one() -> u32 { 1 }\n");
     git_add_and_commit(temp.path(), "seed");
@@ -845,7 +841,6 @@ fn a_path_that_vanished_mid_build_is_not_recorded_as_one_discovery_declined() {
     let built = context
         .run(&files, |worker, source| {
             if source.path == ghost {
-
                 return Ok((None, WorkerStats::default()));
             }
             worker.process(source, &cache)

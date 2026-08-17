@@ -97,7 +97,6 @@ fn a_racily_clean_tree_reports_its_reads_without_inventing_changes() {
 #[test]
 fn a_tree_older_than_its_index_is_certified_without_reading_anything() {
     let temp = seeded();
-
     set_index_mtime(temp.path(), 2_000_000_000, 0);
 
     let state = observe(temp.path());
@@ -362,7 +361,6 @@ fn a_merge_conflict_is_reported_as_conflicted() {
     git(temp.path(), &["checkout", "-q", "-"]);
     write(temp.path(), "src/lib.rs", "pub fn main_line() {}\n");
     git_add_and_commit(temp.path(), "main edit");
-
     let merge = std::process::Command::new("git")
         .args(["merge", "side"])
         .current_dir(temp.path())

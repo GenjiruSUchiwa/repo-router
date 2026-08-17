@@ -85,9 +85,7 @@ pub fn run_refresh(args: &RefreshArgs, command: RefreshCommand) -> anyhow::Resul
         Some(root) => root,
         None => std::env::current_dir().context("resolve current directory")?,
     };
-
     let threads = usize::from(args.threads.unwrap_or(1));
-
     let mode = if args.full || command == RefreshCommand::Map {
         RefreshMode::Full
     } else {
@@ -153,7 +151,6 @@ pub fn run_status(args: &StatusArgs) -> anyhow::Result<u8> {
     } else {
         Output::print_text(&render_status_text(&report))?;
     }
-
     Ok(exit::OK)
 }
 
@@ -199,13 +196,11 @@ fn publish(
     };
 
     match prepared {
-
         rr_git::Refresh::UpToDate {
             report,
             snapshot,
             work_root,
         } => {
-
             let staged = text_artifacts::stage(&snapshot, &work_root, budget)?;
             if staged.validation().is_up_to_date() {
                 return Ok(RunReport {
@@ -244,7 +239,6 @@ fn republish_text(
     refresh: RefreshReport,
 ) -> Result<RunReport, Published> {
     let Some(held) = rr_git::hold(root, threads).map_err(anyhow::Error::new)? else {
-
         return Ok(RunReport {
             refresh,
             text: TextReport::default(),
@@ -281,16 +275,13 @@ fn refusal(refresh: RefreshReport, staged: &StagedText) -> Published {
 #[cfg(unix)]
 fn install_interrupt() -> CancelToken {
     use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
-
     static FLAG: AtomicPtr<AtomicBool> = AtomicPtr::new(std::ptr::null_mut());
 
     extern "C" fn handle(_signal: libc::c_int) {
         let flag = FLAG.load(Ordering::SeqCst);
         if !flag.is_null() {
-
             unsafe { &*flag }.store(true, Ordering::SeqCst);
         }
-
         let next = crate::release_and_die as extern "C" fn(libc::c_int);
         unsafe {
             libc::signal(libc::SIGINT, next as libc::sighandler_t);

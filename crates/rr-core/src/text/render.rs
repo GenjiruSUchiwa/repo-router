@@ -191,7 +191,6 @@ impl TextProjection {
         let mut pending_purposes = 0_u32;
 
         files.push(render_symbols(self)?);
-
         let mut ordered: Vec<&Scope> = self.scopes.iter().collect();
         ordered.sort_by(|left, right| {
             right.path.depth().cmp(&left.path.depth()).then_with(|| {
@@ -272,7 +271,6 @@ fn render_symbols(projection: &TextProjection) -> TextResult<RenderedFile> {
             record.start_line,
             record.api_hash.to_text()
         );
-
         if rendered.contains('\n') || rendered.matches('\t').count() != 5 {
             return Err(TextError::Record {
                 reason: "a symbol record contains a tab or newline of its own",

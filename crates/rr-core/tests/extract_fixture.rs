@@ -441,7 +441,6 @@ fn invalid_utf8_fixture_degrades() {
 /// edit to `rust.rs` can quietly start emitting one.
 #[test]
 fn a_rust_repository_indexes_identically_across_the_schema_bump() {
-
     const RUST_KINDS: [DefKind; 13] = [
         DefKind::Function,
         DefKind::Method,
@@ -487,7 +486,6 @@ fn a_rust_repository_indexes_identically_across_the_schema_bump() {
                 "{path:?} produced {:?}, a visibility Rust does not have",
                 def.visibility
             );
-
             assert!(
                 !def.test_signals.inside_test_scope,
                 "{path:?} set the language-neutral test signal on `{}`",

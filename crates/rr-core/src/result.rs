@@ -161,7 +161,6 @@ impl QueryResult {
                     reason: "direct result is missing confidence",
                 })
             }
-
             Self::Direct {
                 source:
                     Some(SourceResult::Refused {

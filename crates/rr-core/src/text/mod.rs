@@ -259,25 +259,21 @@ mod tests {
             .unwrap()
             .render(&ExistingPurposes::none())
             .unwrap();
-
         let mut rendered_names: Vec<String> = Vec::new();
         for file in rendered.files() {
             if file.kind() == ArtifactKind::Symbols {
                 continue;
             }
             let map = parse_map(file.bytes()).unwrap();
-
             rendered_names.extend(
                 map.api()
                     .iter()
                     .map(|record| record.name.rsplit("::").next().unwrap_or("").to_owned()),
             );
         }
-
         assert_eq!(rendered_names.len(), DefKind::ALL.len());
 
         for kind in DefKind::ALL {
-
             assert!(
                 rendered_names.contains(&def_name(kind)),
                 "a {kind} definition reached the index and no map names it"

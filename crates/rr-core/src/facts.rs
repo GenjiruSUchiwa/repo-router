@@ -932,7 +932,6 @@ fn validate_facts(
                 reason: "signature span is not contained by definition span",
             });
         }
-
         if def.signature.is_empty() {
             return Err(Error::InvalidFacts {
                 reason: "definition signature is empty",
@@ -1311,7 +1310,6 @@ mod tests {
         let unique = names.len();
         names.dedup();
         assert_eq!(names.len(), unique, "a kind is listed in ALL twice");
-
         assert_variant_count::<DefKind>(DefKind::ALL.len(), "DefKind::ALL");
     }
 
@@ -1390,7 +1388,6 @@ mod tests {
 
     #[test]
     fn import_kind_round_trips_and_says_which_paths_resolve() {
-
         let all = [
             (ImportKind::Use, "\"use\"", true),
             (ImportKind::ExternCrate, "\"extern-crate\"", false),
@@ -1435,7 +1432,6 @@ mod tests {
             assert_eq!(back, reason);
             assert_eq!(reason.is_cacheable(), cacheable, "{reason:?}");
         }
-
         assert_variant_count::<DegradedReason>(all.len(), "the list above");
     }
 

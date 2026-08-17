@@ -125,7 +125,6 @@ impl From<ContentPathState> for SourceStatus {
         }
     }
 }
-
 impl Serialize for SourceStatus {
     fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
         serializer.serialize_str(self.as_str())
@@ -364,7 +363,6 @@ pub fn verify_source(
     if u64::try_from(current.bytes.len()).unwrap_or(u64::MAX) > MAX_VERIFIED_CONTENT_BYTES {
         return Ok(PendingSource::Refused(SourceStatus::TooLarge));
     }
-
     let Ok(text) = std::str::from_utf8(&current.bytes) else {
         return Ok(PendingSource::Refused(SourceStatus::NotText));
     };
@@ -510,7 +508,6 @@ fn select_window(text: &str, span: Span) -> Option<SourceWindow> {
             served_lines += 1;
         }
     }
-
     let requested_lines = if omitted_anchor_lines == 0 {
         (
             span.start_line() - SOURCE_CONTEXT_BEFORE.min(span.start_line() - 1),
@@ -625,7 +622,6 @@ mod tests {
     #[test]
     fn serves_the_definition_and_three_lines_of_context() {
         let text = "a\nb\nc\nd\nDEF\ne\nf\ng\nh\n";
-
         let source = indexed(Some(Span::new(8, 11, 5, 5).unwrap()));
         let result = serve(&source, &acquired(text));
         let packet = served_packet(&result);
@@ -661,7 +657,6 @@ mod tests {
         let source = indexed(Some(Span::new(0, 1, 1, 1).unwrap()));
         let mut content = acquired("x\n");
         content.oid = oid(2);
-
         content.bytes = vec![0xff, 0xfe, 0x00];
         assert_eq!(
             serve(&source, &content),
@@ -702,7 +697,6 @@ mod tests {
             verify_source(&wrong_line, AcquiredSource::Acquired(&acquired(text))).unwrap_err();
         assert!(matches!(error, Error::SpanLineMismatch));
     }
-
     #[test]
     fn matching_identity_that_is_not_text_is_refused_not_an_error() {
         let mut content = acquired("");
@@ -758,7 +752,6 @@ mod tests {
 
     #[test]
     fn exactly_sixty_four_kib_is_complete_and_one_byte_more_truncates() {
-
         let line = format!("{}\n", "y".repeat(32 * 1024 - 1));
         let text = line.repeat(2);
         let end = u32::try_from(text.len()).unwrap();
@@ -795,7 +788,6 @@ mod tests {
 
     #[test]
     fn context_clipping_does_not_make_a_served_anchor_incomplete() {
-
         let anchor = "v".repeat(MAX_SOURCE_BYTES - 1);
         let text = format!("before\n{anchor}\nafter\n");
         let start = u32::try_from("before\n".len()).unwrap();
@@ -951,7 +943,6 @@ mod tests {
 
     #[test]
     fn oid_algorithms_are_compared_as_whole_identities() {
-
         let sha256 = Oid::from_raw(&[1_u8; 32]).unwrap();
         assert_eq!(sha256.algo(), HashAlgo::Sha256);
         let source = indexed(Some(Span::new(0, 2, 1, 1).unwrap()));

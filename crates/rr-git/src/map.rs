@@ -32,7 +32,6 @@ pub fn build_map(root: &Path, threads: usize) -> Result<BuildReport> {
     let context = BuildContext::open(root, threads)?;
     let files = discover(&context.work_root, &context.walk)?;
     let cache = FactCache::open(&context.work_root)?;
-
     let observed = match context.repo()? {
         Some(repo) => Some(repo.observe_state(&CancelToken::new())?),
         None => None,
@@ -73,7 +72,6 @@ fn dirty_paths(state: &RepoState, indexed: &BTreeSet<&RelPath>) -> DirtyPaths {
         } else if change.kind != ChangeKind::Deleted {
             split.skipped.push(change.path.clone());
         }
-
         if let Some(source) = &change.source {
             split.indexed.push(source.clone());
         }
@@ -219,7 +217,6 @@ impl BuildContext {
         let mut inputs = Vec::with_capacity(results.len());
         let mut stats = WorkerStats::default();
         let mut vanished = Vec::new();
-
         for (source, result) in files.iter().zip(results) {
             let (input, file_stats) = result?;
             stats.add_assign(file_stats);

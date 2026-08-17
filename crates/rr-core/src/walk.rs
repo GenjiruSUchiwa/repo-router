@@ -163,7 +163,6 @@ pub fn is_generated(rel_path: &str, full_path: Option<&Path>) -> bool {
 #[must_use]
 pub fn collected_lang(path: impl AsRef<Path>, cfg: &WalkCfg) -> Option<Lang> {
     let path = path.as_ref();
-
     if path
         .file_name()
         .and_then(|name| name.to_str())
@@ -230,7 +229,6 @@ fn is_excluded_dir(entry: &DirEntry, cfg: &WalkCfg) -> bool {
     }
 
     let file_name = entry.file_name().to_str().unwrap_or("");
-
     if file_name == crate::workspace::STATE_DIR {
         return true;
     }

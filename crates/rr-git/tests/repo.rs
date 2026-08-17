@@ -297,7 +297,6 @@ fn committed_at_nanos(nanos: i64, change_time: ChangeTime) -> (TempDir, GitRepo,
 #[test]
 fn an_entry_that_recorded_no_nanosecond_certifies_across_a_nanosecond_change() {
     let (repo_dir, repo, rel) = committed_at_nanos(0, ChangeTime::Ignored);
-
     set_mtime(&repo_dir.path().join("lib.rs"), FIXED_SECOND, 750_000_000);
 
     assert!(

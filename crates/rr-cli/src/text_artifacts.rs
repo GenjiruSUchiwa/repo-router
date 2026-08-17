@@ -68,9 +68,7 @@ fn reconcile_routes(
     let Ok(catalog) = rr_core::text::projected_map_catalog(snapshot, budget) else {
         return (0, None);
     };
-
     let identity = catalog.api_identity();
-
     if let Some(stamp) = rr_core::snapshot::SnapshotStore::new(root).published_identity() {
         catalog.remember(root, &stamp);
     }
@@ -85,7 +83,6 @@ fn reconcile_routes(
             live
         })
     });
-
     (if update.wrote { retired } else { 0 }, update.fault)
 }
 
@@ -96,9 +93,7 @@ fn write_generation(staged: &StagedText, root: &Path) -> anyhow::Result<TextRepo
         over_budget: validation.over_budget().to_vec(),
         ..TextReport::default()
     };
-
     let fresh: BTreeSet<&str> = validation.fresh().iter().map(String::as_str).collect();
-
     for file in staged.rendered().files() {
         let fresh = fresh.contains(file.path());
         let symbols = file.kind() == ArtifactKind::Symbols;
@@ -124,7 +119,6 @@ fn write_generation(staged: &StagedText, root: &Path) -> anyhow::Result<TextRepo
         }
         report.written_paths.push(file.path().to_owned());
     }
-
     for path in validation.removable() {
         std::fs::remove_file(root.join(path))
             .with_context(|| format!("remove stale page {path}"))?;

@@ -198,7 +198,6 @@ pub fn commits_left_index_true(
     if before == after {
         return Ok(true);
     }
-
     let context = BuildContext::open(root, 1)?;
     let Some(repo) = context.repo()? else {
         return Ok(false);
@@ -223,7 +222,6 @@ pub fn commits_left_index_true(
             CommittedKind::Touched => evidence.recheck(&mut draft, &change.path),
         }
     }
-
     Ok(draft.build().is_ok_and(|plan| plan.is_empty_delta()))
 }
 
@@ -278,14 +276,11 @@ fn draft_from(
     for change in &observed.changes {
         match change.kind {
             ChangeKind::Deleted => evidence.remove(&mut draft, &change.path),
-
             ChangeKind::Conflicted => evidence.conflict(&mut draft, &change.path),
             ChangeKind::Renamed => match change.source.clone() {
                 Some(source) => evidence.rename(&mut draft, source, &change.path),
-
                 None => draft.recheck(change.path.clone()),
             },
-
             ChangeKind::Copied
             | ChangeKind::Added
             | ChangeKind::Modified
@@ -293,7 +288,6 @@ fn draft_from(
             | ChangeKind::Untracked => evidence.recheck(&mut draft, &change.path),
         }
     }
-
     let plan = draft
         .build()
         .unwrap_or_else(|_| RefreshPlan::full(FullReason::ContradictoryDelta));
@@ -412,7 +406,6 @@ impl Evidence<'_> {
     /// work and cannot cost correctness, and the failure resurfaces in the
     /// pipeline where it has somewhere to go.
     fn already_recorded(&mut self, path: &RelPath) -> bool {
-
         if self.snapshot.meta.dirty_paths.binary_search(path).is_err() {
             return false;
         }
@@ -425,12 +418,10 @@ impl Evidence<'_> {
         };
 
         match probe {
-
             ContentProbe::CleanGitBlob(oid) => {
                 oid == record.content_oid
                     && record.representation == ContentRepresentation::GitCanonical
             }
-
             ContentProbe::ReadRequired => {
                 self.content_reads += 1;
                 repo.acquire_content(path, ContentProbe::ReadRequired)

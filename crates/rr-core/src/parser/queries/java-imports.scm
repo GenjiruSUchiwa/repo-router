@@ -1,4 +1,3 @@
-
 (import_declaration
   (scoped_identifier
     scope: (_) @import.path

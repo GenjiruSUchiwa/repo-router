@@ -21,7 +21,6 @@ use crate::{Error, Result};
 /// truth — someone else is doing this — and lets it decide.
 #[derive(Debug)]
 pub struct RepositoryWriteGuard {
-
     _marker: gix_lock::Marker,
     path: PathBuf,
 }
@@ -33,7 +32,6 @@ impl RepositoryWriteGuard {
     /// Returns [`Error::PublicationLocked`] when another process holds the
     /// claim, and [`Error::Io`] when the lock directory cannot be created.
     pub fn acquire(root: &Path) -> Result<Self> {
-
         workspace::ensure_private(root).map_err(Error::Io)?;
         let local = workspace::local_dir(root);
         std::fs::create_dir_all(&local).map_err(Error::Io)?;

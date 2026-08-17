@@ -2,11 +2,9 @@
 set -euo pipefail
 
 REPO="${1:?usage: $0 owner/repo}"
-
 for M in "M0 Bootstrap" "M1 Indexing" "M2 Query" "M3 Agent interface" "M4 Impact & quality"; do
   gh api "repos/$REPO/milestones" -f title="$M" >/dev/null 2>&1 || true
 done
-
 gh label create "type:infra" --repo "$REPO" --color BFD4F2 2>/dev/null || true
 gh label create "type:core" --repo "$REPO" --color 0E8A16 2>/dev/null || true
 gh label create "type:agent-interface" --repo "$REPO" --color 5319E7 2>/dev/null || true
@@ -14,7 +12,6 @@ gh label create "type:quality" --repo "$REPO" --color FBCA04 2>/dev/null || true
 gh label create "contract" --repo "$REPO" --color D93F0B 2>/dev/null || true
 gh label create "differentiator" --repo "$REPO" --color E99695 2>/dev/null || true
 gh label create "hard" --repo "$REPO" --color B60205 2>/dev/null || true
-
 for f in issues/*.md; do
   title=$(sed -n 's/^title: "\(.*\)"$/\1/p' "$f")
   labels=$(sed -n 's/^labels: \[\(.*\)\]$/\1/p' "$f" | tr -d '"' | tr -d ' ')

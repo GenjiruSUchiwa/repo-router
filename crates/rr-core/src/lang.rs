@@ -231,32 +231,24 @@ impl Lang {
             .rsplit_once('.')
             .map_or(file_name, |(stem, _)| stem);
         match self {
-
             Self::Rust => {
                 stem == "test" || stem == "tests" || has_suffix(stem, &["_test", "_tests"])
             }
-
             Self::Python | Self::Shell => stem.starts_with("test_") || has_suffix(stem, &["_test"]),
-
             Self::TypeScript | Self::Tsx | Self::JavaScript | Self::Jsx => {
                 has_suffix(stem, &[".test", ".spec"])
             }
-
             Self::Go | Self::Zig => has_suffix(stem, &["_test"]),
-
             Self::Java | Self::CSharp | Self::Kotlin | Self::Scala | Self::Swift => {
                 has_suffix(stem, &["Test", "Tests", "TestCase", "Spec"])
             }
-
             Self::Ruby | Self::Lua => {
                 stem.starts_with("test_") || has_suffix(stem, &["_test", "_spec"])
             }
-
             Self::Php => has_suffix(stem, &["Test"]),
             Self::C | Self::Cpp => {
                 stem.starts_with("test_") || has_suffix(stem, &["_test", "_tests"])
             }
-
             Self::Toml
             | Self::Json
             | Self::Yaml

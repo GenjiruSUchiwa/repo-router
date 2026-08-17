@@ -475,7 +475,6 @@ fn a_repository_with_another_skill_still_says_to_restart() {
         "a new skill beside an existing one must still mention the restart: {}",
         stdout(&output)
     );
-
     assert_eq!(
         read(temp.path(), ".claude/skills/other/SKILL.md"),
         "# someone else\n"

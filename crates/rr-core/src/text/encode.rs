@@ -119,7 +119,6 @@ pub(crate) fn decode_destination_component(raw: &str) -> TextResult<String> {
     while index < bytes.len() {
         let byte = bytes[index];
         if byte != b'%' {
-
             if !is_destination_literal(byte) {
                 return Err(TextError::Destination {
                     reason: "destination contains a byte that must be percent-encoded",
@@ -272,7 +271,6 @@ pub(crate) fn take_code_span(line: &str) -> TextResult<(String, &str)> {
             reason: "code span is never closed",
         })?;
         let close = search + relative;
-
         let run_end = close + line[close..].len() - line[close..].trim_start_matches('`').len();
         if run_end - close == fence_length {
             break (&line[body_start..close], &line[run_end..]);

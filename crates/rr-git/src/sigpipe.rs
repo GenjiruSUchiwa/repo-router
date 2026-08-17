@@ -53,7 +53,6 @@ mod unix {
             return;
         };
         if state.depth == 0 {
-
             state.previous = unsafe { libc::signal(libc::SIGPIPE, libc::SIG_IGN) };
         }
         state.depth += 1;
@@ -65,7 +64,6 @@ mod unix {
         };
         state.depth = state.depth.saturating_sub(1);
         if state.depth == 0 {
-
             unsafe {
                 libc::signal(libc::SIGPIPE, state.previous);
             }

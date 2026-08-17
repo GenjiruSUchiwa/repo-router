@@ -134,7 +134,6 @@ fn recheck_outranks_remove_whichever_order_status_reported_them_in() {
 
 #[test]
 fn a_rename_source_that_is_immediately_recreated_is_not_a_contradiction() {
-
     let mut draft = PlanDraft::new();
     draft.rename(path("src/a.rs"), path("src/b.rs"));
     draft.recheck(path("src/a.rs"));
@@ -473,7 +472,6 @@ fn tags_are_named_in_text_and_json_reports() {
         ..RefreshReport::default()
     });
     let text = render_refresh_text(&report, RefreshCommand::Refresh);
-
     assert!(text.contains("2 tags"), "{text}");
     assert!(text.contains("1 tags recovered"), "{text}");
     let json =

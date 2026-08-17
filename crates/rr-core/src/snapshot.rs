@@ -219,7 +219,6 @@ impl SnapshotStore {
 
     /// The one atomic replacement: same-directory unique temp, then rename.
     fn write_envelope(&self, envelope: &[u8]) -> Result<(), SnapshotIoError> {
-
         crate::workspace::ensure_private(&self.root).map_err(|source| SnapshotIoError::Io {
             path: crate::workspace::state_dir(&self.root),
             source,
@@ -427,13 +426,11 @@ mod tests {
         .unwrap();
         let payload = postcard::to_allocvec(&snapshot).unwrap();
         let mut bytes = encode(&payload).unwrap();
-
         bytes[8..12].copy_from_slice(&PREVIOUS.to_le_bytes());
         assert!(matches!(
             decode(&bytes),
             LoadOutcome::NeedsRebuild(RebuildReason::UnsupportedVersion { found: PREVIOUS })
         ));
-
         let mut shredded = bytes.clone();
         for byte in &mut shredded[HEADER_LEN..] {
             *byte = 0xFF;

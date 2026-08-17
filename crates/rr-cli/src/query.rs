@@ -58,7 +58,6 @@ pub fn run(args: &Args) -> anyhow::Result<u8> {
     let request = QueryRequest::new(&args.query, args.path.as_ref());
     let parsed = parse_query(&workspace.snapshot, request).map_err(anyhow::Error::new)?;
     let mut scratch = RankingScratch::new();
-
     let key = args
         .path
         .is_none()
@@ -152,7 +151,6 @@ impl Workspace {
             if snapshot.meta.no_git {
                 bail!("index repository mismatch; run 'rr map'");
             }
-
             if snapshot.meta.repo_head_oid != head_oid
                 && !rr_git::commits_left_index_true(&root, &snapshot, head_oid)
                     .context("compare index to repository")?
@@ -220,14 +218,12 @@ fn learn_route(workspace: &Workspace, key: Option<&RouteKey>, result: &QueryResu
     let QueryResult::Direct { candidate, .. } = result else {
         return;
     };
-
     let TargetId::Symbol(symbol) = candidate.target else {
         return;
     };
     let Some(confidence) = candidate.confidence else {
         return;
     };
-
     let Ok(catalog) = projected_map_catalog(&workspace.snapshot, DEFAULT_MAP_BUDGET) else {
         return;
     };
@@ -243,7 +239,6 @@ fn learn_route(workspace: &Workspace, key: Option<&RouteKey>, result: &QueryResu
 
     let record = RouteRecord {
         key: key.clone(),
-
         anchor: encode_anchor(anchor.path, anchor.symbol),
         map: encode_map_destination(owner.path().as_str()),
         api_identity: catalog.api_identity(),
@@ -283,11 +278,9 @@ fn attach_source(workspace: &Workspace, result: &mut QueryResult) -> anyhow::Res
         }
         PendingSource::Pending(pending) => pending,
     };
-
     let AcquireOutcome::Acquired(content) = &acquired else {
         bail!("verified source for {} without content", path.as_str());
     };
-
     let final_state = revalidate_source(workspace.repo.as_ref(), &workspace.root, path, content)
         .with_context(|| format!("revalidate source for {}", path.as_str()))?;
 

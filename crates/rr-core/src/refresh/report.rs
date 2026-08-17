@@ -184,10 +184,8 @@ pub fn render_refresh_text(report: &RunReport, command: RefreshCommand) -> Strin
     let fallback = snapshot.fallback_reason.map_or_else(String::new, |reason| {
         format!(" (full fallback: {})", reason.as_text())
     });
-
     let mut counters = vec![format!("{} reparsed", snapshot.reparsed)];
     match outcome {
-
         RefreshOutcome::Unchanged => {
             counters.push(format!("{} content reads", snapshot.content_reads));
         }

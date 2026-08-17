@@ -65,7 +65,6 @@ pub fn discovery_digest(
 ) -> [u8; 32] {
     let mut identity = DiscoveryIdentity::new(cfg);
     for (label, path) in external_rule_files(repo) {
-
         let contents = path.as_deref().and_then(|path| std::fs::read(path).ok());
         identity.mix_rule_file(label, contents.as_deref());
     }
@@ -73,7 +72,6 @@ pub fn discovery_digest(
     if let (Some(repo), Some(observed)) = (repo, observed) {
         for path in dirty_rule_paths(observed) {
             let contents = std::fs::read(repo.workdir().join(path.as_str())).ok();
-
             identity.mix_rule_file(&format!("worktree:{path}"), contents.as_deref());
         }
     }
@@ -154,7 +152,6 @@ mod tests {
     fn ordinary_source_files_are_not_rule_files() {
         assert!(!is_rule_path(&rel("src/lib.rs")));
         assert!(!is_rule_path(&rel("gitignore")));
-
         assert!(!is_rule_path(&rel("not.gitignore")));
         assert!(!is_rule_path(&rel("src/.gitignore.bak")));
     }

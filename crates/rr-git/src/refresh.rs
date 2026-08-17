@@ -191,9 +191,7 @@ pub fn prepare(
 
     let context = BuildContext::open(root, threads)?;
     let store = SnapshotStore::new(&context.work_root);
-
     let repo = context.repo()?;
-
     let published = Published::load(&store)?;
     let observed = observe(&context, cancel)?;
     let digest = discovery_digest(repo.as_ref(), &context.walk, observed.as_ref());
@@ -222,7 +220,6 @@ pub fn prepare(
     }
 
     let guard = RepositoryWriteGuard::acquire(&context.work_root)?;
-
     let observed = observe(&context, cancel)?;
     let digest = discovery_digest(repo.as_ref(), &context.walk, observed.as_ref());
     let planned = plan_for(
@@ -234,7 +231,6 @@ pub fn prepare(
         &context.walk,
     );
     let plan = planned.plan;
-
     report.content_reads += planned.content_reads;
     record_plan(&mut report, &plan);
 
@@ -274,12 +270,10 @@ pub fn prepare(
     report.tags = built.stats().tags;
     report.tags_recovered = built.stats().tags_recovered;
     report.content_reads += built.stats().clean_blob_reads + built.stats().filtered_raw_reads;
-
     let read = acquired(&published, &plan, &built);
 
     let outcome = context.assemble(built, observed.as_ref())?;
     let envelope = store.encode(&outcome.snapshot)?;
-
     confirm_unchanged(&context, observed.as_ref(), digest, cancel)?;
     confirm_content(repo.as_ref(), &read, &mut report.content_reads)?;
     check_cancelled(cancel)?;
@@ -312,7 +306,6 @@ fn is_no_op(store: &SnapshotStore, plan: &RefreshPlan, head_settled: bool) -> Re
     if !head_settled || plan.mode() != RefreshMode::Incremental || !plan.is_empty_delta() {
         return Ok(false);
     }
-
     Ok(store.read_published()?.is_some())
 }
 
@@ -341,13 +334,11 @@ fn build(
     let files = discover(&context.work_root, &context.walk)?;
     let cache = FactCache::open(&context.work_root)?;
     check_cancelled(cancel)?;
-
     let retainable = published
         .snapshot()
         .filter(|_| plan.mode() == RefreshMode::Incremental);
 
     context.run(&files, |worker, source| {
-
         check_cancelled(cancel)?;
 
         match retainable.and_then(|snapshot| {
@@ -377,7 +368,6 @@ fn retained(
         return None;
     }
     let record = snapshot.file_by_path(path.as_str())?;
-
     if record.language != language || record.generated != generated {
         return None;
     }
@@ -433,19 +423,16 @@ fn confirm_content(
     reads: &mut u64,
 ) -> Result<()> {
     let Some(repo) = repo else {
-
         return Ok(());
     };
 
     for (path, oid, representation) in acquired {
         match repo.probe_content(path)? {
-
             ContentProbe::CleanGitBlob(current) => {
                 if current != *oid || *representation != ContentRepresentation::GitCanonical {
                     return Err(Error::RepositoryChanged);
                 }
             }
-
             ContentProbe::ReadRequired => {
                 *reads += 1;
                 let content = repo
@@ -482,7 +469,6 @@ fn confirm_unchanged(
     if now.as_ref() != before {
         return Err(Error::RepositoryChanged);
     }
-
     if discovery_digest(context.repo()?.as_ref(), &context.walk, now.as_ref()) != digest {
         return Err(Error::RepositoryChanged);
     }

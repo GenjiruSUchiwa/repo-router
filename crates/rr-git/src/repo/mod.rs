@@ -110,7 +110,6 @@ impl GitRepo {
         else {
             return Ok(None);
         };
-
         if entry
             .flags
             .intersects(Flags::INTENT_TO_ADD | Flags::SKIP_WORKTREE)
@@ -170,7 +169,6 @@ impl GitRepo {
         let file = std::fs::File::open(full_path).map_err(Error::Io)?;
         match self.convert_to_git(file, rel) {
             Ok(content) => Ok(Some(hash_blob(&content, self.algo))),
-
             Err(Error::Content(_)) => Ok(None),
             Err(other) => Err(other),
         }

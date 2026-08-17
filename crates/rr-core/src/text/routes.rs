@@ -20,11 +20,10 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::Path;
 
-use crate::lex::{split, stop};
-use crate::result::Confidence;
-
 use super::digest::Digest;
 use super::{TextError, TextResult, TEXT_FORMAT_VERSION};
+use crate::lex::{split, stop};
+use crate::result::Confidence;
 
 /// Where the cache lives, repository-relative.
 pub const ROUTES_PATH: &str = ".rr/ROUTES.md";
@@ -80,7 +79,6 @@ impl RouteKey {
     #[must_use]
     pub fn new(raw: &str) -> Option<Self> {
         let mut lexemes: Vec<String> = Vec::new();
-
         let _ = split::for_each_lexeme(raw, |lexeme| {
             if !stop::is_stop_word(lexeme) {
                 lexemes.push(lexeme.to_owned());
@@ -277,7 +275,6 @@ pub fn render_routes(table: &RouteTable) -> TextResult<Vec<u8>> {
     body.push_str(ROUTES_COLUMNS);
     body.push('\n');
     for record in table.records.values() {
-
         let line = format!(
             "{}\t{}\t{}\t{}\t{:?}",
             record.key.as_str(),
@@ -296,7 +293,6 @@ pub fn render_routes(table: &RouteTable) -> TextResult<Vec<u8>> {
     }
 
     let mut out = String::from("---\n");
-
     let _ = writeln!(out, "type: {ROUTES_TYPE:?}");
     let _ = writeln!(out, "format: {TEXT_FORMAT_VERSION}");
     let _ = writeln!(out, "routes: {}", table.records.len());
@@ -392,12 +388,10 @@ pub fn parse_routes(bytes: &[u8]) -> Result<RouteTable, RouteFault> {
     let mut records = BTreeMap::new();
     for line in lines {
         let record = parse_route_record(line)?;
-
         if records.insert(record.key.clone(), record).is_some() {
             return Err(RouteFault::DuplicateKey);
         }
     }
-
     if records.len() != declared {
         return Err(RouteFault::CountMismatch);
     }
@@ -419,7 +413,6 @@ fn parse_route_record(line: &str) -> Result<RouteRecord, RouteFault> {
     if !RouteKey::is_wellformed(key) {
         return Err(RouteFault::Record);
     }
-
     crate::render::decode_anchor(anchor).map_err(|_| RouteFault::Record)?;
     super::encode::decode_destination_component(map).map_err(|_| RouteFault::Record)?;
     let api_identity = Digest::parse(hash).map_err(|_| RouteFault::Record)?;
@@ -460,7 +453,6 @@ pub fn load_routes(root: &Path) -> (RouteTable, Option<RouteFault>) {
             Ok(table) => (table, None),
             Err(fault) => (RouteTable::default(), Some(fault)),
         },
-
         Err(_) => (RouteTable::default(), None),
     }
 }
@@ -499,7 +491,6 @@ where
     if lock.lock().is_err() {
         return RouteUpdate::default();
     }
-
     let (mut table, fault) = load_routes(root);
     let changed = edit(&mut table);
     let wrote = (changed || fault.is_some()) && write_routes(root, &local, &table);
@@ -657,7 +648,6 @@ mod tests {
         for original in table.records() {
             assert_eq!(back.get(&original.key), Some(original));
         }
-
         assert_eq!(render_routes(&back).expect("re-render"), bytes);
     }
 
@@ -781,7 +771,6 @@ mod tests {
             1.0,
         ));
         let text = String::from_utf8(render_routes(&table).expect("render")).expect("utf8");
-
         let broken = text.replace("token verify\t", "verify token\t");
 
         assert_eq!(
@@ -889,7 +878,6 @@ mod tests {
         let (table, fault) = load_routes(temp.path());
         assert_eq!(fault, None);
         assert_eq!(table.len(), 1);
-
         let wrote_again = update_routes(temp.path(), |table| {
             table.insert(record(
                 "verify token",
