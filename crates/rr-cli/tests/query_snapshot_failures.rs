@@ -94,11 +94,16 @@ fn test_stale_snapshot() {
         .unwrap();
     assert!(map_output.status.success());
 
-    run_cmd(
-        repo.path(),
-        "git",
-        &["commit", "--allow-empty", "-m", "stale_update"],
-    );
+    // An indexed file, actually changed. A commit alone is not what makes an
+    // index stale — see `test_a_commit_that_changed_no_indexed_file_still_answers`
+    // below, which is the other half of this pair.
+    fs::write(
+        repo.path().join("src").join("auth").join("token.rs"),
+        b"pub fn verify_token() -> bool { false }\npub fn issue_token() {}\n",
+    )
+    .unwrap();
+    run_cmd(repo.path(), "git", &["add", "."]);
+    run_cmd(repo.path(), "git", &["commit", "-m", "stale_update"]);
 
     let output = Command::new(env!("CARGO_BIN_EXE_rr"))
         .current_dir(repo.path())
@@ -110,9 +115,56 @@ fn test_stale_snapshot() {
     assert!(output.stdout.is_empty());
     assert_eq!(
         String::from_utf8(output.stderr).unwrap(),
-        "rr: query: index is stale; run 'rr refresh' \
-         (until then no query is answered, cached or not; see #44)\n"
+        "rr: query: index is stale; run 'rr refresh'\n"
     );
+}
+
+/// A moved `HEAD` is not a stale index, and `rr query` must not say it is.
+///
+/// The commit that moves `HEAD` most often is the one that commits the
+/// generated maps, which touches no indexed source at all. `rr status` has
+/// answered `fresh` for that case since #44 gave it the `HEAD`-to-`HEAD` tree
+/// diff; `rr query` compared commit ids and refused, so the two commands
+/// contradicted each other about the same snapshot in the same second. This is
+/// that contradiction, pinned shut.
+#[test]
+fn test_a_commit_that_changed_no_indexed_file_still_answers() {
+    let repo = setup_repo();
+    let map_output = Command::new(env!("CARGO_BIN_EXE_rr"))
+        .current_dir(repo.path())
+        .arg("map")
+        .output()
+        .unwrap();
+    assert!(map_output.status.success());
+
+    // The generated maps, committed — the exact sequence a user runs first.
+    run_cmd(repo.path(), "git", &["add", "."]);
+    run_cmd(repo.path(), "git", &["commit", "-m", "maps"]);
+
+    let status = Command::new(env!("CARGO_BIN_EXE_rr"))
+        .current_dir(repo.path())
+        .args(["status", "--json"])
+        .output()
+        .unwrap();
+    let status: serde_json::Value =
+        serde_json::from_slice(&status.stdout).expect("status prints one JSON object");
+    assert_eq!(status["snapshot"], "fresh");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rr"))
+        .current_dir(repo.path())
+        .args(["query", "verify_token"])
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "status called the snapshot fresh and query refused it: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8(output.stdout)
+        .unwrap()
+        .contains("verify_token"));
 }
 
 #[test]

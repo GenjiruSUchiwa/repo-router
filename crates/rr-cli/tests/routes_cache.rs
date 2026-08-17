@@ -91,6 +91,28 @@ fn a_second_identical_query_answers_from_the_route_cache() {
     assert_eq!(second["confidence"], first["confidence"]);
 }
 
+/// The cache has to be reachable in the window a user meets first: `rr map`,
+/// commit the maps it generated, then ask something.
+///
+/// That commit moves `HEAD` and touches no indexed source. `rr query` used to
+/// refuse the whole window on a commit-id comparison, which made the cache look
+/// broken on the first day of use — not slow, unreachable. It now asks the same
+/// tree-diff question `rr status` answers, so the window is ordinary.
+#[test]
+fn the_cache_answers_after_the_generated_maps_are_committed() {
+    let temp = repo();
+    let root = temp.path();
+
+    ask(root, "verify token");
+    commit_all(root, "commit the generated maps");
+
+    let after = ask(root, "verify token");
+    assert_eq!(
+        after["pipeline"], "route",
+        "committing the maps put the cache out of reach: {after}"
+    );
+}
+
 /// The key is the words, lowercased and sorted — so the same question typed in
 /// another order, in another case, is the same question.
 #[test]
