@@ -41,7 +41,9 @@ use crate::{Error, Result};
 /// Version 7 adds [`Visibility::Package`]: Java package-private and Go's
 /// lowercase export rule.
 /// Version 8 adds [`ImportKind::Include`]: C and C++ `#include`.
-pub const FACT_SCHEMA_VERSION: u32 = 8;
+/// Version 9 adds [`Visibility::FilePrivate`]: Swift `fileprivate`, which until
+/// now shared [`Visibility::Internal`] with the wider module-wide default.
+pub const FACT_SCHEMA_VERSION: u32 = 9;
 
 /// A source range over one exact UTF-8 byte buffer.
 ///
@@ -421,6 +423,13 @@ pub enum Visibility {
     /// This one is enforced by the compiler and is the language's default
     /// rather than a thing the author wrote down.
     Package,
+    /// Visible within the file that declares it. Swift `fileprivate`.
+    ///
+    /// Narrower than [`Visibility::Internal`], which is Swift's module-wide
+    /// default, and wider than [`Visibility::Private`], which in Swift stops at
+    /// the declaring scope. Folding it into either one discards the distinction
+    /// the author wrote the modifier down to make.
+    FilePrivate,
 }
 
 /// Test-related signals derived from content attributes and enclosing scope.
@@ -1165,29 +1174,11 @@ mod tests {
     use crate::cache::{CacheKey, CacheOutcome, FactCache};
     use crate::lang::Lang;
     use crate::oid::Oid;
+    use crate::test_support::assert_variant_count;
     use tempfile::TempDir;
 
     fn span(start: u32, end: u32, start_line: u32, end_line: u32) -> Span {
         Span::new(start, end, start_line, end_line).unwrap()
-    }
-
-    /// Asserts that `T` has exactly `count` fieldless variants.
-    ///
-    /// Three enums in this file are covered by hand-written lists that the
-    /// compiler has no opinion about, so a variant added to one and forgotten in
-    /// the other would leave its test quietly weaker than it reads. postcard
-    /// writes a fieldless variant as its index, which makes the count checkable:
-    /// the last index a list covers must decode, and the next one must not.
-    fn assert_variant_count<T: serde::de::DeserializeOwned>(count: usize, listed: &str) {
-        let last = u8::try_from(count - 1).unwrap();
-        assert!(
-            postcard::from_bytes::<T>(&[last]).is_ok(),
-            "{listed} lists more variants than the enum has"
-        );
-        assert!(
-            postcard::from_bytes::<T>(&[last + 1]).is_err(),
-            "a variant was added to the enum and not to {listed}"
-        );
     }
 
     fn sample_def(name: &str, start: u32, end: u32) -> Def {

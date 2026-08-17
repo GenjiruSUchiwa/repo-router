@@ -25,7 +25,7 @@ defs:
     attribute_idents: []
   - name: initialize
     local_qualified: Service.initialize
-    kind: method
+    kind: constructor
     visibility: public
     start_line: 5
     end_line: 7

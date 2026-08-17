@@ -35,13 +35,13 @@ pub const JAVASCRIPT_EXTRACTOR_VERSION: u32 = 1;
 /// they *can* move apart is the point.
 pub const JSX_EXTRACTOR_VERSION: u32 = 1;
 pub const GO_EXTRACTOR_VERSION: u32 = 1;
-pub const JAVA_EXTRACTOR_VERSION: u32 = 1;
+pub const JAVA_EXTRACTOR_VERSION: u32 = 2;
 pub const C_EXTRACTOR_VERSION: u32 = 1;
 pub const CPP_EXTRACTOR_VERSION: u32 = 1;
 pub const RUBY_EXTRACTOR_VERSION: u32 = 1;
 pub const LUA_EXTRACTOR_VERSION: u32 = 1;
-pub const PHP_EXTRACTOR_VERSION: u32 = 1;
-pub const SWIFT_EXTRACTOR_VERSION: u32 = 1;
+pub const PHP_EXTRACTOR_VERSION: u32 = 2;
+pub const SWIFT_EXTRACTOR_VERSION: u32 = 2;
 
 /// The extractor version for `lang`, `0` when rr has no extractor for it.
 #[must_use]

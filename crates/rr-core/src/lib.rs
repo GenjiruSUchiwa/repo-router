@@ -1,5 +1,34 @@
 #![deny(unsafe_code)]
 
+/// Helpers the unit tests of more than one module need.
+///
+/// One copy and not one per module: a hand-written list of enum variants is
+/// checked the same way wherever it lives, and two copies of the check would
+/// drift the moment one of them was improved.
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+pub(crate) mod test_support {
+    /// Asserts that `T` has exactly `count` fieldless variants.
+    ///
+    /// Several enums in this crate are covered by hand-written lists that the
+    /// compiler has no opinion about, so a variant added to one and forgotten
+    /// in the other would leave its test quietly weaker than it reads. postcard
+    /// writes a fieldless variant as its index, which makes the count
+    /// checkable: the last index a list covers must decode, and the next one
+    /// must not.
+    pub(crate) fn assert_variant_count<T: serde::de::DeserializeOwned>(count: usize, listed: &str) {
+        let last = u8::try_from(count - 1).unwrap();
+        assert!(
+            postcard::from_bytes::<T>(&[last]).is_ok(),
+            "{listed} lists more variants than the enum has"
+        );
+        assert!(
+            postcard::from_bytes::<T>(&[last + 1]).is_err(),
+            "a variant was added to the enum and not to {listed}"
+        );
+    }
+}
+
 pub mod agent;
 pub mod cache;
 pub mod cancel;

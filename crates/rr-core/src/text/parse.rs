@@ -11,7 +11,7 @@
 use crate::path::RelPath;
 
 use super::digest::Digest;
-use super::model::Fidelity;
+use super::model::{Fidelity, VisibilityLabel};
 use super::render;
 use super::{encode, TextError, TextResult, LEGACY_READABLE_FORMATS, TEXT_FORMAT_VERSION};
 
@@ -979,12 +979,10 @@ fn parse_symbol_record(line: &str) -> TextResult<ParsedSymbolRecord> {
     let visibility = visibility.to_owned();
     let anchor = anchor.to_owned();
     let api_hash = Digest::parse(hash)?;
-    // The same closed set `VisibilityLabel` writes. A label that renders but
-    // does not parse would make rr refuse the file it had just produced.
-    if !matches!(
-        visibility.as_str(),
-        "public" | "protected" | "internal" | "crate" | "restricted"
-    ) {
+    // The same closed set `VisibilityLabel` writes, asked as one question so
+    // the two cannot drift: a label that renders but does not parse would make
+    // rr refuse the file it had just produced.
+    if !VisibilityLabel::is_known(&visibility) {
         return Err(TextError::Record {
             reason: "a symbol record's visibility is not a recognized visibility label",
         });

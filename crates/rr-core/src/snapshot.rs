@@ -36,7 +36,8 @@ use crate::index::Snapshot;
 /// Version 9 carries [`crate::facts::ReferenceKind::Type`] (`FACT_SCHEMA_VERSION` 6).
 /// Version 10 carries [`crate::facts::Visibility::Package`] (`FACT_SCHEMA_VERSION` 7).
 /// Version 11 carries [`crate::facts::ImportKind::Include`] (`FACT_SCHEMA_VERSION` 8).
-pub const SNAPSHOT_SCHEMA_VERSION: u32 = 11;
+/// Version 12 carries [`crate::facts::Visibility::FilePrivate`] (`FACT_SCHEMA_VERSION` 9).
+pub const SNAPSHOT_SCHEMA_VERSION: u32 = 12;
 pub const SNAPSHOT_MAGIC: [u8; 8] = *b"RRIDX\0\0\0";
 const HEADER_LEN: usize = 8 + 4 + 8 + 32;
 

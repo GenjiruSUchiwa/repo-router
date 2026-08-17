@@ -1227,9 +1227,12 @@ const TYPESCRIPT_MODIFIERS: &[&str] = &[
 /// The modifiers this declaration opens with, in source order.
 ///
 /// [`crate::facts::display_signature`] has already folded every whitespace run
-/// into one space, so splitting on it recovers the tokens exactly.
+/// into one space, so splitting on it recovers the tokens exactly — once a
+/// leading decorator is out of the way. `@Input() private name: string` states
+/// `private`, and a scan that stopped at the decorator would report the class
+/// default instead.
 fn typescript_modifiers(signature: &str) -> impl Iterator<Item = &str> {
-    signature
+    strip_leading_decorations(signature)
         .split(' ')
         .take_while(|word| TYPESCRIPT_MODIFIERS.contains(word))
 }
@@ -1366,6 +1369,62 @@ fn never_a_test_signal(_name: &str) -> bool {
 
 /// A language whose tags capture is already the right kind.
 fn keep_as_captured(_def: &mut Def) {}
+
+/// The declaration text with any leading annotation or attribute run removed.
+///
+/// [`crate::facts::display_signature`] folds every whitespace run into one
+/// space, which is what lets the modifier scans below split on `' '` — but only
+/// once the decoration in front of the modifiers is gone. Java writes
+/// `@Override public void run()`, Swift writes `@objc public func run()` and
+/// `@State private var count: Int`, PHP 8 writes `#[Route('/x')] public
+/// function run()`; in every one of them the access modifier the scan is
+/// looking for sits behind a decoration, and a scan that stopped at the first
+/// non-modifier word would report the language's default instead of what the
+/// file says.
+///
+/// Skipped by bracket depth rather than word by word, because an annotation
+/// carrying arguments holds spaces of its own: `@RequestMapping(value = "/x")`
+/// is one decoration and four space-separated words.
+fn strip_leading_decorations(signature: &str) -> &str {
+    let bytes = signature.as_bytes();
+    let mut cursor = 0;
+    loop {
+        while bytes.get(cursor) == Some(&b' ') {
+            cursor += 1;
+        }
+        if !bytes[cursor..].starts_with(b"#[") && bytes.get(cursor) != Some(&b'@') {
+            return signature.get(cursor..).unwrap_or("");
+        }
+        // Both openers advance by one byte, and for different reasons: a PHP
+        // `#[` leaves the scan standing on the bracket that opens its group,
+        // while a Java or Swift `@` introduces a bare name that may or may not
+        // be followed by one.
+        let mut index = cursor + 1;
+
+        let mut depth = 0usize;
+        while let Some(&byte) = bytes.get(index) {
+            match byte {
+                b'(' | b'[' => depth += 1,
+                b')' | b']' => {
+                    if depth == 0 {
+                        // A closer with no opener: the signature is not the
+                        // shape this reads, so stop rather than run past it.
+                        break;
+                    }
+                    depth -= 1;
+                    if depth == 0 {
+                        index += 1;
+                        break;
+                    }
+                }
+                b' ' if depth == 0 => break,
+                _ => {}
+            }
+            index += 1;
+        }
+        cursor = index;
+    }
+}
 
 const TYPESCRIPT_KINDS: &[(&str, DefKind)] = &[
     ("function", DefKind::Function),
@@ -1610,6 +1669,13 @@ const JAVA_KINDS: &[(&str, DefKind)] = &[
     ("class", DefKind::Class),
     ("interface", DefKind::Interface),
     ("method", DefKind::Method),
+    ("constructor", DefKind::Constructor),
+    ("enum", DefKind::Enum),
+    // A record is `DefKind::Struct` and not `DefKind::Class`: it is the nominal
+    // product type its components spell out, which is what `Struct` names, and
+    // filing it under `Class` would erase the one thing that distinguishes it
+    // from the class it desugars to.
+    ("record", DefKind::Struct),
 ];
 
 const JAVA_REFERENCE_KINDS: &[(&str, ReferenceKind)] = &[
@@ -1655,11 +1721,11 @@ const JAVA_MODIFIERS: &[&str] = &[
 /// `display_signature` has already folded every whitespace run into one space,
 /// so splitting on it recovers the tokens exactly — the same contract
 /// `typescript_modifiers` relies on. Annotations are skipped rather than
-/// treated as terminators: `@Override public void run()` states `public`.
+/// treated as terminators: `@Override public void run()` states `public`, and
+/// so does `@RequestMapping(value = "/x") public void run()`.
 fn java_declared_visibility(signature: &str) -> Option<Visibility> {
-    signature
+    strip_leading_decorations(signature)
         .split(' ')
-        .skip_while(|word| word.starts_with('@'))
         .take_while(|word| JAVA_MODIFIERS.contains(word))
         .find_map(|word| match word {
             "public" => Some(Visibility::Public),
@@ -1669,16 +1735,40 @@ fn java_declared_visibility(signature: &str) -> Option<Visibility> {
         })
 }
 
+/// Whether a declaration that states no modifier at all is public regardless.
+///
+/// An interface method and an annotation element are public by the language,
+/// and they are the only member declarations Java lets carry no modifier *and*
+/// no body: inside a class a method without a body has to be `abstract` or
+/// `native`, and both of those open the modifier run this requires to be empty.
+/// So a captured member that ends in `;` and opens straight onto its return
+/// type is an interface member, and `Visibility::Package` would mislabel every
+/// method of every interface in the repository.
+///
+/// A class method with its brace on the next line never reaches here:
+/// `signature_end` stops at that line break, so its signature ends in `)`.
+fn java_states_no_modifier_and_is_public(signature: &str) -> bool {
+    let signature = strip_leading_decorations(signature);
+    signature.trim_end().ends_with(';')
+        && !signature
+            .split(' ')
+            .next()
+            .is_some_and(|word| JAVA_MODIFIERS.contains(&word))
+}
+
 /// What the Java query captured, plus the modifier no capture can reach.
 ///
 /// An `@Test` annotation is an `attribute_ident`, which the extractor already
 /// collects, so test detection needs no work here — `java_test_attribute` reads
 /// it. What does need work is access: `modifiers` is an unnamed sibling of the
 /// name in this grammar, so only the declaration text says whether a method is
-/// public, and a method that says nothing is package-private rather than public.
+/// public, and a method in a class that says nothing is package-private rather
+/// than public — while the same words inside an interface are public.
 fn java_refine(def: &mut Def) {
     if let Some(visibility) = java_declared_visibility(&def.signature) {
         def.visibility = visibility;
+    } else if java_states_no_modifier_and_is_public(&def.signature) {
+        def.visibility = Visibility::Public;
     }
 }
 
@@ -1690,7 +1780,7 @@ fn java_test_attribute(ident: &str) -> bool {
 pub(crate) static JAVA: LanguageSpec = LanguageSpec {
     lang: Lang::Java,
     language: tree_sitter_java::LANGUAGE,
-    tags_query: tree_sitter_java::TAGS_QUERY,
+    tags_query: include_str!("queries/java.scm"),
     locals_query: "",
     kinds: JAVA_KINDS,
     reference_kinds: JAVA_REFERENCE_KINDS,
@@ -1753,7 +1843,11 @@ pub(crate) static C: LanguageSpec = LanguageSpec {
 static C_IMPORTS: ImportSpec = ImportSpec {
     query: include_str!("queries/c-imports.scm"),
     kinds: &[("include", ImportKind::Include)],
-    markers: &["#include"],
+    // `include` and not `#include`: the directive is `#[ \t]*include`, so
+    // `#  include <stdio.h>` is one, and a marker carrying the `#` would read a
+    // file full of them as having no imports at all. The looser marker costs a
+    // second parse of a file that only mentions the word.
+    markers: &["include"],
     callee_names: &[],
     compiled: OnceLock::new(),
 };
@@ -1785,7 +1879,8 @@ pub(crate) static CPP: LanguageSpec = LanguageSpec {
 static CPP_IMPORTS: ImportSpec = ImportSpec {
     query: include_str!("queries/cpp-imports.scm"),
     kinds: &[("include", ImportKind::Include)],
-    markers: &["#include"],
+    // `include` and not `#include`, for `C_IMPORTS`'s reason.
+    markers: &["include"],
     callee_names: &[],
     compiled: OnceLock::new(),
 };
@@ -1811,11 +1906,29 @@ fn ruby_visibility(name: &str) -> Visibility {
     }
 }
 
-/// `RSpec`'s `describe`/`it` and Minitest's `test_` prefix are the two
-/// conventions. Only the second is a definition name, which is the only thing
-/// this hook sees.
+/// Minitest names the enclosing class `TestFoo` or `FooTest`, which is the one
+/// convention this hook can read.
+///
+/// `test_scope` is asked about an *enclosing* definition's name, so `RSpec`'s
+/// `describe`/`it` blocks are out of reach — they are method calls, not
+/// definitions, and nothing captures them. Minitest's `test_`-prefixed methods
+/// are out of reach for the opposite reason: they are the definitions being
+/// judged rather than the scope around them, and `Def::test_signals` has no
+/// field for "this definition is itself a test".
 fn ruby_test_scope(name: &str) -> bool {
     name.starts_with("Test") || name.ends_with("Test")
+}
+
+/// Ruby's constructor is `initialize`, reached through `Class.new` rather than
+/// by its own name.
+///
+/// Promoted for the reason PHP's `__construct` and Swift's `init` are: the tags
+/// query has one capture for every `def`, and a caller looking for the entry
+/// point of a class should not have to know each language's spelling of it.
+fn ruby_refine(def: &mut Def) {
+    if def.name == "initialize" && def.kind == DefKind::Method {
+        def.kind = DefKind::Constructor;
+    }
 }
 
 pub(crate) static RUBY: LanguageSpec = LanguageSpec {
@@ -1829,7 +1942,7 @@ pub(crate) static RUBY: LanguageSpec = LanguageSpec {
     visibility: ruby_visibility,
     test_attribute: never_a_test_signal,
     test_scope: ruby_test_scope,
-    refine: keep_as_captured,
+    refine: ruby_refine,
     doc_is_leading_body_string: false,
     line_comment_prefixes: &["#"],
     config: OnceLock::new(),
@@ -1892,9 +2005,9 @@ const PHP_KINDS: &[(&str, DefKind)] = &[
     ("interface", DefKind::Interface),
     ("field", DefKind::Field),
     // Upstream's query captures methods and free functions with the same
-    // capture. `php_refine` promotes the ones whose declaration text says
-    // `function` is preceded by a modifier, which is as far as the signature
-    // can carry it.
+    // capture. `php_refine` promotes the ones whose declaration text gives them
+    // away — a leading modifier, or no body — and only a free function reaches
+    // the index with this kind.
     ("function", DefKind::Function),
 ];
 
@@ -1915,8 +2028,12 @@ const PHP_MODIFIERS: &[&str] = &[
 ];
 
 /// The visibility this member states, and whether it stated anything at all.
+///
+/// A PHP 8 attribute is skipped rather than treated as a terminator, the way
+/// Java's annotations are: `#[Route('/x')] public function run()` states
+/// `public`.
 fn php_declared_visibility(signature: &str) -> Option<Visibility> {
-    signature
+    strip_leading_decorations(signature)
         .split(' ')
         .take_while(|word| PHP_MODIFIERS.contains(word))
         .find_map(|word| match word {
@@ -1934,20 +2051,48 @@ fn php_visibility(_name: &str) -> Visibility {
     Visibility::Public
 }
 
+/// Whether this declaration opens with any modifier at all, visibility or not.
+///
+/// `abstract function run();` and `static function make()` are members even
+/// though neither states an access level, so membership asks a wider question
+/// than `php_declared_visibility` answers.
+fn php_opens_with_modifier(signature: &str) -> bool {
+    strip_leading_decorations(signature)
+        .split(' ')
+        .next()
+        .is_some_and(|word| PHP_MODIFIERS.contains(&word))
+}
+
+/// Whether this declaration has no body, which in PHP means it is a member.
+///
+/// PHP has no forward declaration at file scope: a `function` that ends at `;`
+/// instead of a body can only be an interface method or an abstract one. A free
+/// function always carries its body, so `signature_end` leaves its signature
+/// ending at the parameter list, the return type, or the closing brace — never
+/// at a semicolon.
+fn php_has_no_body(signature: &str) -> bool {
+    strip_leading_decorations(signature)
+        .trim_end()
+        .ends_with(';')
+}
+
 /// What the PHP query captured, plus what one capture for two constructs cannot
 /// say.
 ///
-/// A declaration that opens with a modifier is a member: PHP allows a bare
-/// `function` inside a class too, and such a member stays a `Function`. That is
-/// a known under-count, not a rounding: `refine` runs before `assign_nesting`
-/// (`TagsExtractor::extract`), so it does not know the owner, and the modifier
-/// is the only evidence in reach.
+/// Upstream gives methods and free functions the same capture, so membership
+/// has to be read off the declaration text. Two things settle it, and `refine`
+/// runs before `assign_nesting` (`TagsExtractor::extract`) so neither may ask
+/// who the owner is: a leading modifier, and the absence of a body. Between
+/// them they cover the bare `function` an interface declares, which states no
+/// modifier at all.
 fn php_refine(def: &mut Def) {
     if let Some(visibility) = php_declared_visibility(&def.signature) {
         def.visibility = visibility;
-        if def.kind == DefKind::Function {
-            def.kind = DefKind::Method;
-        }
+    }
+    if def.kind == DefKind::Function
+        && (php_opens_with_modifier(&def.signature) || php_has_no_body(&def.signature))
+    {
+        def.kind = DefKind::Method;
     }
     if def.name == "__construct" && def.kind == DefKind::Method {
         def.kind = DefKind::Constructor;
@@ -2011,14 +2156,21 @@ const SWIFT_MODIFIERS: &[&str] = &[
     "unowned",
 ];
 
+/// The access level this declaration states, or `None` when it states none.
+///
+/// Attributes are skipped rather than treated as terminators: Swift writes them
+/// on the declaration's own line far more often than Java does, and
+/// `@objc public func run()` states `public` while `@State private var count`
+/// states `private`.
 fn swift_declared_visibility(signature: &str) -> Option<Visibility> {
-    signature
+    strip_leading_decorations(signature)
         .split(' ')
         .take_while(|word| SWIFT_MODIFIERS.contains(word))
         .find_map(|word| match word {
             "public" | "open" => Some(Visibility::Public),
             "private" => Some(Visibility::Private),
-            "fileprivate" | "internal" => Some(Visibility::Internal),
+            "internal" => Some(Visibility::Internal),
+            "fileprivate" => Some(Visibility::FilePrivate),
             // Swift 5.9's `package` is module-group scope, which is what
             // `Visibility::Package` names.
             "package" => Some(Visibility::Package),
@@ -2143,6 +2295,181 @@ mod tests {
         assert_eq!(facts.imports().len(), 1);
         assert_eq!(facts.imports()[0].path, "../lib/thing");
         assert_eq!(facts.imports()[0].kind, ImportKind::Require);
+    }
+
+    #[test]
+    fn ruby_records_initialize_as_the_constructor() {
+        let mut extractor = TagsExtractor::new(&RUBY).unwrap();
+        let facts = extractor
+            .extract(b"class Service\n  def initialize(name)\n    @name = name\n  end\nend\n")
+            .unwrap();
+        let initialize = facts
+            .defs()
+            .iter()
+            .find(|def| def.name == "initialize")
+            .expect("initialize was not extracted");
+        assert_eq!(initialize.kind, DefKind::Constructor);
+    }
+
+    #[test]
+    fn a_decoration_run_is_skipped_whatever_it_holds() {
+        assert_eq!(
+            strip_leading_decorations("public void run();"),
+            "public void run();"
+        );
+        assert_eq!(
+            strip_leading_decorations("@Override public void run()"),
+            "public void run()"
+        );
+        assert_eq!(
+            strip_leading_decorations("@RequestMapping(value = \"/x\") public void run()"),
+            "public void run()"
+        );
+        assert_eq!(
+            strip_leading_decorations("#[Route('/x')] public function run()"),
+            "public function run()"
+        );
+        assert_eq!(
+            strip_leading_decorations("@objc @MainActor public func run()"),
+            "public func run()"
+        );
+        // A truncated decoration leaves nothing rather than looping.
+        assert_eq!(strip_leading_decorations("@Override(value"), "");
+        assert_eq!(strip_leading_decorations("@"), "");
+    }
+
+    #[test]
+    fn an_annotated_java_member_still_states_its_access() {
+        assert_eq!(
+            java_declared_visibility("@Override public void run() {"),
+            Some(Visibility::Public)
+        );
+        assert_eq!(
+            java_declared_visibility("@RequestMapping(value = \"/x\") private void run() {"),
+            Some(Visibility::Private)
+        );
+        assert_eq!(java_declared_visibility("void run() {"), None);
+    }
+
+    #[test]
+    fn a_bodyless_java_member_with_no_modifier_is_public() {
+        // An interface method, which the language makes public.
+        assert!(java_states_no_modifier_and_is_public("void run();"));
+        assert!(java_states_no_modifier_and_is_public(
+            "@Override java.util.List<String> names();"
+        ));
+        // An abstract or native class method, which stays package-private.
+        assert!(!java_states_no_modifier_and_is_public(
+            "abstract void run();"
+        ));
+        assert!(!java_states_no_modifier_and_is_public("native void run();"));
+        // A class method with a body, and one whose brace is on the next line.
+        assert!(!java_states_no_modifier_and_is_public("void run() {}"));
+        assert!(!java_states_no_modifier_and_is_public("void run()"));
+    }
+
+    #[test]
+    fn an_attributed_swift_declaration_still_states_its_access() {
+        assert_eq!(
+            swift_declared_visibility("@objc public func run() {"),
+            Some(Visibility::Public)
+        );
+        assert_eq!(
+            swift_declared_visibility("@State private var count: Int"),
+            Some(Visibility::Private)
+        );
+        assert_eq!(swift_declared_visibility("func run() {"), None);
+    }
+
+    #[test]
+    fn swift_fileprivate_is_not_the_module_wide_default() {
+        assert_eq!(
+            swift_declared_visibility("fileprivate var shared: Int"),
+            Some(Visibility::FilePrivate)
+        );
+        assert_eq!(
+            swift_declared_visibility("internal var shared: Int"),
+            Some(Visibility::Internal)
+        );
+        // The unwritten default stays `Internal`: saying nothing is not the
+        // same claim as writing `fileprivate` down.
+        assert_eq!(swift_visibility("shared"), Visibility::Internal);
+    }
+
+    #[test]
+    fn the_java_query_reaches_what_upstream_leaves_out() {
+        let mut extractor = TagsExtractor::new(&JAVA).unwrap();
+        let facts = extractor
+            .extract(
+                b"public class Service {\n    public Service() {}\n}\n\
+                  enum Mode { FAST }\n\
+                  public record Point(int x, int y) {}\n",
+            )
+            .unwrap();
+        let kind = |name: &str| {
+            facts
+                .defs()
+                .iter()
+                .find(|def| def.name == name)
+                .map(|def| def.kind)
+        };
+        assert_eq!(kind("Service"), Some(DefKind::Class));
+        // The constructor shares its name with the class; both are recorded.
+        assert_eq!(
+            facts
+                .defs()
+                .iter()
+                .filter(|def| def.name == "Service")
+                .count(),
+            2
+        );
+        assert!(facts
+            .defs()
+            .iter()
+            .any(|def| def.name == "Service" && def.kind == DefKind::Constructor));
+        assert_eq!(kind("Mode"), Some(DefKind::Enum));
+        assert_eq!(kind("Point"), Some(DefKind::Struct));
+    }
+
+    #[test]
+    fn a_decorated_typescript_member_still_states_its_access() {
+        assert_eq!(
+            declared_visibility("@Input() private name: string;"),
+            Some(Visibility::Private)
+        );
+        assert_eq!(declared_visibility("name: string;"), None);
+    }
+
+    #[test]
+    fn an_attributed_php_member_still_states_its_access() {
+        assert_eq!(
+            php_declared_visibility("#[Route('/x')] public function run(): void"),
+            Some(Visibility::Public)
+        );
+        assert_eq!(php_declared_visibility("function run(): void"), None);
+    }
+
+    #[test]
+    fn a_php_declaration_without_a_body_is_a_member() {
+        // What an interface declares: no modifier, no body.
+        assert!(php_has_no_body("function run(): void;"));
+        assert!(!php_opens_with_modifier("function run(): void;"));
+        // What a free function looks like, both brace placements.
+        assert!(!php_has_no_body("function bare(string $name): string"));
+        assert!(!php_has_no_body("function bare(): string { return 'x'; }"));
+        // A modifier that states no access still states membership.
+        assert!(php_opens_with_modifier("abstract function run();"));
+        assert!(php_opens_with_modifier("static function make(): self"));
+        assert!(!php_opens_with_modifier("function bare(): string"));
+    }
+
+    #[test]
+    fn a_spaced_include_directive_is_still_an_include() {
+        let mut extractor = TagsExtractor::new(&C).unwrap();
+        let facts = extractor.extract(b"#  include <stdio.h>\n").unwrap();
+        assert_eq!(facts.imports().len(), 1);
+        assert_eq!(facts.imports()[0].path, "<stdio.h>");
+        assert_eq!(facts.imports()[0].kind, ImportKind::Include);
     }
 
     #[test]
