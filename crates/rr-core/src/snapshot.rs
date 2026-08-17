@@ -97,10 +97,36 @@ impl SnapshotStore {
     /// # Errors
     /// Returns an error for missing-parent permissions and unexpected filesystem I/O.
     pub fn load(&self) -> Result<LoadOutcome, SnapshotIoError> {
+        Ok(self.load_identified()?.0)
+    }
+
+    /// Loads the snapshot together with the identity of the exact bytes decoded.
+    ///
+    /// The identity is a digest of the envelope, and it is returned from here
+    /// rather than computed by the caller because only here are the bytes and
+    /// the snapshot the same thing. A caller that stat-ed or re-read the file
+    /// around its own load would be describing whatever the file was at that
+    /// moment, which a concurrent publication is free to make a different
+    /// snapshot; the digest handed back with the value cannot name anything but
+    /// the value.
+    ///
+    /// This is what memos under `.rr/local/memo/` are filed against. Length and
+    /// modification time would have been cheaper and are what publication itself
+    /// watches, but a filesystem with a coarse clock can give two snapshots of
+    /// equal length the same stamp within one tick — and a memo read under a
+    /// colliding stamp is a wrong answer rather than a slow one. A digest of the
+    /// bytes cannot collide by accident.
+    ///
+    /// `None` when there is nothing to identify, which turns every memo into a
+    /// miss rather than a stale hit.
+    ///
+    /// # Errors
+    /// Returns an error for missing-parent permissions and unexpected filesystem I/O.
+    pub fn load_identified(&self) -> Result<(LoadOutcome, Option<String>), SnapshotIoError> {
         let bytes = match fs::read(&self.path) {
             Ok(bytes) => bytes,
             Err(source) if source.kind() == std::io::ErrorKind::NotFound => {
-                return Ok(LoadOutcome::Missing);
+                return Ok((LoadOutcome::Missing, None));
             }
             Err(source) => {
                 return Err(SnapshotIoError::Io {
@@ -109,7 +135,23 @@ impl SnapshotStore {
                 });
             }
         };
-        Ok(decode(&bytes))
+        let identity = crate::text::Digest::of_bytes(&bytes).to_text();
+        Ok((decode(&bytes), Some(identity)))
+    }
+
+    /// The identity of the published envelope, without decoding it.
+    ///
+    /// For a caller that already holds the snapshot those bytes encode and only
+    /// needs the name to file a memo under — which, on the publication path, is
+    /// true by construction: the guard is held and the write has landed.
+    ///
+    /// `None` when the file is absent or unreadable, for the same reason as
+    /// [`Self::load_identified`]: a memo that cannot be stamped is simply not
+    /// written.
+    #[must_use]
+    pub fn published_identity(&self) -> Option<String> {
+        let bytes = fs::read(&self.path).ok()?;
+        Some(crate::text::Digest::of_bytes(&bytes).to_text())
     }
 
     /// Validates and serializes `snapshot` into its on-disk envelope.

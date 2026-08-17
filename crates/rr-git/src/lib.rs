@@ -27,6 +27,7 @@ pub use content::{
 pub use guard::{release_locks_signal_safe, RepositoryWriteGuard};
 pub use map::build_map;
 pub use oid::{hash_blob, HashAlgo, Oid, OidError};
+pub use plan::commits_left_index_true;
 pub use refresh::{hold, prepare, refresh, HeldSnapshot, PreparedRefresh, Refresh};
 pub use repo::{oid_of, ChangeKind, GitRepo, HeadState, RepoState, WorktreeChange};
 pub use status::status;

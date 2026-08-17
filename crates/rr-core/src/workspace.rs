@@ -64,27 +64,6 @@ fn memo_path(root: &Path, name: &str) -> PathBuf {
     local_dir(root).join("memo").join(name)
 }
 
-/// The snapshot file's identity, as the stamp a memo is filed under.
-///
-/// Length and modification time, which is the exact pair [`crate::snapshot::SnapshotStore::publish`]
-/// already makes meaningful: it refuses to rewrite a file whose bytes did not
-/// change *because* doing so would move the mtime and invalidate every reader's
-/// belief that nothing happened. A memo stamped this way reads a signal this
-/// crate already maintains rather than inventing one.
-///
-/// `None` when there is no snapshot to stamp against, which turns every memo
-/// into a miss rather than a stale hit.
-#[must_use]
-pub fn snapshot_stamp(root: &Path) -> Option<String> {
-    let meta = std::fs::metadata(snapshot_path(root)).ok()?;
-    let modified = meta
-        .modified()
-        .ok()?
-        .duration_since(std::time::UNIX_EPOCH)
-        .ok()?;
-    Some(format!("{}:{}", meta.len(), modified.as_nanos()))
-}
-
 /// What a memo says, but only if it was filed against the snapshot `stamp`
 /// names.
 ///
@@ -93,8 +72,9 @@ pub fn snapshot_stamp(root: &Path) -> Option<String> {
 /// from, so it may only be read by a run holding *those* bytes — read the stamp
 /// off disk here instead and a run holding the previous snapshot would answer
 /// from a memo another process filed against the one that replaced it. The
-/// caller stamps the snapshot it loaded, once, and passes the same stamp to
-/// [`write_memo`].
+/// caller stamps the snapshot it loaded, once, with
+/// [`crate::snapshot::SnapshotStore::load_identified`], and passes the same
+/// stamp to [`write_memo`].
 ///
 /// Every failure — no memo, a memo for some other snapshot, a torn one — is the
 /// same `None`: a miss, which costs the caller the work it was trying to skip

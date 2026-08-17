@@ -76,7 +76,7 @@ fn reconcile_routes(
     // in hand are the same bytes by construction: the guard is held and
     // `publish` has already landed. Without it the first query after every
     // refresh re-projects to learn a digest this function had in a local.
-    if let Some(stamp) = rr_core::workspace::snapshot_stamp(root) {
+    if let Some(stamp) = rr_core::snapshot::SnapshotStore::new(root).published_identity() {
         catalog.remember(root, &stamp);
     }
     let mut retired = 0_u32;
