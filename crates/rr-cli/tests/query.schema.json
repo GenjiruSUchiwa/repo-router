@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/GenjiruSUchiwa/repo-router/main/docs/query.schema.json",
+  "$id": "https://raw.githubusercontent.com/GenjiruSUchiwa/repo-router/master/crates/rr-cli/tests/query.schema.json",
   "title": "RepoRouterQueryResultV1",
   "description": "Schema for repo-router query output v1",
   "oneOf": [

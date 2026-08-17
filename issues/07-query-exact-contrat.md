@@ -32,7 +32,7 @@ text output (compatible in spirit with observed Radar) + stable `--json`.
    {"v":1,"result":"direct","anchor":{"path":"src/auth/token.rs","symbol":"verify_token","lines":[9,15]},"confidence":1.0}
    ```
    `result` variants: `direct` | `candidates` | `none`. Write the JSON Schema
-   in `docs/query.schema.json`, tested in CI against the real output.
+   in `crates/rr-cli/tests/query.schema.json`, tested in CI against the real output.
 5. Exit codes: 0 = direct, 2 = candidates, 3 = none, 1 = execution error
    (deliberate divergence: Radar returns 0 everywhere; a scripted agent
    deserves better).

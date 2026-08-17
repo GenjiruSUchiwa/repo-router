@@ -12,7 +12,7 @@ use super::{FullReason, RefreshOutcome};
 /// Version of the `rr refresh` / `rr map` JSON contract.
 ///
 /// One number per command surface, and this one covers both because they are
-/// one report. The rule for when it moves is `docs/json-contract.md`; the log
+/// one report. The rule for when it moves is [`crate::json_contract`]; the log
 /// of what each value meant is there too, not here, so that #14's surfaces read
 /// one page instead of three doc comments.
 pub const REFRESH_SCHEMA_VERSION: u32 = 4;
@@ -271,7 +271,7 @@ pub fn render_refresh_verbose(report: &RunReport) -> String {
 /// Every key is named here rather than inherited through `#[serde(flatten)]`,
 /// for a reason that is not style: a flattened struct makes the contract's key
 /// set whatever the struct's fields happen to be, so an unrelated edit to
-/// `RefreshReport` publishes a key. `docs/json-contract.md` is the rule this
+/// `RefreshReport` publishes a key. [`crate::json_contract`] is the rule this
 /// object follows.
 ///
 /// # Errors
