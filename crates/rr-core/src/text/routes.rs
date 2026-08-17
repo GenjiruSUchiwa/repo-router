@@ -8,8 +8,8 @@
 //!
 //! - A damaged file is discarded rather than repaired, because there is nothing
 //!   to repair it *from*.
-//! - A record is trusted only as far as its stored `api_hash` still matches the
-//!   owning scope, so a route that survived a rename is impossible rather than
+//! - A record is trusted only as far as its stored `api_identity` still matches
+//!   the corpus, so a route that survived a rename is impossible rather than
 //!   merely unlikely.
 //!
 //! Nothing here calls a model, opens a socket, or writes a byte a human cannot
@@ -44,7 +44,7 @@ pub(crate) const ROUTES_TYPE: &str = "rr-routes";
 pub(crate) const ROUTES_TITLE: &str = "# Routes";
 /// The column legend, naming the separator rather than printing it.
 pub(crate) const ROUTES_COLUMNS: &str =
-    "<!-- columns: key<TAB>anchor<TAB>map<TAB>api_hash<TAB>confidence -->";
+    "<!-- columns: key<TAB>anchor<TAB>map<TAB>api_identity<TAB>confidence -->";
 
 /// The banner a route cache of this format version carries.
 ///
@@ -61,8 +61,8 @@ pub(crate) fn routes_banner(format: u32) -> String {
 /// [`crate::lex::query_terms`] instead would key the cache on the *corpus*:
 /// that function drops any lexeme the index does not contain, so adding one
 /// unrelated file would silently change the key of a question nobody re-asked,
-/// and every route would miss. The `api_hash` in a record is what tracks the
-/// index; the key tracks the question.
+/// and every route would miss. The `api_identity` in a record is what tracks
+/// the index; the key tracks the question.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RouteKey(String);
 
@@ -130,12 +130,13 @@ impl RouteKey {
 /// it back into `rr query` without knowing anything about this file.
 ///
 /// There is deliberately **no line number here**, and that is not an omission.
-/// Every field a record carries has to be one `api_hash` covers, or the record
-/// can go wrong while still validating. `start_line` is one of the seven things
-/// `api_hash` excludes by construction, so a stored line would keep pointing at
-/// the row a definition used to be on, silently, for as long as nothing else in
-/// the directory changed. A caller that wants a line asks `rr query`, which
-/// reads it out of the snapshot and so cannot be stale.
+/// Every field a record carries has to be one `api_identity` covers, or the
+/// record can go wrong while still validating. `start_line` is one of the seven
+/// things the scope `api_hash`es behind that identity exclude by construction,
+/// so a stored line would keep pointing at the row a definition used to be on,
+/// silently, for as long as nothing else in the repository changed. A caller
+/// that wants a line asks `rr query`, which reads it out of the snapshot and so
+/// cannot be stale.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RouteRecord {
     /// The normalized question this route answers.
@@ -146,11 +147,21 @@ pub struct RouteRecord {
     /// it. Encoded and not raw because `RelPath::new("a\tb.md")` succeeds, and
     /// a tab here would invent a column.
     pub map: String,
-    /// The scope API identity this route was learned against. The whole
-    /// invalidation contract is that this still equals the owning
-    /// `MapIdentity`'s `api_hash` at read time.
-    pub api_hash: Digest,
+    /// The corpus API identity this route was learned against. The whole
+    /// invalidation contract is that this still equals
+    /// [`super::MapCatalog::api_identity`] at read time.
+    ///
+    /// The corpus and not the owning scope, because a route is an answer about
+    /// the whole index: a better-matching name appearing in *another* directory
+    /// changes what the ranker would say while leaving this record's own scope
+    /// untouched, and a per-scope key would keep serving the old answer.
+    pub api_identity: Digest,
     /// What the ranker believed when it gave this answer.
+    ///
+    /// Written and read back exactly, which is a requirement and not a nicety:
+    /// a hit replays this number into `rr query --json`, so a spelling that lost
+    /// a digit would make two identical runs of one question print two different
+    /// documents.
     pub confidence: Confidence,
 }
 
@@ -195,13 +206,20 @@ impl RouteTable {
     /// which is the work a cache exists to remove.
     ///
     /// Returns `true` when the table changed, so a caller can skip a write.
+    ///
+    /// A record the bound immediately evicts leaves the table exactly as it
+    /// was, so it reports no change: a full table plus one less-believed
+    /// question must not rewrite [`MAX_ROUTES`] lines to say the same thing.
+    /// Only a new key can overflow the bound — replacing an existing one keeps
+    /// the length — so surviving the eviction is the whole test.
     pub fn insert(&mut self, record: RouteRecord) -> bool {
         if self.records.get(&record.key) == Some(&record) {
             return false;
         }
-        self.records.insert(record.key.clone(), record);
+        let key = record.key.clone();
+        self.records.insert(key.clone(), record);
         self.evict_to_bound();
-        true
+        self.records.contains_key(&key)
     }
 
     /// Keeps only the records a predicate still believes in.
@@ -262,12 +280,20 @@ pub fn render_routes(table: &RouteTable) -> TextResult<Vec<u8>> {
     body.push_str(ROUTES_COLUMNS);
     body.push('\n');
     for record in table.records.values() {
+        // `{:?}` and not a fixed number of decimals: Rust's `Debug` for `f32`
+        // prints the shortest text that parses back to the same bits, so the
+        // number a hit replays is the number the ranker gave. `{:.6}` truncated
+        // `0.8132634` to `0.813263`, which made the second run of one question
+        // print a different `"confidence"` than the first — a cache that
+        // contradicts what it cached. `Debug` rather than `Display` for the one
+        // difference between them here: it keeps the `.0` on a whole number, so
+        // the column still reads as a fraction to a human running `awk`.
         let line = format!(
-            "{}\t{}\t{}\t{}\t{:.6}",
+            "{}\t{}\t{}\t{}\t{:?}",
             record.key.as_str(),
             record.anchor,
             record.map,
-            record.api_hash.to_text(),
+            record.api_identity.to_text(),
             record.confidence.get()
         );
         if line.contains('\n') || line.matches('\t').count() != 4 {
@@ -413,7 +439,7 @@ fn parse_route_record(line: &str) -> Result<RouteRecord, RouteFault> {
     // record that looks fine and points nowhere.
     crate::render::decode_anchor(anchor).map_err(|_| RouteFault::Record)?;
     super::encode::decode_destination_component(map).map_err(|_| RouteFault::Record)?;
-    let api_hash = Digest::parse(hash).map_err(|_| RouteFault::Record)?;
+    let api_identity = Digest::parse(hash).map_err(|_| RouteFault::Record)?;
     let confidence = confidence
         .parse::<f32>()
         .ok()
@@ -424,7 +450,7 @@ fn parse_route_record(line: &str) -> Result<RouteRecord, RouteFault> {
         key: RouteKey(key.to_owned()),
         anchor: anchor.to_owned(),
         map: map.to_owned(),
-        api_hash,
+        api_identity,
         confidence,
     })
 }
@@ -471,15 +497,15 @@ pub fn load_routes(root: &Path) -> (RouteTable, Option<RouteFault>) {
 /// exists to speed up. This lock blocks instead, and nothing takes the two in
 /// opposite orders.
 ///
-/// Returns whether anything was written. Every failure is swallowed: see the
-/// module header on why a cache write may not become a query failure.
-pub fn update_routes<F>(root: &Path, edit: F) -> bool
+/// Returns what happened. Every failure is swallowed: see the module header on
+/// why a cache write may not become a query failure.
+pub fn update_routes<F>(root: &Path, edit: F) -> RouteUpdate
 where
     F: FnOnce(&mut RouteTable) -> bool,
 {
     let local = crate::workspace::local_dir(root);
     if std::fs::create_dir_all(&local).is_err() {
-        return false;
+        return RouteUpdate::default();
     }
     let Ok(lock) = std::fs::OpenOptions::new()
         .create(true)
@@ -487,17 +513,38 @@ where
         .truncate(false)
         .open(local.join("routes.lock"))
     else {
-        return false;
+        return RouteUpdate::default();
     };
     if lock.lock().is_err() {
-        return false;
+        return RouteUpdate::default();
     }
 
-    let (mut table, _) = load_routes(root);
+    // A file that did not parse was discarded in memory, and a discard nobody
+    // writes back is one every later reader repeats: the damaged bytes stay on
+    // disk and are thrown away again on every query. Rewriting them here is
+    // what makes "discarded whole, then rebuilt empty" true of the file and not
+    // merely of the table.
+    let (mut table, fault) = load_routes(root);
     let changed = edit(&mut table);
-    let wrote = changed && write_routes(root, &local, &table);
+    let wrote = (changed || fault.is_some()) && write_routes(root, &local, &table);
     let _ = lock.unlock();
-    wrote
+    RouteUpdate { wrote, fault }
+}
+
+/// What one pass over the cache did.
+///
+/// A pair rather than a `bool`, because the two halves answer different
+/// questions and only one of them is about this call: `wrote` says whether the
+/// file on disk moved, and `fault` says the cache the caller *found* was
+/// unreadable and has been reset. Dropping the second is what left
+/// [`RouteFault`] as a closed enum nobody ever printed — a reset a user could
+/// only detect by noticing every route was gone.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RouteUpdate {
+    /// Whether the file on disk was replaced.
+    pub wrote: bool,
+    /// Why the cache that was there had to be discarded, if it did.
+    pub fault: Option<RouteFault>,
 }
 
 /// Replaces the file in one step.
@@ -536,7 +583,7 @@ mod tests {
             key: RouteKey::new(key).expect("a test key has content"),
             anchor: anchor.to_owned(),
             map: encode_map_destination("src/auth/MAP.md"),
-            api_hash: digest_of("scope"),
+            api_identity: digest_of("corpus"),
             confidence: Confidence::new(confidence).expect("a test confidence is in range"),
         }
     }
@@ -638,10 +685,19 @@ mod tests {
         assert_eq!(render_routes(&back).expect("re-render"), bytes);
     }
 
+    /// Exactly, not approximately: the number a hit replays into
+    /// `rr query --json` is the number the ranker gave, so a run answered from
+    /// the cache prints the same document as the run that filled it.
     #[test]
-    fn a_confidence_survives_the_six_decimal_round_trip() {
+    fn a_confidence_survives_the_round_trip_bit_for_bit() {
         for raw in [
-            0.0_f32, 0.000_001, 0.123_456, 0.5, 0.813_263, 0.999_999, 1.0,
+            0.0_f32,
+            0.000_001,
+            0.123_456,
+            0.5,
+            0.813_263_4,
+            0.999_999_94,
+            1.0,
         ] {
             let mut table = RouteTable::default();
             table.insert(record(
@@ -652,9 +708,10 @@ mod tests {
             let bytes = render_routes(&table).expect("render");
             let back = parse_routes(&bytes).expect("reparse");
             let key = RouteKey::new("verify token").unwrap();
-            assert!(
-                (back.get(&key).unwrap().confidence.get() - raw).abs() < f32::EPSILON,
-                "{raw} did not survive six decimals"
+            assert_eq!(
+                back.get(&key).unwrap().confidence.get().to_bits(),
+                raw.to_bits(),
+                "{raw} did not survive the file"
             );
         }
     }
@@ -851,7 +908,7 @@ mod tests {
                 1.0,
             ))
         });
-        assert!(wrote);
+        assert!(wrote.wrote);
 
         let (table, fault) = load_routes(temp.path());
         assert_eq!(fault, None);
@@ -865,7 +922,7 @@ mod tests {
                 1.0,
             ))
         });
-        assert!(!wrote_again);
+        assert!(!wrote_again.wrote);
     }
 
     #[test]

@@ -13,27 +13,27 @@ use rr_core::text::{
     MAX_ROUTES,
 };
 
-/// The two questions of the issue's §1, learned against one directory scope.
+/// The two questions of the issue's §1, learned against one corpus.
 ///
-/// Both records share an `api_hash` because both symbols live in `src/auth/`:
-/// per-scope staleness is not an implementation detail here, it is visible in
-/// the artifact.
+/// Both records share an `api_identity` because a route is an answer about the
+/// whole index rather than about one directory: corpus-wide staleness is not an
+/// implementation detail here, it is visible in the artifact.
 fn table() -> RouteTable {
-    let api_hash = Digest::of_bytes(b"src/auth scope api");
+    let api_identity = Digest::of_bytes(b"repository api");
     let mut table = RouteTable::default();
     for (key, anchor, confidence) in [
         ("token verify", "src/auth/token.rs#verify_token", 1.0_f32),
         (
             "rotate signing",
             "src/auth/keys.rs#rotate_signing_key",
-            0.813_263,
+            0.813_263_4,
         ),
     ] {
         assert!(table.insert(RouteRecord {
             key: RouteKey::new(key).expect("a two-word key"),
             anchor: anchor.to_owned(),
             map: encode_map_destination("src/auth/MAP.md"),
-            api_hash,
+            api_identity,
             confidence: Confidence::new(confidence).expect("in range"),
         }));
     }

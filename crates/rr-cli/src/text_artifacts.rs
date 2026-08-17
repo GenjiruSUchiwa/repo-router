@@ -40,39 +40,53 @@ pub fn publish(
     budget: u32,
 ) -> anyhow::Result<TextReport> {
     let mut report = write_generation(staged, root)?;
-    report.routes_retired = reconcile_routes(snapshot, root, budget);
+    let (retired, reset) = reconcile_routes(snapshot, root, budget);
+    report.routes_retired = retired;
+    report.routes_reset = reset;
     confirm(snapshot, root, budget)?;
     Ok(report)
 }
 
-/// Drops routes the new generation invalidated, and returns how many.
+/// Drops routes the new generation invalidated, and returns how many, plus why
+/// the cache had to be reset if it did.
 ///
-/// Done here rather than lazily on the next query so the count reaches the
-/// refresh report: "eleven routes retired" is the one place a user learns that
-/// a rename moved things. A lazy reader would still be *correct* — the
-/// `api_hash` check in `rr query`'s route lookup is what actually protects an
-/// answer — but it would never be able to say so.
+/// Done here rather than lazily on the next query so both reach the refresh
+/// report: "eleven routes retired" is the one place a user learns that a rename
+/// moved things, and "the cache reset because …" is the one place they learn
+/// that something wrote a file this crate could not read. A lazy reader would
+/// still be *correct* — the `api_identity` check in `rr query`'s route lookup is
+/// what actually protects an answer — but it would never be able to say so.
 ///
 /// Called from here and nowhere else, because every caller that reaches
 /// [`publish`] already holds the publication guard. The `UpToDate` branch of
 /// `refresh` returns without taking one, and nothing there invalidated a route.
-fn reconcile_routes(snapshot: &Snapshot, root: &Path, budget: u32) -> u32 {
+fn reconcile_routes(
+    snapshot: &Snapshot,
+    root: &Path,
+    budget: u32,
+) -> (u32, Option<rr_core::text::RouteFault>) {
     let Ok(catalog) = rr_core::text::projected_map_catalog(snapshot, budget) else {
-        return 0;
+        return (0, None);
     };
+    // The same corpus-wide test `rr query` applies, spelled once here so the two
+    // cannot disagree about which routes this generation still believes.
+    let identity = catalog.api_identity();
     let mut retired = 0_u32;
-    rr_core::text::update_routes(root, |table| {
+    let update = rr_core::text::update_routes(root, |table| {
         table.retain(|record| {
-            let live = rr_core::query::resolve_route_anchor(snapshot, &record.anchor)
-                .and_then(|symbol| catalog.owner(symbol))
-                .is_some_and(|identity| identity.api_hash().digest() == record.api_hash);
+            let live = record.api_identity == identity
+                && rr_core::query::resolve_route_anchor(snapshot, &record.anchor).is_some();
             if !live {
                 retired += 1;
             }
             live
         })
     });
-    retired
+    // A count of routes the new file no longer holds. `update_routes` swallows
+    // its write failures, so a report that counted the closure's decisions
+    // would tell a user "eleven routes retired" about a file that still holds
+    // all eleven — the one claim this counter exists to make, made falsely.
+    (if update.wrote { retired } else { 0 }, update.fault)
 }
 
 fn write_generation(staged: &StagedText, root: &Path) -> anyhow::Result<TextReport> {

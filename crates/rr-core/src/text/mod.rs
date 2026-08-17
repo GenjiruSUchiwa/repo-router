@@ -42,7 +42,10 @@ mod routes;
 mod validate;
 
 pub use block::{apply_block, BlockMarkers, DUPLICATE_MARKERS_REASON, MALFORMED_MARKERS_REASON};
-pub use catalog::{projected_map_catalog, validated_map_catalog, MapCatalog, MapIdentity};
+pub use catalog::{
+    api_identity, projected_map_catalog, validated_map_catalog, MapCatalog, MapIdentity,
+    API_IDENTITY_MEMO,
+};
 pub use digest::{ApiHash, Digest};
 pub use ignore::{
     apply_managed_block, managed_ignore_block, IGNORE_BEGIN_MARKER, IGNORE_END_MARKER,
@@ -57,7 +60,7 @@ pub use render::{ArtifactKind, RenderedArtifactSet, RenderedFile};
 pub use report::{SymbolsState, TextReport};
 pub use routes::{
     encode_map_destination, load_routes, parse_routes, render_routes, update_routes, RouteFault,
-    RouteKey, RouteRecord, RouteTable, MAX_ROUTES, ROUTES_PATH,
+    RouteKey, RouteRecord, RouteTable, RouteUpdate, MAX_ROUTES, ROUTES_PATH,
 };
 pub use validate::{
     stage_text_artifacts, validate_text_artifacts, Conflict, ConflictReason, StagedText,

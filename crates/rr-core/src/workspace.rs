@@ -11,6 +11,7 @@
 //! happened, so the cheapest and most important state — "no work to do" —
 //! becomes unreachable. Marking the directory ignored is what makes it reachable.
 
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
 /// The directory holding everything this tool writes.
@@ -56,6 +57,73 @@ pub fn snapshot_path(root: &Path) -> PathBuf {
 #[must_use]
 pub fn publication_lock_path(root: &Path) -> PathBuf {
     local_dir(root).join("publication")
+}
+
+/// `<root>/.rr/local/memo/<name>`
+fn memo_path(root: &Path, name: &str) -> PathBuf {
+    local_dir(root).join("memo").join(name)
+}
+
+/// The snapshot file's identity, as the stamp a memo is filed under.
+///
+/// Length and modification time, which is the exact pair [`crate::snapshot::SnapshotStore::publish`]
+/// already makes meaningful: it refuses to rewrite a file whose bytes did not
+/// change *because* doing so would move the mtime and invalidate every reader's
+/// belief that nothing happened. A memo stamped this way reads a signal this
+/// crate already maintains rather than inventing one.
+///
+/// `None` when there is no snapshot to stamp against, which turns every memo
+/// into a miss rather than a stale hit.
+#[must_use]
+pub fn snapshot_stamp(root: &Path) -> Option<String> {
+    let meta = std::fs::metadata(snapshot_path(root)).ok()?;
+    let modified = meta
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?;
+    Some(format!("{}:{}", meta.len(), modified.as_nanos()))
+}
+
+/// What a memo says, but only if it was filed against the snapshot on disk now.
+///
+/// The stamp is checked here and not by the caller, so a memo can never be read
+/// without it. Every failure — no snapshot, no memo, a memo for some other
+/// snapshot, a torn one — is the same `None`: a miss, which costs the caller the
+/// work it was trying to skip and never a wrong answer.
+#[must_use]
+pub fn read_memo(root: &Path, name: &str) -> Option<String> {
+    let stamp = snapshot_stamp(root)?;
+    let text = std::fs::read_to_string(memo_path(root, name)).ok()?;
+    let (found, value) = text.split_once('\t')?;
+    (found == stamp).then(|| value.trim_end_matches('\n').to_owned())
+}
+
+/// Files a memo against the snapshot on disk now.
+///
+/// Best-effort in the same sense as the route cache: a caller that could not
+/// record a shortcut has still answered the question it was asked. Written to a
+/// unique temporary and renamed, because two `rr query` processes memoizing the
+/// same fact at the same time would otherwise interleave into a line that is
+/// neither of theirs.
+pub fn write_memo(root: &Path, name: &str, value: &str) {
+    let Some(stamp) = snapshot_stamp(root) else {
+        return;
+    };
+    let dir = local_dir(root).join("memo");
+    if std::fs::create_dir_all(&dir).is_err() {
+        return;
+    }
+    let Ok(mut temp) = tempfile::NamedTempFile::new_in(&dir) else {
+        return;
+    };
+    if temp
+        .write_all(format!("{stamp}\t{value}\n").as_bytes())
+        .is_err()
+    {
+        return;
+    }
+    let _ = temp.persist(memo_path(root, name));
 }
 
 /// Creates the state directory and marks it ignored.
