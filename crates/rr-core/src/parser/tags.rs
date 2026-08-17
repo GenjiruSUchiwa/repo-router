@@ -101,6 +101,16 @@ pub struct ImportSpec {
     /// query can match has to contain at least one of these literally, or a
     /// file with imports would be reported as having none.
     pub markers: &'static [&'static str],
+    /// The function names `@import.callee` accepts.
+    ///
+    /// A call-based import is a call to a *particular* function, and which one
+    /// is the language's business: JavaScript has `require`, Ruby has `require`
+    /// and `require_relative`, Lua has `require`. Reading the list from the
+    /// spec rather than comparing against a literal is what lets Ruby record
+    /// the half of its imports that `require_relative` writes.
+    ///
+    /// Empty for a language whose query has no `@import.callee`.
+    pub callee_names: &'static [&'static str],
     /// Compiled query and resolved capture indices, once per process.
     pub compiled: OnceLock<std::result::Result<CompiledImports, String>>,
 }
@@ -117,6 +127,7 @@ pub struct CompiledImports {
     glob: Option<u32>,
     public: Option<u32>,
     callee: Option<u32>,
+    callee_names: &'static [&'static str],
 }
 
 /// Stateful generic tags extractor: one tags parser/context per worker.
@@ -350,6 +361,9 @@ fn compile_imports(
         // that genuinely has none.
         return Err("imports spec has no markers prefilter".to_string());
     }
+    if callee.is_some() && spec.callee_names.is_empty() {
+        return Err("imports query has @import.callee but the spec names no callee".to_string());
+    }
     Ok(CompiledImports {
         query,
         anchors,
@@ -359,6 +373,7 @@ fn compile_imports(
         glob,
         public,
         callee,
+        callee_names: spec.callee_names,
     })
 }
 
@@ -451,10 +466,10 @@ fn build_import(
         });
     };
 
-    // `require` is a function name, not a keyword, so the query has to match
-    // every call taking one string and let this reject the rest by name:
-    // `describe("a case")` imports nothing. Read here rather than through an
-    // `#eq?` predicate for the reason `LanguageSpec::refine` gives — this crate
+    // `require` is a function name, not a keyword: only a call to one of the
+    // names this language uses for it imports anything, and a file that
+    // declares its own `require` declares a function. Read here rather than
+    // through `#eq?` for the reason `LanguageSpec::refine` gives — this crate
     // does not depend on predicate evaluation.
     //
     // Name equality is the whole test. There is no scope analysis behind it, so
@@ -463,7 +478,7 @@ fn build_import(
     // no module graph would have resolved anyway, and resolving bindings inside
     // a pass whose only job is reading declarations costs more than that.
     if let Some(callee) = callee_node {
-        if node_text(callee, source)? != "require" {
+        if !compiled.callee_names.contains(&node_text(callee, source)?) {
             return Ok(None);
         }
     }
@@ -1184,6 +1199,7 @@ static PYTHON_IMPORTS: ImportSpec = ImportSpec {
     query: include_str!("queries/python-imports.scm"),
     kinds: &[("import", ImportKind::Import), ("from", ImportKind::From)],
     markers: &["import"],
+    callee_names: &[],
     compiled: OnceLock::new(),
 };
 
@@ -1348,6 +1364,9 @@ fn never_a_test_signal(_name: &str) -> bool {
     false
 }
 
+/// A language whose tags capture is already the right kind.
+fn keep_as_captured(_def: &mut Def) {}
+
 const TYPESCRIPT_KINDS: &[(&str, DefKind)] = &[
     ("function", DefKind::Function),
     ("class", DefKind::Class),
@@ -1406,6 +1425,7 @@ static TYPESCRIPT_IMPORTS: ImportSpec = ImportSpec {
     query: include_str!("queries/typescript-imports.scm"),
     kinds: TYPESCRIPT_IMPORT_KINDS,
     markers: &["import", "require", "from"],
+    callee_names: &["require"],
     compiled: OnceLock::new(),
 };
 
@@ -1413,6 +1433,7 @@ static TSX_IMPORTS: ImportSpec = ImportSpec {
     query: include_str!("queries/typescript-imports.scm"),
     kinds: TYPESCRIPT_IMPORT_KINDS,
     markers: &["import", "require", "from"],
+    callee_names: &["require"],
     compiled: OnceLock::new(),
 };
 
@@ -1436,6 +1457,615 @@ pub(crate) static TSX: LanguageSpec = typescript_spec(
     tree_sitter_typescript::LANGUAGE_TSX,
     &TSX_IMPORTS,
 );
+
+const JAVASCRIPT_KINDS: &[(&str, DefKind)] = &[
+    ("class", DefKind::Class),
+    ("function", DefKind::Function),
+    ("method", DefKind::Method),
+    ("constant", DefKind::Const),
+];
+
+const JAVASCRIPT_REFERENCE_KINDS: &[(&str, ReferenceKind)] = &[
+    ("call", ReferenceKind::Call),
+    ("class", ReferenceKind::Type),
+];
+
+/// A `#name` is private to its class by the language, exactly as in TypeScript.
+///
+/// Shared with TypeScript rather than duplicated: private class fields are one
+/// proposal implemented once, and the `#` is part of the name in both grammars.
+fn javascript_visibility(name: &str) -> Visibility {
+    typescript_visibility(name)
+}
+
+/// What the JavaScript query captured, plus the two things its node types
+/// cannot separate.
+///
+/// `constructor` and a `get`/`set` accessor are both `method_definition`s, and
+/// upstream's query captures neither — so unlike TypeScript's, this hook has no
+/// `DefKind::Method` to promote and only handles the arrow-binding case that
+/// `definition.function` already reaches it as. Kept as a named function rather
+/// than `keep_as_captured` so the day the query grows a `constructor` pattern
+/// there is a place to put the promotion.
+fn javascript_refine(def: &mut Def) {
+    if def.name == "constructor" && def.kind == DefKind::Method {
+        def.kind = DefKind::Constructor;
+    }
+}
+
+/// One JavaScript specification, differing from the other only in the `Lang`
+/// it reports and the `OnceLock` it fills.
+///
+/// Both compile the *same* grammar: `tree_sitter_javascript::LANGUAGE` parses
+/// `.jsx` with no parse errors, which is why `Lang::Jsx` needs no second crate
+/// and why JavaScript and JSX share one grammar crate. Kept as two statics all
+/// the same, because `Registry` is keyed by `Lang` and a shared static would
+/// file `.jsx` facts under `Lang::JavaScript`.
+const fn javascript_spec(lang: Lang, imports: &'static ImportSpec) -> LanguageSpec {
+    LanguageSpec {
+        lang,
+        language: tree_sitter_javascript::LANGUAGE,
+        tags_query: tree_sitter_javascript::TAGS_QUERY,
+        locals_query: "",
+        kinds: JAVASCRIPT_KINDS,
+        reference_kinds: JAVASCRIPT_REFERENCE_KINDS,
+        imports: Some(imports),
+        visibility: javascript_visibility,
+        test_attribute: never_a_test_signal,
+        test_scope: never_a_test_signal,
+        refine: javascript_refine,
+        doc_is_leading_body_string: false,
+        line_comment_prefixes: &["//"],
+        config: OnceLock::new(),
+    }
+}
+
+const JAVASCRIPT_IMPORT_KINDS: &[(&str, ImportKind)] = &[
+    ("import", ImportKind::Import),
+    ("from", ImportKind::From),
+    ("require", ImportKind::Require),
+];
+
+static JAVASCRIPT_IMPORTS: ImportSpec = ImportSpec {
+    query: include_str!("queries/javascript-imports.scm"),
+    kinds: JAVASCRIPT_IMPORT_KINDS,
+    markers: &["import", "require", "from"],
+    callee_names: &["require"],
+    compiled: OnceLock::new(),
+};
+
+static JSX_IMPORTS: ImportSpec = ImportSpec {
+    query: include_str!("queries/javascript-imports.scm"),
+    kinds: JAVASCRIPT_IMPORT_KINDS,
+    markers: &["import", "require", "from"],
+    callee_names: &["require"],
+    compiled: OnceLock::new(),
+};
+
+pub(crate) static JAVASCRIPT: LanguageSpec = javascript_spec(Lang::JavaScript, &JAVASCRIPT_IMPORTS);
+
+pub(crate) static JSX: LanguageSpec = javascript_spec(Lang::Jsx, &JSX_IMPORTS);
+
+const GO_KINDS: &[(&str, DefKind)] = &[
+    ("function", DefKind::Function),
+    ("method", DefKind::Method),
+    // One capture for `type X struct`, `type X interface` and `type X = Y`
+    // alike: upstream's query does not separate them, and `Struct` would be a
+    // guess about two thirds of them. `TypeAlias` is the kind that claims
+    // least, and claiming least is what tier 2 is.
+    ("type", DefKind::TypeAlias),
+];
+
+const GO_REFERENCE_KINDS: &[(&str, ReferenceKind)] =
+    &[("call", ReferenceKind::Call), ("type", ReferenceKind::Type)];
+
+/// Go's export rule, which is the whole of its visibility.
+///
+/// An initial upper-case rune exports; anything else is visible only inside the
+/// declaring package. Judged on the first character rather than
+/// `str::to_uppercase`, because a name starting with `_` or a digit is neither
+/// upper nor lower and is package-scoped, and because Go's rule is about the
+/// rune's Unicode category, not about round-tripping a case conversion.
+fn go_visibility(name: &str) -> Visibility {
+    match name.chars().next() {
+        Some(first) if first.is_uppercase() => Visibility::Public,
+        _ => Visibility::Package,
+    }
+}
+
+/// Go states test intent in the file name and the function name, and rr already
+/// reads the first: `Lang::path_indicates_test` handles `_test.go`. The second
+/// is `TestXxx`, which is a name and not an attribute, so it belongs to
+/// whichever tier can see the file name — not to this hook.
+fn go_test_scope(_name: &str) -> bool {
+    false
+}
+
+pub(crate) static GO: LanguageSpec = LanguageSpec {
+    lang: Lang::Go,
+    language: tree_sitter_go::LANGUAGE,
+    tags_query: tree_sitter_go::TAGS_QUERY,
+    locals_query: "",
+    kinds: GO_KINDS,
+    reference_kinds: GO_REFERENCE_KINDS,
+    imports: Some(&GO_IMPORTS),
+    visibility: go_visibility,
+    test_attribute: never_a_test_signal,
+    test_scope: go_test_scope,
+    refine: keep_as_captured,
+    doc_is_leading_body_string: false,
+    line_comment_prefixes: &["//"],
+    config: OnceLock::new(),
+};
+
+static GO_IMPORTS: ImportSpec = ImportSpec {
+    query: include_str!("queries/go-imports.scm"),
+    kinds: &[("import", ImportKind::Import)],
+    markers: &["import"],
+    callee_names: &[],
+    compiled: OnceLock::new(),
+};
+
+const JAVA_KINDS: &[(&str, DefKind)] = &[
+    ("class", DefKind::Class),
+    ("interface", DefKind::Interface),
+    ("method", DefKind::Method),
+];
+
+const JAVA_REFERENCE_KINDS: &[(&str, ReferenceKind)] = &[
+    ("call", ReferenceKind::Call),
+    ("class", ReferenceKind::Type),
+    ("implementation", ReferenceKind::Implementation),
+];
+
+/// Java states visibility with a modifier, and its *absence* is a visibility.
+///
+/// Returned from the name alone this can only be a placeholder, because a Java
+/// name says nothing: `java_refine` overwrites it from the declaration text, the
+/// way `typescript_refine` does. `Package` and not `Public` is the placeholder
+/// because it is the language's default, so a declaration whose modifier the
+/// signature slice truncated away is reported as the thing it most likely is.
+fn java_visibility(_name: &str) -> Visibility {
+    Visibility::Package
+}
+
+/// Every word Java allows between the start of a member declaration and its
+/// return type, read as a prefix for the reason `TYPESCRIPT_MODIFIERS` gives:
+/// a field named `final` and a parameter named `synchronized` are both things a
+/// repository contains.
+const JAVA_MODIFIERS: &[&str] = &[
+    "public",
+    "private",
+    "protected",
+    "static",
+    "final",
+    "abstract",
+    "synchronized",
+    "native",
+    "transient",
+    "volatile",
+    "strictfp",
+    "default",
+    "sealed",
+    "non-sealed",
+];
+
+/// The access modifier this declaration states, or `None` when it states none.
+///
+/// `display_signature` has already folded every whitespace run into one space,
+/// so splitting on it recovers the tokens exactly — the same contract
+/// `typescript_modifiers` relies on. Annotations are skipped rather than
+/// treated as terminators: `@Override public void run()` states `public`.
+fn java_declared_visibility(signature: &str) -> Option<Visibility> {
+    signature
+        .split(' ')
+        .skip_while(|word| word.starts_with('@'))
+        .take_while(|word| JAVA_MODIFIERS.contains(word))
+        .find_map(|word| match word {
+            "public" => Some(Visibility::Public),
+            "private" => Some(Visibility::Private),
+            "protected" => Some(Visibility::Protected),
+            _ => None,
+        })
+}
+
+/// What the Java query captured, plus the modifier no capture can reach.
+///
+/// An `@Test` annotation is an `attribute_ident`, which the extractor already
+/// collects, so test detection needs no work here — `java_test_attribute` reads
+/// it. What does need work is access: `modifiers` is an unnamed sibling of the
+/// name in this grammar, so only the declaration text says whether a method is
+/// public, and a method that says nothing is package-private rather than public.
+fn java_refine(def: &mut Def) {
+    if let Some(visibility) = java_declared_visibility(&def.signature) {
+        def.visibility = visibility;
+    }
+}
+
+/// `JUnit` 4 and 5 both spell it `@Test`; `TestNG` spells it the same.
+fn java_test_attribute(ident: &str) -> bool {
+    ident == "Test" || ident == "ParameterizedTest" || ident == "RepeatedTest"
+}
+
+pub(crate) static JAVA: LanguageSpec = LanguageSpec {
+    lang: Lang::Java,
+    language: tree_sitter_java::LANGUAGE,
+    tags_query: tree_sitter_java::TAGS_QUERY,
+    locals_query: "",
+    kinds: JAVA_KINDS,
+    reference_kinds: JAVA_REFERENCE_KINDS,
+    imports: Some(&JAVA_IMPORTS),
+    visibility: java_visibility,
+    test_attribute: java_test_attribute,
+    test_scope: never_a_test_signal,
+    refine: java_refine,
+    doc_is_leading_body_string: false,
+    line_comment_prefixes: &["//"],
+    config: OnceLock::new(),
+};
+
+static JAVA_IMPORTS: ImportSpec = ImportSpec {
+    query: include_str!("queries/java-imports.scm"),
+    kinds: &[("import", ImportKind::Import), ("from", ImportKind::From)],
+    markers: &["import"],
+    callee_names: &[],
+    compiled: OnceLock::new(),
+};
+
+const C_KINDS: &[(&str, DefKind)] = &[
+    ("class", DefKind::Struct),
+    ("function", DefKind::Function),
+    ("type", DefKind::TypeAlias),
+];
+
+/// C has no visibility modifier reachable from a tags query.
+///
+/// `static` at file scope means internal linkage, which is exactly
+/// `Visibility::Internal` — but `static` is an unnamed token this query never
+/// captures, and the signature slice is not read here because C's `static` and
+/// C++'s member `static` mean unrelated things. Everything is `Public` until a
+/// tier that can see storage class says otherwise.
+fn c_visibility(_name: &str) -> Visibility {
+    Visibility::Public
+}
+
+pub(crate) static C: LanguageSpec = LanguageSpec {
+    lang: Lang::C,
+    language: tree_sitter_c::LANGUAGE,
+    tags_query: tree_sitter_c::TAGS_QUERY,
+    locals_query: "",
+    kinds: C_KINDS,
+    // Empty, and correct: upstream's C tags query declares no `reference.*`
+    // capture, so `validate_kind_maps` has nothing to check and the extractor
+    // produces a definitions-only `Facts`. A map that guessed at entries for
+    // captures the query does not have would fail nothing and mean nothing.
+    reference_kinds: &[],
+    imports: Some(&C_IMPORTS),
+    visibility: c_visibility,
+    test_attribute: never_a_test_signal,
+    test_scope: never_a_test_signal,
+    refine: keep_as_captured,
+    doc_is_leading_body_string: false,
+    line_comment_prefixes: &["//"],
+    config: OnceLock::new(),
+};
+
+static C_IMPORTS: ImportSpec = ImportSpec {
+    query: include_str!("queries/c-imports.scm"),
+    kinds: &[("include", ImportKind::Include)],
+    markers: &["#include"],
+    callee_names: &[],
+    compiled: OnceLock::new(),
+};
+
+const CPP_KINDS: &[(&str, DefKind)] = &[
+    ("class", DefKind::Class),
+    ("function", DefKind::Function),
+    ("method", DefKind::Method),
+    ("type", DefKind::TypeAlias),
+];
+
+pub(crate) static CPP: LanguageSpec = LanguageSpec {
+    lang: Lang::Cpp,
+    language: tree_sitter_cpp::LANGUAGE,
+    tags_query: tree_sitter_cpp::TAGS_QUERY,
+    locals_query: "",
+    kinds: CPP_KINDS,
+    reference_kinds: &[],
+    imports: Some(&CPP_IMPORTS),
+    visibility: c_visibility,
+    test_attribute: never_a_test_signal,
+    test_scope: never_a_test_signal,
+    refine: keep_as_captured,
+    doc_is_leading_body_string: false,
+    line_comment_prefixes: &["//"],
+    config: OnceLock::new(),
+};
+
+static CPP_IMPORTS: ImportSpec = ImportSpec {
+    query: include_str!("queries/cpp-imports.scm"),
+    kinds: &[("include", ImportKind::Include)],
+    markers: &["#include"],
+    callee_names: &[],
+    compiled: OnceLock::new(),
+};
+
+const RUBY_KINDS: &[(&str, DefKind)] = &[
+    ("class", DefKind::Class),
+    ("module", DefKind::Module),
+    ("method", DefKind::Method),
+];
+
+const RUBY_REFERENCE_KINDS: &[(&str, ReferenceKind)] = &[("call", ReferenceKind::Call)];
+
+/// Ruby's `private` is a method call whose effect runs to the end of the body,
+/// which a tags query cannot see and this hook cannot reach either: `refine`
+/// runs before `assign_nesting`, so it does not know which class a method is in,
+/// let alone which `private` preceded it. A leading underscore is a convention
+/// Ruby does not enforce, so it reads as internal and not as private.
+fn ruby_visibility(name: &str) -> Visibility {
+    if name.starts_with('_') {
+        Visibility::Internal
+    } else {
+        Visibility::Public
+    }
+}
+
+/// `RSpec`'s `describe`/`it` and Minitest's `test_` prefix are the two
+/// conventions. Only the second is a definition name, which is the only thing
+/// this hook sees.
+fn ruby_test_scope(name: &str) -> bool {
+    name.starts_with("Test") || name.ends_with("Test")
+}
+
+pub(crate) static RUBY: LanguageSpec = LanguageSpec {
+    lang: Lang::Ruby,
+    language: tree_sitter_ruby::LANGUAGE,
+    tags_query: tree_sitter_ruby::TAGS_QUERY,
+    locals_query: "",
+    kinds: RUBY_KINDS,
+    reference_kinds: RUBY_REFERENCE_KINDS,
+    imports: Some(&RUBY_IMPORTS),
+    visibility: ruby_visibility,
+    test_attribute: never_a_test_signal,
+    test_scope: ruby_test_scope,
+    refine: keep_as_captured,
+    doc_is_leading_body_string: false,
+    line_comment_prefixes: &["#"],
+    config: OnceLock::new(),
+};
+
+static RUBY_IMPORTS: ImportSpec = ImportSpec {
+    query: include_str!("queries/ruby-imports.scm"),
+    kinds: &[("require", ImportKind::Require)],
+    markers: &["require"],
+    callee_names: &["require", "require_relative"],
+    compiled: OnceLock::new(),
+};
+
+const LUA_KINDS: &[(&str, DefKind)] =
+    &[("function", DefKind::Function), ("method", DefKind::Method)];
+
+const LUA_REFERENCE_KINDS: &[(&str, ReferenceKind)] = &[("call", ReferenceKind::Call)];
+
+/// Lua's only visibility is `local`, which is a statement keyword the query does
+/// not capture and the signature slice does reach — but `local function f` and a
+/// `local f = function()` differ in where the keyword sits, and reading only the
+/// first would report the second as public. Everything is public until a tier
+/// that can see the statement says otherwise.
+fn lua_visibility(_name: &str) -> Visibility {
+    Visibility::Public
+}
+
+pub(crate) static LUA: LanguageSpec = LanguageSpec {
+    lang: Lang::Lua,
+    language: tree_sitter_lua::LANGUAGE,
+    tags_query: tree_sitter_lua::TAGS_QUERY,
+    locals_query: "",
+    kinds: LUA_KINDS,
+    reference_kinds: LUA_REFERENCE_KINDS,
+    imports: Some(&LUA_IMPORTS),
+    visibility: lua_visibility,
+    test_attribute: never_a_test_signal,
+    test_scope: never_a_test_signal,
+    refine: keep_as_captured,
+    doc_is_leading_body_string: false,
+    line_comment_prefixes: &["--"],
+    config: OnceLock::new(),
+};
+
+static LUA_IMPORTS: ImportSpec = ImportSpec {
+    query: include_str!("queries/lua-imports.scm"),
+    kinds: &[("require", ImportKind::Require)],
+    markers: &["require"],
+    callee_names: &["require"],
+    compiled: OnceLock::new(),
+};
+
+const PHP_KINDS: &[(&str, DefKind)] = &[
+    ("module", DefKind::Namespace),
+    ("class", DefKind::Class),
+    // A PHP `trait` is captured as `definition.interface` by upstream's query.
+    // Mapped to `Interface` and not to `Trait`, because `Trait` would then be
+    // right for half the matches and wrong for the other half, and the query
+    // gives no way to tell which is which. Recorded here rather than fixed.
+    ("interface", DefKind::Interface),
+    ("field", DefKind::Field),
+    // Upstream's query captures methods and free functions with the same
+    // capture. `php_refine` promotes the ones whose declaration text says
+    // `function` is preceded by a modifier, which is as far as the signature
+    // can carry it.
+    ("function", DefKind::Function),
+];
+
+const PHP_REFERENCE_KINDS: &[(&str, ReferenceKind)] = &[
+    ("call", ReferenceKind::Call),
+    ("class", ReferenceKind::Type),
+    ("implementation", ReferenceKind::Implementation),
+];
+
+const PHP_MODIFIERS: &[&str] = &[
+    "public",
+    "private",
+    "protected",
+    "static",
+    "abstract",
+    "final",
+    "readonly",
+];
+
+/// The visibility this member states, and whether it stated anything at all.
+fn php_declared_visibility(signature: &str) -> Option<Visibility> {
+    signature
+        .split(' ')
+        .take_while(|word| PHP_MODIFIERS.contains(word))
+        .find_map(|word| match word {
+            "public" => Some(Visibility::Public),
+            "private" => Some(Visibility::Private),
+            "protected" => Some(Visibility::Protected),
+            _ => None,
+        })
+}
+
+/// PHP's default is public, and it says so: a member with no modifier is public
+/// by the language rather than package-scoped, which is why this is not Java's
+/// `Package`.
+fn php_visibility(_name: &str) -> Visibility {
+    Visibility::Public
+}
+
+/// What the PHP query captured, plus what one capture for two constructs cannot
+/// say.
+///
+/// A declaration that opens with a modifier is a member: PHP allows a bare
+/// `function` inside a class too, and such a member stays a `Function`. That is
+/// a known under-count, not a rounding: `refine` runs before `assign_nesting`
+/// (`TagsExtractor::extract`), so it does not know the owner, and the modifier
+/// is the only evidence in reach.
+fn php_refine(def: &mut Def) {
+    if let Some(visibility) = php_declared_visibility(&def.signature) {
+        def.visibility = visibility;
+        if def.kind == DefKind::Function {
+            def.kind = DefKind::Method;
+        }
+    }
+    if def.name == "__construct" && def.kind == DefKind::Method {
+        def.kind = DefKind::Constructor;
+    }
+}
+
+pub(crate) static PHP: LanguageSpec = LanguageSpec {
+    lang: Lang::Php,
+    language: tree_sitter_php::LANGUAGE_PHP,
+    tags_query: tree_sitter_php::TAGS_QUERY,
+    locals_query: "",
+    kinds: PHP_KINDS,
+    reference_kinds: PHP_REFERENCE_KINDS,
+    imports: Some(&PHP_IMPORTS),
+    visibility: php_visibility,
+    test_attribute: never_a_test_signal,
+    test_scope: never_a_test_signal,
+    refine: php_refine,
+    doc_is_leading_body_string: false,
+    line_comment_prefixes: &["//", "#"],
+    config: OnceLock::new(),
+};
+
+static PHP_IMPORTS: ImportSpec = ImportSpec {
+    query: include_str!("queries/php-imports.scm"),
+    kinds: &[
+        ("import", ImportKind::Import),
+        ("from", ImportKind::From),
+        ("require", ImportKind::Require),
+    ],
+    markers: &["use", "require", "include"],
+    callee_names: &[],
+    compiled: OnceLock::new(),
+};
+
+const SWIFT_KINDS: &[(&str, DefKind)] = &[
+    // Upstream's query files `struct`, `enum` and `class` under one capture.
+    // `Class` is the one of the three that is never wrong about being a named
+    // type with members, and `Struct` would be wrong for two thirds of them.
+    ("class", DefKind::Class),
+    ("interface", DefKind::Interface),
+    ("method", DefKind::Method),
+    ("property", DefKind::Property),
+    ("function", DefKind::Function),
+];
+
+const SWIFT_MODIFIERS: &[&str] = &[
+    "public",
+    "private",
+    "internal",
+    "fileprivate",
+    "open",
+    "package",
+    "static",
+    "class",
+    "final",
+    "override",
+    "mutating",
+    "lazy",
+    "weak",
+    "unowned",
+];
+
+fn swift_declared_visibility(signature: &str) -> Option<Visibility> {
+    signature
+        .split(' ')
+        .take_while(|word| SWIFT_MODIFIERS.contains(word))
+        .find_map(|word| match word {
+            "public" | "open" => Some(Visibility::Public),
+            "private" => Some(Visibility::Private),
+            "fileprivate" | "internal" => Some(Visibility::Internal),
+            // Swift 5.9's `package` is module-group scope, which is what
+            // `Visibility::Package` names.
+            "package" => Some(Visibility::Package),
+            _ => None,
+        })
+}
+
+/// Swift's default is `internal` — visible inside the module and nowhere else.
+/// Reported as `Visibility::Internal` and not `Public`, because unlike PHP the
+/// language's unwritten default really is narrower than public.
+fn swift_visibility(_name: &str) -> Visibility {
+    Visibility::Internal
+}
+
+fn swift_refine(def: &mut Def) {
+    if let Some(visibility) = swift_declared_visibility(&def.signature) {
+        def.visibility = visibility;
+    }
+    if def.name == "init" && def.kind == DefKind::Method {
+        def.kind = DefKind::Constructor;
+    }
+}
+
+pub(crate) static SWIFT: LanguageSpec = LanguageSpec {
+    lang: Lang::Swift,
+    language: tree_sitter_swift::LANGUAGE,
+    tags_query: tree_sitter_swift::TAGS_QUERY,
+    locals_query: "",
+    kinds: SWIFT_KINDS,
+    reference_kinds: &[],
+    imports: Some(&SWIFT_IMPORTS),
+    visibility: swift_visibility,
+    test_attribute: never_a_test_signal,
+    test_scope: never_a_test_signal,
+    refine: swift_refine,
+    doc_is_leading_body_string: false,
+    line_comment_prefixes: &["//"],
+    config: OnceLock::new(),
+};
+
+static SWIFT_IMPORTS: ImportSpec = ImportSpec {
+    query: include_str!("queries/swift-imports.scm"),
+    kinds: &[("import", ImportKind::Import)],
+    markers: &["import"],
+    callee_names: &[],
+    compiled: OnceLock::new(),
+};
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
@@ -1471,6 +2101,48 @@ mod tests {
         let empty = LineIndex::new(b"").unwrap();
         let span = span_for_range(&(0..0), &empty, "").unwrap();
         assert_eq!((span.start_line(), span.end_line()), (1, 1));
+    }
+
+    #[test]
+    fn an_imports_spec_with_a_callee_and_no_callee_names_is_rejected() {
+        static IMPORTS: ImportSpec = ImportSpec {
+            query: "(call_expression function: (identifier) @import.callee arguments: (arguments . (string) @import.path)) @import.require",
+            kinds: &[("require", ImportKind::Require)],
+            markers: &["require"],
+            callee_names: &[],
+            compiled: OnceLock::new(),
+        };
+        static SPEC: LanguageSpec = LanguageSpec {
+            lang: Lang::JavaScript,
+            language: tree_sitter_javascript::LANGUAGE,
+            tags_query: tree_sitter_javascript::TAGS_QUERY,
+            locals_query: "",
+            kinds: JAVASCRIPT_KINDS,
+            reference_kinds: JAVASCRIPT_REFERENCE_KINDS,
+            imports: Some(&IMPORTS),
+            visibility: javascript_visibility,
+            test_attribute: never_a_test_signal,
+            test_scope: never_a_test_signal,
+            refine: keep_as_captured,
+            doc_is_leading_body_string: false,
+            line_comment_prefixes: &["//"],
+            config: OnceLock::new(),
+        };
+        let Err(error) = TagsExtractor::new(&SPEC) else {
+            panic!("an empty callee_names list was accepted");
+        };
+        assert!(error.contains("names no callee"), "{error}");
+    }
+
+    #[test]
+    fn ruby_records_require_relative() {
+        let mut extractor = TagsExtractor::new(&RUBY).unwrap();
+        let facts = extractor
+            .extract(b"require_relative '../lib/thing'\n")
+            .unwrap();
+        assert_eq!(facts.imports().len(), 1);
+        assert_eq!(facts.imports()[0].path, "../lib/thing");
+        assert_eq!(facts.imports()[0].kind, ImportKind::Require);
     }
 
     #[test]

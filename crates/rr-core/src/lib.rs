@@ -45,7 +45,7 @@ pub use refresh::{
     STATUS_SCHEMA_VERSION,
 };
 
-pub use parser::extractor_version;
+pub use parser::{extractor_version, tier, Tier};
 pub use path::{RelPath, RelPathError};
 pub use query::{
     finish_exact, parse_query, route_exact, route_query, ExactAtom, ExactAtomKind, ExactOutcome,

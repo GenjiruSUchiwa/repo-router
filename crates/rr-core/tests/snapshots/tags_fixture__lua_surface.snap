@@ -1,0 +1,93 @@
+---
+source: crates/rr-core/tests/tags_fixture.rs
+expression: "to_snapshot(\"surface.lua\", &facts)"
+---
+path: surface.lua
+status: tags(parse_errors=false)
+defs:
+  - name: bare
+    local_qualified: ~
+    kind: function
+    visibility: public
+    start_line: 4
+    end_line: 6
+    signature: function bare(x)
+    signature_idents:
+      - function
+      - x
+    body_idents:
+      - return
+      - x
+      - end
+    doc_idents: []
+    attribute_idents: []
+  - name: run
+    local_qualified: ~
+    kind: function
+    visibility: public
+    start_line: 8
+    end_line: 10
+    signature: function M.run(x)
+    signature_idents:
+      - function
+      - M
+      - x
+    body_idents:
+      - return
+      - helper
+      - x
+      - end
+    doc_idents: []
+    attribute_idents: []
+  - name: start
+    local_qualified: ~
+    kind: method
+    visibility: public
+    start_line: 12
+    end_line: 14
+    signature: "function Service:start()"
+    signature_idents:
+      - function
+      - Service
+    body_idents:
+      - return
+      - self
+      - end
+    doc_idents: []
+    attribute_idents: []
+  - name: hidden
+    local_qualified: ~
+    kind: function
+    visibility: public
+    start_line: 16
+    end_line: 18
+    signature: local function hidden()
+    signature_idents:
+      - local
+      - function
+    body_idents:
+      - return
+      - end
+    doc_idents: []
+    attribute_idents: []
+  - name: new
+    local_qualified: ~
+    kind: function
+    visibility: public
+    start_line: 20
+    end_line: 22
+    signature: function Service.new()
+    signature_idents:
+      - function
+      - Service
+    body_idents:
+      - return
+      - end
+    doc_idents: []
+    attribute_idents: []
+references:
+  - name: helper
+    kind: call
+    line: 9
+    owner: run
+imports: []

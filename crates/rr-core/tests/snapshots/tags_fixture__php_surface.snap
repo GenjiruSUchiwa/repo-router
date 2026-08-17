@@ -1,0 +1,144 @@
+---
+source: crates/rr-core/tests/tags_fixture.rs
+expression: "to_snapshot(\"surface.php\", &facts)"
+---
+path: surface.php
+status: tags(parse_errors=false)
+defs:
+  - name: App
+    local_qualified: ~
+    kind: namespace
+    visibility: public
+    start_line: 3
+    end_line: 3
+    signature: namespace App;
+    signature_idents:
+      - namespace
+    body_idents: []
+    doc_idents: []
+    attribute_idents: []
+  - name: Service
+    local_qualified: ~
+    kind: class
+    visibility: public
+    start_line: 5
+    end_line: 23
+    signature: class Service implements Contract
+    signature_idents:
+      - class
+      - implements
+      - Contract
+    body_idents:
+      - public
+      - const
+      - MAX
+    doc_idents: []
+    attribute_idents: []
+  - name: secret
+    local_qualified: Service.secret
+    kind: field
+    visibility: private
+    start_line: 8
+    end_line: 8
+    signature: private int $secret;
+    signature_idents:
+      - private
+      - int
+    body_idents: []
+    doc_idents: []
+    attribute_idents: []
+  - name: __construct
+    local_qualified: Service.__construct
+    kind: constructor
+    visibility: public
+    start_line: 10
+    end_line: 13
+    signature: public function __construct(string $name)
+    signature_idents:
+      - public
+      - function
+      - string
+      - name
+    body_idents:
+      - this
+      - name
+      - name
+    doc_idents: []
+    attribute_idents: []
+  - name: run
+    local_qualified: Service.run
+    kind: method
+    visibility: public
+    start_line: 15
+    end_line: 18
+    signature: "public function run(): void"
+    signature_idents:
+      - public
+      - function
+      - void
+    body_idents:
+      - helper
+    doc_idents: []
+    attribute_idents: []
+  - name: hidden
+    local_qualified: Service.hidden
+    kind: method
+    visibility: private
+    start_line: 20
+    end_line: 22
+    signature: "private function hidden(): void"
+    signature_idents:
+      - private
+      - function
+      - void
+    body_idents: []
+    doc_idents: []
+    attribute_idents: []
+  - name: Contract
+    local_qualified: ~
+    kind: interface
+    visibility: public
+    start_line: 25
+    end_line: 28
+    signature: interface Contract
+    signature_idents:
+      - interface
+    body_idents: []
+    doc_idents: []
+    attribute_idents: []
+  - name: run
+    local_qualified: Contract.run
+    kind: function
+    visibility: public
+    start_line: 27
+    end_line: 27
+    signature: "function run(): void;"
+    signature_idents:
+      - function
+      - void
+    body_idents: []
+    doc_idents: []
+    attribute_idents: []
+  - name: bare
+    local_qualified: ~
+    kind: function
+    visibility: public
+    start_line: 30
+    end_line: 33
+    signature: "function bare(string $name): string"
+    signature_idents:
+      - function
+      - string
+      - name
+      - string
+    body_idents:
+      - return
+      - name
+    doc_idents: []
+    attribute_idents: []
+references:
+  - name: Contract
+    kind: implementation
+    line: 5
+    owner: Service
+imports: []

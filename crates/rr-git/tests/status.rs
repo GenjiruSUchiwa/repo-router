@@ -554,7 +554,7 @@ fn a_delta_that_contradicts_itself_is_not_reported_as_an_unreadable_repository()
     let store = SnapshotStore::new(temp.path());
     let published = Published::load(&store).expect("loading the snapshot failed");
     let walk = WalkCfg {
-        languages: Some(Registry::supported()),
+        languages: Some(Registry::indexable()),
         threads: Some(1),
         ..WalkCfg::default()
     };

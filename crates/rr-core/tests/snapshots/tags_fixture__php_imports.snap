@@ -1,0 +1,49 @@
+---
+source: crates/rr-core/tests/tags_fixture.rs
+expression: "to_snapshot(\"imports.php\", &facts)"
+---
+path: imports.php
+status: tags(parse_errors=false)
+defs: []
+references: []
+imports:
+  - kind: From
+    path: "App\\Contracts"
+    name: Runner
+    alias: ~
+    is_public: false
+    is_glob: false
+    line: 3
+    owner: ~
+  - kind: From
+    path: "App\\Contracts"
+    name: Other
+    alias: Alias
+    is_public: false
+    is_glob: false
+    line: 4
+    owner: ~
+  - kind: From
+    path: App
+    name: One
+    alias: ~
+    is_public: false
+    is_glob: false
+    line: 5
+    owner: ~
+  - kind: From
+    path: App
+    name: Two
+    alias: ~
+    is_public: false
+    is_glob: false
+    line: 5
+    owner: ~
+  - kind: Require
+    path: boot.php
+    name: ~
+    alias: ~
+    is_public: false
+    is_glob: false
+    line: 6
+    owner: ~

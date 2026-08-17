@@ -34,6 +34,45 @@ Planned, not yet implemented:
 | `rr impact <sym>` | Change impact radius (transitive callers) |
 | `rr check` | Guardrail: index/worktree consistency |
 
+
+## Languages
+
+`rr` reads a language at one of three tiers. `rr version --languages` prints
+this table for the binary you have.
+
+| Tier | What rr extracts |
+|---|---|
+| `complete` | A hand-written extractor: definitions, references, imports, visibility, test signals |
+| `tags` | The grammar's own `tags.scm` plus an imports query: definitions, references, imports |
+| `lexical` | Identifiers only |
+
+| Language | Tier | Grammar size |
+|---|---|---|
+| Rust | `complete` | 1.1 MB |
+| Python | `tags` | 0.5 MB |
+| TypeScript, TSX | `tags` | 2.9 MB |
+| JavaScript, JSX | `tags` | 0.4 MB |
+| Go | `tags` | 0.2 MB |
+| Java | `tags` | 0.4 MB |
+| C | `tags` | 0.6 MB |
+| C++ | `tags` | 3.5 MB |
+| Ruby | `tags` | 2.1 MB |
+| PHP | `tags` | 1.1 MB |
+| Swift | `tags` | 3.8 MB |
+| Lua | `tags` | 0.05 MB |
+| C#, Kotlin, Scala, Zig, Shell, SQL, Proto | `lexical` | — |
+| TOML, JSON, YAML, Markdown, HTML, CSS | not indexed | — |
+
+The seven `lexical` languages are not an oversight. C#'s published `tags.scm`
+uses a capture `tree-sitter-tags` rejects; Kotlin's maintained crate pins a
+Tree-sitter runtime this workspace cannot link, and its successor ships no tags
+query; Scala, Zig and Bash ship none either, and Scala's grammar additionally
+gives an import path no query can reconstruct; SQL has no canonical crate, only
+dialect forks; the proto crate's tags query is commented out upstream.
+
+Every grammar is compiled in. There is no feature switch. Prebuilt per-platform
+release archives are how binary size stays off the user's machine.
+
 ## Project status
 
 The V1 plan runs across six milestones — see the [issues](../../issues) and [milestones](../../milestones):

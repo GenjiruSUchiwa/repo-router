@@ -1,0 +1,25 @@
+---
+source: crates/rr-core/tests/tags_fixture.rs
+expression: "to_snapshot(\"imports.swift\", &facts)"
+---
+path: imports.swift
+status: tags(parse_errors=false)
+defs: []
+references: []
+imports:
+  - kind: Import
+    path: Foundation
+    name: ~
+    alias: ~
+    is_public: false
+    is_glob: false
+    line: 1
+    owner: ~
+  - kind: Import
+    path: UIKit.UIView
+    name: ~
+    alias: ~
+    is_public: false
+    is_glob: false
+    line: 2
+    owner: ~

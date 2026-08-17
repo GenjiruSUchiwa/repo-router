@@ -1,0 +1,146 @@
+---
+source: crates/rr-core/tests/tags_fixture.rs
+expression: "to_snapshot(\"surface.rb\", &facts)"
+---
+path: surface.rb
+status: tags(parse_errors=false)
+defs:
+  - name: Service
+    local_qualified: ~
+    kind: class
+    visibility: public
+    start_line: 1
+    end_line: 22
+    signature: class Service < Base
+    signature_idents:
+      - class
+      - Base
+    body_idents:
+      - ATTEMPTS
+      - private
+      - end
+    doc_idents:
+      - Documented
+      - service
+    attribute_idents: []
+  - name: initialize
+    local_qualified: Service.initialize
+    kind: method
+    visibility: public
+    start_line: 5
+    end_line: 7
+    signature: def initialize(name)
+    signature_idents:
+      - def
+      - name
+    body_idents:
+      - name
+      - name
+      - end
+    doc_idents: []
+    attribute_idents: []
+  - name: run
+    local_qualified: Service.run
+    kind: method
+    visibility: public
+    start_line: 9
+    end_line: 11
+    signature: def run
+    signature_idents:
+      - def
+    body_idents:
+      - helper
+      - name
+      - end
+    doc_idents: []
+    attribute_idents: []
+  - name: _hidden
+    local_qualified: Service._hidden
+    kind: method
+    visibility: internal
+    start_line: 13
+    end_line: 15
+    signature: def _hidden
+    signature_idents:
+      - def
+    body_idents:
+      - end
+    doc_idents: []
+    attribute_idents: []
+  - name: secret
+    local_qualified: Service.secret
+    kind: method
+    visibility: public
+    start_line: 19
+    end_line: 21
+    signature: def secret
+    signature_idents:
+      - def
+    body_idents:
+      - end
+    doc_idents: []
+    attribute_idents: []
+  - name: Util
+    local_qualified: ~
+    kind: module
+    visibility: public
+    start_line: 24
+    end_line: 28
+    signature: module Util
+    signature_idents:
+      - module
+    body_idents:
+      - end
+    doc_idents: []
+    attribute_idents: []
+  - name: build
+    local_qualified: Util.build
+    kind: method
+    visibility: public
+    start_line: 25
+    end_line: 27
+    signature: def self.build
+    signature_idents:
+      - def
+      - self
+    body_idents:
+      - Service
+      - new
+      - x
+      - end
+    doc_idents: []
+    attribute_idents: []
+references:
+  - name: Base
+    kind: call
+    line: 2
+    owner: Service
+  - name: ATTEMPTS
+    kind: call
+    line: 3
+    owner: Service
+  - name: name
+    kind: call
+    line: 5
+    owner: initialize
+  - name: name
+    kind: call
+    line: 6
+    owner: initialize
+  - name: helper
+    kind: call
+    line: 10
+    owner: run
+  - name: private
+    kind: call
+    line: 17
+    owner: Service
+  - name: Service
+    kind: call
+    line: 26
+    owner: build
+  - name: new
+    kind: call
+    line: 26
+    owner: build
+imports: []

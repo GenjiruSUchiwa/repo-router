@@ -1051,7 +1051,7 @@ fn normalize_reference(
                 (full.to_string(), None)
             }
         }
-        ReferenceKind::Implementation => {
+        ReferenceKind::Implementation | ReferenceKind::Type => {
             let collapsed = collapse_ws(full);
             let name = terminal_type_name(&collapsed);
             (name, Some(collapsed))

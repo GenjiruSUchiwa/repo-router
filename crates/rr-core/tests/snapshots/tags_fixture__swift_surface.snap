@@ -1,0 +1,385 @@
+---
+source: crates/rr-core/tests/tags_fixture.rs
+expression: "to_snapshot(\"surface.swift\", &facts)"
+---
+path: surface.swift
+status: tags(parse_errors=false)
+defs:
+  - name: run
+    local_qualified: ~
+    kind: method
+    visibility: public
+    start_line: 3
+    end_line: 17
+    signature: "public func run() { helper(name) }"
+    signature_idents:
+      - public
+      - func
+      - helper
+      - name
+    body_idents: []
+    doc_idents: []
+    attribute_idents:
+      - public
+      - class
+      - Service
+      - public
+      - var
+      - name
+      - String
+      - package
+      - var
+      - group
+      - String
+      - private
+      - var
+      - secret
+      - Int
+      - public
+      - init
+      - name
+      - String
+      - self
+      - name
+      - name
+      - self
+      - group
+      - x
+      - self
+      - secret
+  - name: Service
+    local_qualified: ~
+    kind: class
+    visibility: public
+    start_line: 3
+    end_line: 17
+    signature: "public class Service {"
+    signature_idents:
+      - public
+      - class
+    body_idents:
+      - public
+      - var
+      - name
+      - String
+      - package
+      - var
+      - group
+      - String
+      - private
+      - var
+      - secret
+      - Int
+      - public
+      - init
+      - name
+      - String
+      - self
+      - name
+      - name
+      - self
+      - group
+      - x
+      - self
+      - secret
+      - public
+      - func
+      - run
+      - helper
+      - name
+    doc_idents: []
+    attribute_idents: []
+  - name: group
+    local_qualified: ~
+    kind: property
+    visibility: package
+    start_line: 3
+    end_line: 17
+    signature: "package var group: String"
+    signature_idents:
+      - package
+      - var
+      - String
+    body_idents:
+      - private
+      - var
+      - secret
+      - Int
+      - public
+      - init
+      - name
+      - String
+      - self
+      - name
+      - name
+      - self
+      - group
+      - x
+      - self
+      - secret
+      - public
+      - func
+      - run
+      - helper
+      - name
+    doc_idents: []
+    attribute_idents:
+      - public
+      - class
+      - Service
+      - public
+      - var
+      - name
+      - String
+  - name: name
+    local_qualified: ~
+    kind: property
+    visibility: public
+    start_line: 3
+    end_line: 17
+    signature: "public var name: String"
+    signature_idents:
+      - public
+      - var
+      - String
+    body_idents:
+      - package
+      - var
+      - group
+      - String
+      - private
+      - var
+      - secret
+      - Int
+      - public
+      - init
+      - name
+      - String
+      - self
+      - name
+      - name
+      - self
+      - group
+      - x
+      - self
+      - secret
+      - public
+      - func
+      - run
+      - helper
+      - name
+    doc_idents: []
+    attribute_idents:
+      - public
+      - class
+      - Service
+  - name: secret
+    local_qualified: ~
+    kind: property
+    visibility: private
+    start_line: 3
+    end_line: 17
+    signature: "private var secret: Int"
+    signature_idents:
+      - private
+      - var
+      - Int
+    body_idents:
+      - public
+      - init
+      - name
+      - String
+      - self
+      - name
+      - name
+      - self
+      - group
+      - x
+      - self
+      - secret
+      - public
+      - func
+      - run
+      - helper
+      - name
+    doc_idents: []
+    attribute_idents:
+      - public
+      - class
+      - Service
+      - public
+      - var
+      - name
+      - String
+      - package
+      - var
+      - group
+      - String
+  - name: init
+    local_qualified: ~
+    kind: constructor
+    visibility: public
+    start_line: 3
+    end_line: 17
+    signature: "public init(name: String) { self.name = name self.group = \"x\" self.secret = 1 }"
+    signature_idents:
+      - public
+      - name
+      - String
+      - self
+      - name
+      - name
+      - self
+      - group
+      - x
+      - self
+      - secret
+    body_idents:
+      - public
+      - func
+      - run
+      - helper
+      - name
+    doc_idents: []
+    attribute_idents:
+      - public
+      - class
+      - Service
+      - public
+      - var
+      - name
+      - String
+      - package
+      - var
+      - group
+      - String
+      - private
+      - var
+      - secret
+      - Int
+  - name: run
+    local_qualified: ~
+    kind: method
+    visibility: internal
+    start_line: 19
+    end_line: 21
+    signature: func run()
+    signature_idents:
+      - func
+    body_idents: []
+    doc_idents: []
+    attribute_idents:
+      - protocol
+      - Runner
+  - name: Runner
+    local_qualified: ~
+    kind: interface
+    visibility: internal
+    start_line: 19
+    end_line: 21
+    signature: "protocol Runner {"
+    signature_idents:
+      - protocol
+    body_idents:
+      - func
+      - run
+    doc_idents: []
+    attribute_idents: []
+  - name: Mode
+    local_qualified: ~
+    kind: class
+    visibility: internal
+    start_line: 23
+    end_line: 25
+    signature: "enum Mode {"
+    signature_idents:
+      - enum
+    body_idents:
+      - case
+      - fast
+      - slow
+    doc_idents: []
+    attribute_idents: []
+  - name: Point
+    local_qualified: ~
+    kind: class
+    visibility: internal
+    start_line: 27
+    end_line: 30
+    signature: "struct Point {"
+    signature_idents:
+      - struct
+    body_idents:
+      - var
+      - x
+      - Int
+      - var
+      - y
+      - Int
+    doc_idents: []
+    attribute_idents: []
+  - name: x
+    local_qualified: ~
+    kind: property
+    visibility: internal
+    start_line: 27
+    end_line: 30
+    signature: "var x: Int"
+    signature_idents:
+      - var
+      - Int
+    body_idents:
+      - var
+      - y
+      - Int
+    doc_idents: []
+    attribute_idents:
+      - struct
+      - Point
+  - name: y
+    local_qualified: ~
+    kind: property
+    visibility: internal
+    start_line: 27
+    end_line: 30
+    signature: "var y: Int"
+    signature_idents:
+      - var
+      - Int
+    body_idents: []
+    doc_idents: []
+    attribute_idents:
+      - struct
+      - Point
+      - var
+      - x
+      - Int
+  - name: bare
+    local_qualified: ~
+    kind: function
+    visibility: public
+    start_line: 32
+    end_line: 34
+    signature: "public func bare(_ value: Int) -> Int {"
+    signature_idents:
+      - public
+      - func
+      - _
+      - value
+      - Int
+      - Int
+    body_idents:
+      - return
+      - value
+    doc_idents: []
+    attribute_idents: []
+references: []
+imports:
+  - kind: Import
+    path: Foundation
+    name: ~
+    alias: ~
+    is_public: false
+    is_glob: false
+    line: 1
+    owner: ~

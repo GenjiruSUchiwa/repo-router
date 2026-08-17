@@ -113,6 +113,7 @@ fn visibility_label(vis: &rr_core::Visibility) -> String {
         rr_core::Visibility::Protected => "protected".into(),
         rr_core::Visibility::Internal => "internal".into(),
         rr_core::Visibility::Crate => "crate".into(),
+        rr_core::Visibility::Package => "package".into(),
         rr_core::Visibility::Restricted(path) => format!("restricted({path})"),
     }
 }
@@ -518,8 +519,9 @@ fn a_rust_repository_indexes_identically_across_the_schema_bump() {
 #[test]
 fn versions_are_pinned() {
     assert_eq!(extractor_version(Lang::Rust), 3);
-    assert_eq!(extractor_version(Lang::Python), 6);
-    assert_eq!(extractor_version(Lang::TypeScript), 4);
-    assert_eq!(extractor_version(Lang::Tsx), 4);
-    assert_eq!(FACT_SCHEMA_VERSION, 5);
+    assert_eq!(extractor_version(Lang::Python), 7);
+    assert_eq!(extractor_version(Lang::TypeScript), 5);
+    assert_eq!(extractor_version(Lang::Tsx), 5);
+    assert_eq!(extractor_version(Lang::JavaScript), 1);
+    assert_eq!(FACT_SCHEMA_VERSION, 8);
 }

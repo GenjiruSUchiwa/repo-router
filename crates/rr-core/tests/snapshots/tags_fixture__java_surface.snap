@@ -1,0 +1,126 @@
+---
+source: crates/rr-core/tests/tags_fixture.rs
+expression: "to_snapshot(\"surface.java\", &facts)"
+---
+path: surface.java
+status: tags(parse_errors=false)
+defs:
+  - name: Service
+    local_qualified: ~
+    kind: class
+    visibility: public
+    start_line: 3
+    end_line: 21
+    signature: "public class Service implements Runner {"
+    signature_idents:
+      - public
+      - class
+      - implements
+      - Runner
+    body_idents:
+      - private
+      - int
+      - secret
+      - int
+      - packageField
+      - protected
+      - int
+      - inherited
+      - public
+      - static
+      - final
+      - int
+      - MAX
+      - public
+      - Service
+      - String
+      - name
+    doc_idents: []
+    attribute_idents: []
+  - name: run
+    local_qualified: Service.run
+    kind: method
+    visibility: public
+    start_line: 11
+    end_line: 13
+    signature: "public void run() {"
+    signature_idents:
+      - public
+      - void
+    body_idents:
+      - helper
+    doc_idents: []
+    attribute_idents: []
+  - name: hidden
+    local_qualified: Service.hidden
+    kind: method
+    visibility: private
+    start_line: 15
+    end_line: 15
+    signature: "private void hidden() {}"
+    signature_idents:
+      - private
+      - void
+    body_idents: []
+    doc_idents: []
+    attribute_idents: []
+  - name: packageRun
+    local_qualified: Service.packageRun
+    kind: method
+    visibility: package
+    start_line: 17
+    end_line: 17
+    signature: "void packageRun() {}"
+    signature_idents:
+      - void
+    body_idents: []
+    doc_idents: []
+    attribute_idents: []
+  - name: aTest
+    local_qualified: Service.aTest
+    kind: method
+    visibility: public
+    start_line: 19
+    end_line: 20
+    signature: "public void aTest() {}"
+    signature_idents:
+      - public
+      - void
+    body_idents: []
+    doc_idents: []
+    attribute_idents:
+      - Test
+  - name: Runner
+    local_qualified: ~
+    kind: interface
+    visibility: package
+    start_line: 23
+    end_line: 25
+    signature: "interface Runner {"
+    signature_idents:
+      - interface
+    body_idents: []
+    doc_idents: []
+    attribute_idents: []
+  - name: run
+    local_qualified: Runner.run
+    kind: method
+    visibility: package
+    start_line: 24
+    end_line: 24
+    signature: void run();
+    signature_idents:
+      - void
+    body_idents: []
+    doc_idents: []
+    attribute_idents: []
+references:
+  - name: Runner
+    kind: implementation
+    line: 3
+    owner: Service
+  - name: helper
+    kind: call
+    line: 12
+    owner: run
+imports: []

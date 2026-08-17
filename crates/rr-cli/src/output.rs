@@ -23,6 +23,42 @@ impl Output {
         Self::write_version(stdout, version, git_sha)
     }
 
+    /// Writes one line per recognised language: name, tier, extractor version.
+    ///
+    /// Every language, not only the compiled ones. A user whose repository is
+    /// half Kotlin needs to read that rr saw it and could only say identifiers
+    /// about it; a table that listed the languages this build parses would
+    /// answer a question they did not ask.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`io::Error`] if writing fails.
+    pub fn write_languages<W: Write>(mut writer: W) -> io::Result<()> {
+        for lang in rr_core::Lang::ALL {
+            if !lang.is_code() {
+                continue;
+            }
+            let tier = rr_core::tier(lang);
+            let version = rr_core::extractor_version(lang);
+            writeln!(
+                writer,
+                "{:<12} {:<9} {version}",
+                lang.as_str(),
+                tier.as_str()
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Prints the language table to stdout.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`io::Error`] if writing to `stdout` fails.
+    pub fn print_languages() -> io::Result<()> {
+        Self::write_languages(io::stdout().lock())
+    }
+
     /// Formats and writes a plain text line to the given writer.
     ///
     /// # Errors

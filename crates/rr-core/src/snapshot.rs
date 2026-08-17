@@ -33,7 +33,10 @@ use crate::index::Snapshot;
 /// misreads every field after `path` — the alias, the kind, the flags, the
 /// span, the resolution. The envelope refuses it before postcard is asked to
 /// try.
-pub const SNAPSHOT_SCHEMA_VERSION: u32 = 8;
+/// Version 9 carries [`crate::facts::ReferenceKind::Type`] (`FACT_SCHEMA_VERSION` 6).
+/// Version 10 carries [`crate::facts::Visibility::Package`] (`FACT_SCHEMA_VERSION` 7).
+/// Version 11 carries [`crate::facts::ImportKind::Include`] (`FACT_SCHEMA_VERSION` 8).
+pub const SNAPSHOT_SCHEMA_VERSION: u32 = 11;
 pub const SNAPSHOT_MAGIC: [u8; 8] = *b"RRIDX\0\0\0";
 const HEADER_LEN: usize = 8 + 4 + 8 + 32;
 

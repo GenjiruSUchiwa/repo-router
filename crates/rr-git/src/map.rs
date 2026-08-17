@@ -173,7 +173,7 @@ impl BuildContext {
         Ok(Self {
             work_root,
             walk: WalkCfg {
-                languages: Some(Registry::supported()),
+                languages: Some(Registry::indexable()),
                 threads: Some(threads),
                 ..WalkCfg::default()
             },

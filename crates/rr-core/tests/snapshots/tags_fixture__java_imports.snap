@@ -1,0 +1,41 @@
+---
+source: crates/rr-core/tests/tags_fixture.rs
+expression: "to_snapshot(\"imports.java\", &facts)"
+---
+path: imports.java
+status: tags(parse_errors=false)
+defs: []
+references: []
+imports:
+  - kind: From
+    path: java.util
+    name: List
+    alias: ~
+    is_public: false
+    is_glob: false
+    line: 3
+    owner: ~
+  - kind: Import
+    path: java.util
+    name: ~
+    alias: ~
+    is_public: false
+    is_glob: true
+    line: 4
+    owner: ~
+  - kind: From
+    path: java.util.Arrays
+    name: asList
+    alias: ~
+    is_public: false
+    is_glob: false
+    line: 5
+    owner: ~
+  - kind: Import
+    path: Foo
+    name: ~
+    alias: ~
+    is_public: false
+    is_glob: false
+    line: 6
+    owner: ~
