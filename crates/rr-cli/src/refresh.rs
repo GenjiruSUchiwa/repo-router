@@ -29,9 +29,13 @@ use crate::text_artifacts;
 /// flag, leaving a script unable to tell "your index is out of date" from "you
 /// misspelled `--threads`".
 ///
-/// A caller may also see 141 (`128 + SIGPIPE`). That is not a constant:
-/// the process is killed, it does not return. `INTERRUPTED` is returned
-/// because refresh catches SIGINT. Nothing catches SIGPIPE.
+/// A caller may also see 141 (`128 + SIGPIPE`). That is not a constant: the
+/// process is killed, it does not return. `INTERRUPTED` is returned because
+/// refresh catches the first SIGINT and stops at a boundary of its own
+/// choosing. Every other terminating signal — SIGPIPE, a second Ctrl-C, a
+/// `kill`, a closed terminal — ends the process instead, and the exit status is
+/// the signal's rather than one of these. The handler in `main` releases the
+/// publication claim on the way out; it does not make the death survivable.
 pub mod exit {
     /// The command did what it was asked.
     pub const OK: u8 = 0;
@@ -305,8 +309,14 @@ fn install_interrupt() -> CancelToken {
             // here allocates, locks, or formats.
             unsafe { &*flag }.store(true, Ordering::SeqCst);
         }
+        // Hand the next one back to the handler `main` installed rather than to
+        // `SIG_DFL`: an impatient second Ctrl-C should still be immediate, but
+        // it arrives while the claim is held and must not strand it. Best
+        // effort — it races a shutdown that is touching the same registry — and
+        // strictly better than the `SIG_DFL` that stranded the claim outright.
+        let next = crate::release_and_die as extern "C" fn(libc::c_int);
         unsafe {
-            libc::signal(libc::SIGINT, libc::SIG_DFL);
+            libc::signal(libc::SIGINT, next as libc::sighandler_t);
         }
     }
 

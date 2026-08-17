@@ -181,8 +181,9 @@ but from the coupling between the index and the agent's instructions.
    `--help` and `--version` — which an `ErrorKind::BrokenPipe` check at rr's own
    write boundary could not have reached. The handler releases the publication
    claim before re-raising, because termination runs no destructor and a leaked
-   lock refuses every later refresh.
-   `crates/rr-cli/tests/broken_pipe.rs` keeps it true.
+   lock refuses every later refresh — which is why `SIGTERM`, `SIGHUP` and
+   `SIGQUIT` go through it too. `crates/rr-cli/tests/broken_pipe.rs` and
+   `interrupted.rs` keep it true.
 
 ## 10. Fixture numbers (indicative)
 
