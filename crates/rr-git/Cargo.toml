@@ -36,6 +36,7 @@ rayon = { workspace = true }
 # needs; already in the tree through gix-index, so this costs no new build.
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "1", features = ["fs"] }
+libc = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }

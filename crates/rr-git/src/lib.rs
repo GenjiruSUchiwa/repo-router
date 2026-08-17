@@ -16,6 +16,8 @@ pub mod refresh;
 pub mod repo;
 pub mod rules;
 mod safe_open;
+mod sigpipe;
+
 pub mod status;
 
 pub use content::{
