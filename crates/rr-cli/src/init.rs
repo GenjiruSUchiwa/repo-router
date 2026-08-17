@@ -134,9 +134,7 @@ pub fn run(args: &Args) -> anyhow::Result<u8> {
         Some(root) => root,
         None => std::env::current_dir().context("resolve current directory")?,
     };
-
     let ignore_existed = root.join(IGNORE_PATH).exists();
-
     workspace::ensure_private(&root).context("create .rr")?;
 
     let mut targets = Vec::with_capacity(agent::AGENT_FILES.len() + 2);
@@ -178,7 +176,6 @@ pub fn run(args: &Args) -> anyhow::Result<u8> {
 /// so the report names a file the reader can open.
 fn apply_region<F>(root: &Path, name: &str, wanted: F) -> (String, Outcome)
 where
-
     F: FnOnce(Option<&str>) -> Result<String, rr_core::text::TextError>,
 {
     let path = resolve_existing_name(root, name);
@@ -196,7 +193,6 @@ where
 
     let content = match wanted(existing.as_deref()) {
         Ok(content) => content,
-
         Err(rr_core::text::TextError::ManagedIgnore { reason })
             if reason == DUPLICATE_MARKERS_REASON =>
         {
@@ -209,7 +205,6 @@ where
         }
         Err(_) => return refused(Refusal::Unreadable),
     };
-
     if existing.as_deref() == Some(content.as_str()) {
         return (reported, Outcome::Unchanged);
     }
@@ -411,7 +406,6 @@ fn render_text(report: &Report) -> String {
         }
     }
     out.push_str("\n  next: rr map");
-
     if refused < report.targets.len() {
         out.push_str(
             "\n  note: AGENTS.md, CLAUDE.md and .claude/ carry the agent contract; commit them\n        if your team should share it.",

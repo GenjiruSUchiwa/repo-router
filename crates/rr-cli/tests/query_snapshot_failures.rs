@@ -93,7 +93,6 @@ fn test_stale_snapshot() {
         .output()
         .unwrap();
     assert!(map_output.status.success());
-
     fs::write(
         repo.path().join("src").join("auth").join("token.rs"),
         b"pub fn verify_token() -> bool { false }\npub fn issue_token() {}\n",
@@ -133,7 +132,6 @@ fn test_a_commit_that_changed_no_indexed_file_still_answers() {
         .output()
         .unwrap();
     assert!(map_output.status.success());
-
     run_cmd(repo.path(), "git", &["add", "."]);
     run_cmd(repo.path(), "git", &["commit", "-m", "maps"]);
 

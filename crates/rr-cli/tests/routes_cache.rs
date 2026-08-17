@@ -313,7 +313,6 @@ fn the_routes_file_is_ignored_by_git() {
         matched.contains("/ROUTES.md"),
         "some other rule hid the file, so this proves nothing: {matched}"
     );
-
     git(root, &["add", "-A"]);
     let staged = Command::new("git")
         .args(["diff", "--cached", "--name-only"])
@@ -449,7 +448,6 @@ fn a_corrupt_cache_is_reset_and_says_why() {
     ask(root, "verify token");
 
     write(root, ROUTES, "something else wrote this file\n");
-
     let source = read(root, "src/store/entry.rs");
     write(
         root,

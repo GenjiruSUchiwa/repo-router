@@ -189,7 +189,6 @@ impl DiscoveryIdentity {
         identity.number("max-files", walk.max_files.map_or(u64::MAX, as_u64));
 
         identity.number("build-version", u64::from(crate::index::BUILD_VERSION));
-
         let extractor_versions = crate::parser::Registry::supported()
             .into_iter()
             .map(|lang| {
@@ -306,7 +305,6 @@ impl PlanDraft {
 
     /// Records that `path` must be evaluated against its current worktree entry.
     pub fn recheck(&mut self, path: RelPath) {
-
         self.dispositions.insert(path, Disposition::Recheck);
     }
 
@@ -359,7 +357,6 @@ impl PlanDraft {
         if let Some(failure) = self.failure.take() {
             return Err(failure);
         }
-
         let mut recheck = Vec::new();
         let mut remove = Vec::new();
         for (path, disposition) in self.dispositions {
@@ -375,7 +372,6 @@ impl PlanDraft {
             .map(|(target, source)| (source, target))
             .collect();
         renames.sort();
-
         if let Some(window) = renames.windows(2).find(|pair| pair[0].0 == pair[1].0) {
             return Err(RefreshError::InvalidRefreshPlan {
                 path: window[0].0.clone(),

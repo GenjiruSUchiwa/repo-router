@@ -215,7 +215,6 @@ impl GitRepo {
                 check_dirty: false,
             })
             .should_interrupt_owned(cancel.flag());
-
         let mut iter = platform.into_iter(None).map_err(|error| {
             if cancel.is_cancelled() {
                 Error::Cancelled
@@ -238,7 +237,6 @@ impl GitRepo {
                 gix::status::Item::IndexWorktree(change) => observation.index_worktree(&change),
             }
         }
-
         if cancel.is_cancelled() {
             return Err(Error::Cancelled);
         }
@@ -379,9 +377,7 @@ impl Observation {
 
         match status {
             EntryStatus::Conflict { .. } => self.push(ChangeKind::Conflicted, rela_path, None),
-
             EntryStatus::IntentToAdd => self.push(ChangeKind::Added, rela_path, None),
-
             EntryStatus::NeedsUpdate(_) => {}
             EntryStatus::Change(Change::Removed) => self.push(ChangeKind::Deleted, rela_path, None),
             EntryStatus::Change(Change::Type { .. }) => {
@@ -401,18 +397,15 @@ impl Observation {
         use gix::dir::entry::{Kind, Status};
 
         match entry.status {
-
             Status::Tracked | Status::Ignored(_) | Status::Pruned => return,
             Status::Untracked => {}
         }
 
         match entry.disk_kind {
-
             Some(Kind::Repository) => self.skipped_submodules += 1,
             Some(Kind::File | Kind::Symlink) => {
                 self.push(ChangeKind::Untracked, entry.rela_path.as_ref(), None);
             }
-
             Some(Kind::Directory | Kind::Untrackable) | None => {}
         }
     }

@@ -91,7 +91,6 @@ fn a_mixed_language_repository_produces_one_coherent_snapshot() {
 
     let snapshot = build(temp.path());
     snapshot.validate().unwrap();
-
     assert_eq!(snapshot.files.len(), 4);
     assert_eq!(record(&snapshot, "src/router.rs").language, Lang::Rust);
     assert_eq!(
@@ -100,7 +99,6 @@ fn a_mixed_language_repository_produces_one_coherent_snapshot() {
     );
     assert_eq!(record(&snapshot, "src/badge.tsx").language, Lang::Tsx);
     assert_eq!(record(&snapshot, "src/service.py").language, Lang::Python);
-
     assert!(matches!(
         record(&snapshot, "src/router.rs").parse_status,
         ParseStatus::Complete
@@ -117,12 +115,10 @@ fn a_mixed_language_repository_produces_one_coherent_snapshot() {
             record(&snapshot, path).parse_status
         );
     }
-
     for file in &snapshot.files {
         let path = snapshot.file_path(file).unwrap();
         assert!(file.symbol_count > 0, "{path} produced no symbols");
     }
-
     let projection = TextProjection::from_snapshot(&snapshot, DEFAULT_MAP_BUDGET).unwrap();
     let rendered = projection.render(&ExistingPurposes::none()).unwrap();
     let text = |path: &str| {
@@ -170,7 +166,6 @@ fn a_mixed_language_repository_produces_one_coherent_snapshot() {
     assert!(src.contains("Service.run"), "{src}");
     assert!(src.contains("Router::route"), "{src}");
     assert!(!src.contains("client.ts::"), "{src}");
-
     let symbols = text(".rr/SYMBOLS.md");
     for name in ["Router", "Client", "Badge", "Service"] {
         assert!(symbols.contains(name), "{name} is missing from SYMBOLS.md");
@@ -200,16 +195,13 @@ fn a_rust_only_repository_is_indexed_exactly_as_before() {
     let router = record(&snapshot, "src/router.rs");
     assert_eq!(router.language, Lang::Rust);
     assert!(matches!(router.parse_status, ParseStatus::Complete));
-
     assert_eq!(rr_core::extractor_version(Lang::Rust), 3);
-
     for file in &snapshot.files {
         assert!(
             !matches!(file.parse_status, ParseStatus::Tags { .. }),
             "a Rust file was routed to the tags tier"
         );
     }
-
     let path = SnapshotStore::new(temp.path()).path().to_path_buf();
     let first = std::fs::read(&path).unwrap();
     drop(build(temp.path()));

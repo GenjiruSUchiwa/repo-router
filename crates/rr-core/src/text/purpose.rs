@@ -87,7 +87,6 @@ pub fn read_existing_purposes(
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
             Err(error) => return Err(crate::Error::Io(error)),
         };
-
         if let Ok(parsed) = super::parse_map(&bytes) {
             if let Some(text) = parsed.purpose() {
                 purposes.insert(map_path, text.to_owned());
@@ -178,7 +177,6 @@ fn ranked_terms(scope: &Scope) -> Vec<String> {
         {
             continue;
         }
-
         let mut seen: Vec<&str> = Vec::new();
         for term in &terms {
             let Some(text) = lexicon.resolve(term.term) else {

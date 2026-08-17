@@ -26,7 +26,6 @@ fn a_file_is_never_served_another_languages_facts() {
 
     let cache = FactCache::open(root.path()).unwrap();
     let mut worker = Worker::new(root.path());
-
     let (rust, _) = worker.process(&source("a.rs", Lang::Rust), &cache).unwrap();
     assert!(
         !rust.unwrap().facts.defs().is_empty(),
@@ -52,7 +51,6 @@ fn a_file_is_never_served_another_languages_facts() {
 #[test]
 fn an_identical_file_in_two_languages_does_not_share_a_cache_entry() {
     let root = tempfile::tempdir().unwrap();
-
     let identical =
         "export class Badge {\n    render(): string {\n        return \"x\";\n    }\n}\n";
     write(root.path(), "badge.ts", identical);
@@ -73,7 +71,6 @@ fn an_identical_file_in_two_languages_does_not_share_a_cache_entry() {
     let tsx = tsx.unwrap().facts;
     assert_eq!(typescript.defs().len(), 2);
     assert_eq!(tsx.defs().len(), 2);
-
     let (again, _) = worker
         .process(&source("badge.tsx", Lang::Tsx), &cache)
         .unwrap();
@@ -101,7 +98,6 @@ fn facts_made_without_an_extractor_are_never_cached() {
 
     let cache = FactCache::open(root.path()).unwrap();
     let mut worker = Worker::new(root.path());
-
     let (unsupported, _) = worker
         .process(&source("service.py", Lang::CSharp), &cache)
         .unwrap();
@@ -115,7 +111,6 @@ fn facts_made_without_an_extractor_are_never_cached() {
     ));
     assert!(unsupported.defs().is_empty());
     let misses = cache.stats().misses();
-
     let (supported, _) = worker
         .process(&source("service.py", Lang::Python), &cache)
         .unwrap();
@@ -182,7 +177,6 @@ fn an_unsupported_language_degrades_without_being_cached() {
 #[test]
 fn a_file_its_own_parser_could_not_read_is_still_cached() {
     let root = tempfile::tempdir().unwrap();
-
     std::fs::write(root.path().join("broken.rs"), [0xFF, 0xFE, b'f', b'n']).unwrap();
 
     let cache = FactCache::open(root.path()).unwrap();

@@ -259,7 +259,6 @@ fn write_served_source_text(out: &mut String, path: &str, packet: &SourcePacket)
     } else {
         "SOURCE FINAL NEWLINE: absent\n"
     });
-
     let content = packet.content();
     let _ = writeln!(out, "SOURCE BYTES: {}", content.len());
     out.push_str("---\n");

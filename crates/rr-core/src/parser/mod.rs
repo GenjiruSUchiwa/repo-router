@@ -416,7 +416,6 @@ mod tests {
                 .for_lang(lang)
                 .unwrap_or_else(|| panic!("{lang} is supported but has no extractor"))
                 .unwrap_or_else(|message| panic!("{lang} failed to build: {message}"));
-
             assert_eq!(
                 extractor.lang(),
                 lang,

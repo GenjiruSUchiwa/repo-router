@@ -1,4 +1,3 @@
-
 (function_item
   name: (identifier) @def.name
   body: (block)? @def.body) @def.item

@@ -262,7 +262,6 @@ impl TagsExtractor {
         for reference in &mut references {
             reference.owner = owners.nearest(reference.span);
         }
-
         let imports = self.collect_imports(source, &lines, &owners)?;
 
         Facts::from_parts(
@@ -351,7 +350,6 @@ fn compile_imports(
         return Err("imports query has no @import.<kind> anchor".to_string());
     }
     if spec.markers.is_empty() {
-
         return Err("imports spec has no markers prefilter".to_string());
     }
     if callee.is_some() && spec.callee_names.is_empty() {
@@ -393,7 +391,6 @@ impl TagsExtractor {
         }
 
         let Some(tree) = pass.parser.parse(source.as_bytes(), None) else {
-
             return Err(Error::ExtractionInvariant {
                 message: "imports pass could not parse a source the tags pass parsed",
             });
@@ -456,7 +453,6 @@ fn build_import(
             message: "imports query matched without both an anchor and a path",
         });
     };
-
     if let Some(callee) = callee_node {
         if !compiled.callee_names.contains(&node_text(callee, source)?) {
             return Ok(None);
@@ -465,7 +461,6 @@ fn build_import(
 
     let path = unquote(node_text(path_node, source)?);
     if path.is_empty() {
-
         return Ok(None);
     }
 
@@ -585,7 +580,6 @@ impl LineIndex {
     /// The byte offset at which the line containing `offset` starts.
     fn line_start(&self, offset: usize) -> usize {
         let offset = u32::try_from(offset).unwrap_or(u32::MAX);
-
         let line = self.starts.partition_point(|start| *start <= offset);
         self.starts[line - 1] as usize
     }
@@ -659,7 +653,6 @@ fn definition_from_tag(
         name: name.to_owned(),
         local_qualified: None,
         kind,
-
         visibility: if is_local {
             Visibility::Private
         } else {
@@ -693,7 +686,6 @@ struct Header {
 
 fn header_for(
     span: Span,
-
     decl_start: usize,
     name_start: usize,
     name: &str,
@@ -704,7 +696,6 @@ fn header_for(
     let span_start = span.start_byte() as usize;
     let span_end = span.end_byte() as usize;
     let decl_start = decl_start.clamp(span_start, span_end);
-
     let line_start = lines.line_start(name_start).max(decl_start);
     let item_start = source
         .get(line_start..span_end)
@@ -737,7 +728,6 @@ fn header_for(
             displayed
         }
     };
-
     let scanned_name = name.trim_start_matches('#');
     let signature_idents = scan_idents(raw)
         .into_iter()
@@ -874,7 +864,6 @@ fn signature_end(source: &str, start: usize, span_end: usize) -> usize {
         if let Some(open) = quote {
             match byte {
                 b'\\' => index += 1,
-
                 b'\n' => {
                     first_newline.get_or_insert(index);
                     break;
@@ -918,7 +907,6 @@ fn docstring_range(source: &str, from: usize, span_end: usize) -> Option<Range<u
         index += 1;
     }
     let start = index;
-
     while index < span_end && bytes[index].is_ascii_alphabetic() {
         index += 1;
     }
@@ -988,7 +976,6 @@ fn assign_nesting(
                 segments.push(defs[index].name.as_str());
                 defs[index].local_qualified = Some(segments.join(separator));
             }
-
             direct_children[parent].push(defs[index].span);
         }
         let inside_test_scope = stack
@@ -1240,7 +1227,6 @@ fn initializer_of(signature: &str) -> Option<&str> {
         }
         let previous = index.checked_sub(1).map(|before| bytes[before]);
         let next = bytes.get(index + 1).copied();
-
         !matches!(next, Some(b'=' | b'>')) && !matches!(previous, Some(b'=' | b'!' | b'<' | b'>'))
     })?;
     signature.get(assignment + 1..)
@@ -1363,7 +1349,6 @@ fn strip_leading_decorations(signature: &str) -> &str {
         if !bytes[cursor..].starts_with(b"#[") && bytes.get(cursor) != Some(&b'@') {
             return signature.get(cursor..).unwrap_or("");
         }
-
         let mut index = cursor + 1;
 
         let mut depth = 0usize;
@@ -1372,7 +1357,6 @@ fn strip_leading_decorations(signature: &str) -> &str {
                 b'(' | b'[' => depth += 1,
                 b')' | b']' => {
                     if depth == 0 {
-
                         break;
                     }
                     depth -= 1;
@@ -1572,7 +1556,6 @@ pub(crate) static JSX: LanguageSpec = javascript_spec(Lang::Jsx, &JSX_IMPORTS);
 const GO_KINDS: &[(&str, DefKind)] = &[
     ("function", DefKind::Function),
     ("method", DefKind::Method),
-
     ("type", DefKind::TypeAlias),
 ];
 
@@ -1632,7 +1615,6 @@ const JAVA_KINDS: &[(&str, DefKind)] = &[
     ("method", DefKind::Method),
     ("constructor", DefKind::Constructor),
     ("enum", DefKind::Enum),
-
     ("record", DefKind::Struct),
 ];
 
@@ -1783,7 +1765,6 @@ pub(crate) static C: LanguageSpec = LanguageSpec {
     tags_query: tree_sitter_c::TAGS_QUERY,
     locals_query: "",
     kinds: C_KINDS,
-
     reference_kinds: &[],
     imports: Some(&C_IMPORTS),
     visibility: c_visibility,
@@ -1798,7 +1779,6 @@ pub(crate) static C: LanguageSpec = LanguageSpec {
 static C_IMPORTS: ImportSpec = ImportSpec {
     query: include_str!("queries/c-imports.scm"),
     kinds: &[("include", ImportKind::Include)],
-
     markers: &["include"],
     callee_names: &[],
     compiled: OnceLock::new(),
@@ -1831,7 +1811,6 @@ pub(crate) static CPP: LanguageSpec = LanguageSpec {
 static CPP_IMPORTS: ImportSpec = ImportSpec {
     query: include_str!("queries/cpp-imports.scm"),
     kinds: &[("include", ImportKind::Include)],
-
     markers: &["include"],
     callee_names: &[],
     compiled: OnceLock::new(),
@@ -1950,10 +1929,8 @@ static LUA_IMPORTS: ImportSpec = ImportSpec {
 const PHP_KINDS: &[(&str, DefKind)] = &[
     ("module", DefKind::Namespace),
     ("class", DefKind::Class),
-
     ("interface", DefKind::Interface),
     ("field", DefKind::Field),
-
     ("function", DefKind::Function),
 ];
 
@@ -2075,7 +2052,6 @@ static PHP_IMPORTS: ImportSpec = ImportSpec {
 };
 
 const SWIFT_KINDS: &[(&str, DefKind)] = &[
-
     ("class", DefKind::Class),
     ("interface", DefKind::Interface),
     ("method", DefKind::Method),
@@ -2115,7 +2091,6 @@ fn swift_declared_visibility(signature: &str) -> Option<Visibility> {
             "private" => Some(Visibility::Private),
             "internal" => Some(Visibility::Internal),
             "fileprivate" => Some(Visibility::FilePrivate),
-
             "package" => Some(Visibility::Package),
             _ => None,
         })
@@ -2276,7 +2251,6 @@ mod tests {
             strip_leading_decorations("@objc @MainActor public func run()"),
             "public func run()"
         );
-
         assert_eq!(strip_leading_decorations("@Override(value"), "");
         assert_eq!(strip_leading_decorations("@"), "");
     }
@@ -2296,17 +2270,14 @@ mod tests {
 
     #[test]
     fn a_bodyless_java_member_with_no_modifier_is_public() {
-
         assert!(java_states_no_modifier_and_is_public("void run();"));
         assert!(java_states_no_modifier_and_is_public(
             "@Override java.util.List<String> names();"
         ));
-
         assert!(!java_states_no_modifier_and_is_public(
             "abstract void run();"
         ));
         assert!(!java_states_no_modifier_and_is_public("native void run();"));
-
         assert!(!java_states_no_modifier_and_is_public("void run() {}"));
         assert!(!java_states_no_modifier_and_is_public("void run()"));
     }
@@ -2334,7 +2305,6 @@ mod tests {
             swift_declared_visibility("internal var shared: Int"),
             Some(Visibility::Internal)
         );
-
         assert_eq!(swift_visibility("shared"), Visibility::Internal);
     }
 
@@ -2356,7 +2326,6 @@ mod tests {
                 .map(|def| def.kind)
         };
         assert_eq!(kind("Service"), Some(DefKind::Class));
-
         assert_eq!(
             facts
                 .defs()
@@ -2393,13 +2362,10 @@ mod tests {
 
     #[test]
     fn a_php_declaration_without_a_body_is_a_member() {
-
         assert!(php_has_no_body("function run(): void;"));
         assert!(!php_opens_with_modifier("function run(): void;"));
-
         assert!(!php_has_no_body("function bare(string $name): string"));
         assert!(!php_has_no_body("function bare(): string { return 'x'; }"));
-
         assert!(php_opens_with_modifier("abstract function run();"));
         assert!(php_opens_with_modifier("static function make(): self"));
         assert!(!php_opens_with_modifier("function bare(): string"));
@@ -2635,10 +2601,8 @@ mod tests {
             .body_idents
             .iter()
             .any(|ident| ident == "frobnicate"));
-
         assert!(!service.body_idents.iter().any(|ident| ident == "helper"));
         assert!(run.body_idents.iter().any(|ident| ident == "helper"));
-
         assert!(service.doc_idents.iter().any(|ident| ident == "container"));
         assert!(!service.body_idents.iter().any(|ident| ident == "container"));
     }
@@ -2659,7 +2623,6 @@ mod tests {
             None,
             "a blank line breaks adjacency"
         );
-
         let private_field = "    #attempts = 0;\n    private secret: string;\n";
         let secret_at = private_field.find("private").unwrap();
         assert_eq!(
@@ -2667,7 +2630,6 @@ mod tests {
             None,
             "private fields must not be absorbed as comments"
         );
-
         let py = "# note about widget\ndef run():\n    pass\n";
         let def_at = py.find("def").unwrap();
         let start = preceding_comment_run_start(py, def_at, &["#"]).unwrap();
@@ -2719,7 +2681,6 @@ mod tests {
             .find(|def| def.name == "#hidden")
             .unwrap();
         assert_eq!(hidden.visibility, Visibility::Private);
-
         assert!(!hidden
             .signature_idents
             .iter()
@@ -2782,7 +2743,6 @@ mod tests {
         assert_eq!(kind_of(&facts, "asserted"), "variable");
         assert_eq!(kind_of(&facts, "nested"), "function");
         assert_eq!(kind_of(&facts, "compared"), "variable");
-
         let mut tsx = TagsExtractor::new(&TSX).unwrap();
         let facts = tsx
             .extract(b"const element = <Badge onClick={() => go()} />;\n")
@@ -2847,11 +2807,9 @@ mod tests {
                 "{name} was not named as a member of its class"
             );
         }
-
         assert!(!facts.defs().iter().any(|def| def.name == "plain"));
         assert!(!facts.defs().iter().any(|def| def.name == "fallbackish"));
         assert!(!facts.defs().iter().any(|def| def.name == "defaulted"));
-
         assert_eq!(field("repo").visibility, Visibility::Private);
         assert_eq!(field("label").visibility, Visibility::Public);
         assert_eq!(field("retries").visibility, Visibility::Protected);
@@ -3180,15 +3138,10 @@ mod tests {
         assert_eq!(imports.len(), 1);
         assert_eq!(imports[0].kind, ImportKind::Require);
         assert_eq!(imports[0].path, "m");
-
         assert!(imports[0].alias.is_none());
-
         assert!(imports[0].owner.is_none());
-
         assert!(typescript("describe(\"a case\");\n").imports().is_empty());
-
         assert!(typescript("thing.require(\"m\");\n").imports().is_empty());
-
         assert_eq!(
             typescript("function require(p: string) { return p; }\nrequire(\"./shim\");\n")
                 .imports()
@@ -3249,7 +3202,6 @@ mod tests {
         );
         let imports = facts.imports();
         assert_eq!(imports.len(), 2);
-
         assert_eq!(imports[0].path, "m-top");
         assert!(imports[0].owner.is_none());
         assert_eq!(imports[1].path, "m-nested");

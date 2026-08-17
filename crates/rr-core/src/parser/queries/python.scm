@@ -1,4 +1,3 @@
-
 (module
   (expression_statement
     (assignment

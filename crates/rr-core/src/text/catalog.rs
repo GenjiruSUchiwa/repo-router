@@ -179,7 +179,6 @@ fn catalog_of(projection: &TextProjection) -> MapCatalog {
     let mut stream = HashStream::new("route-corpus");
     stream.count(projection.scopes().len());
     for scope in projection.scopes() {
-
         stream.text(scope.path.as_str());
         stream.digest(scope.api_hash.digest());
 

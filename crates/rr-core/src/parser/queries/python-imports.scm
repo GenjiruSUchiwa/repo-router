@@ -1,4 +1,3 @@
-
 (import_statement
   name: (dotted_name) @import.path @import.import)
 

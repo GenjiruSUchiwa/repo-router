@@ -1,7 +1,6 @@
 target/
 .rr/local/
 *.tar.gz
-
 .claude/
 .agents/
 .cursor/

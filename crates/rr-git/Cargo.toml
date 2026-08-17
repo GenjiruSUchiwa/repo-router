@@ -24,7 +24,6 @@ sha2 = { workspace = true }
 serde = { workspace = true }
 rr-core = { path = "../rr-core" }
 rayon = { workspace = true }
-
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "1", features = ["fs"] }
 libc = { workspace = true }
@@ -33,7 +32,6 @@ libc = { workspace = true }
 proptest = { workspace = true }
 serde_json = { workspace = true }
 tempfile = { workspace = true }
-
 [target.'cfg(unix)'.dev-dependencies]
 rustix = { version = "1", features = ["fs"] }
 

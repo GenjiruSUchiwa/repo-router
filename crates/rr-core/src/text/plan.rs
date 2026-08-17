@@ -203,10 +203,8 @@ impl ScopePlan {
         let mut plans =
             [0, 1, 2].map(|index| keep_prefix(records, SECTIONS[index], alloc[index], capacity));
         let mut over_budget = plans.iter().any(|plan| plan.over_budget);
-
         while plans.iter().map(|plan| plan.bytes).sum::<usize>() > capacity {
             let Some(index) = SHED_ORDER.into_iter().find(|&index| plans[index].kept > 0) else {
-
                 over_budget = true;
                 break;
             };

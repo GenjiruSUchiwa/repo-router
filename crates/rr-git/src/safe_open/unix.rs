@@ -96,11 +96,8 @@ fn split_parents(path: &str) -> (impl Iterator<Item = &str>, &str) {
 fn refuse(directory: &OwnedFd, component: &str, errno: Errno) -> Result<OpenOutcome> {
     let state = match errno {
         Errno::NOENT => ContentPathState::Missing,
-
         Errno::LOOP | Errno::MLINK => ContentPathState::Symlink,
-
         Errno::NXIO => ContentPathState::NotRegular,
-
         Errno::NOTDIR | Errno::ISDIR => kind_of(directory, component, errno)?,
         other => return Err(io_error(other)),
     };
@@ -115,7 +112,6 @@ fn kind_of(directory: &OwnedFd, component: &str, errno: Errno) -> Result<Content
         }
         Ok(_) => Ok(ContentPathState::NotRegular),
         Err(Errno::NOENT) => Ok(ContentPathState::Missing),
-
         Err(_) => Err(io_error(errno)),
     }
 }

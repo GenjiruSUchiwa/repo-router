@@ -204,7 +204,6 @@ fn a_clean_filter_that_stops_reading_does_not_kill_the_run() {
     common::write(repo.path(), ".gitattributes", "*.rs filter=trunc\n");
     common::write(repo.path(), "src/token.rs", &wider_than_a_pipe(1));
     common::commit_all(repo.path(), "add token behind a truncating filter");
-
     common::write(repo.path(), "src/token.rs", &wider_than_a_pipe(2));
 
     let mapped = common::run(repo.path(), &["map"]);
@@ -243,7 +242,6 @@ fn a_clean_filter_does_not_kill_a_run_over_an_unmodified_worktree() {
     common::write(repo.path(), ".gitattributes", "*.rs filter=trunc\n");
     common::write(repo.path(), "src/token.rs", &wider_than_a_pipe(1));
     common::commit_all(repo.path(), "add token behind a truncating filter");
-
     common::write(repo.path(), "src/token.rs", &wider_than_a_pipe(1));
 
     let mapped = common::run(repo.path(), &["map"]);

@@ -32,18 +32,15 @@ use crate::{Error, Result};
 /// discovery failures. A repository whose working tree cannot be compared is
 /// not an error — it is reported as [`GitLabel::Unavailable`].
 pub fn status(root: &Path, cancel: &CancelToken) -> Result<StatusReport> {
-
     let context = BuildContext::open(root, 1)?;
     let store = SnapshotStore::new(&context.work_root);
     let published = Published::load(&store)?;
-
     let unresolved = published
         .snapshot()
         .map_or(0, |snapshot| snapshot.unresolved_count());
 
     let observed = match observe(&context, cancel) {
         Ok(observed) => observed,
-
         Err(Error::Cancelled) => return Err(Error::Cancelled),
         Err(_) => {
             let (git, head, snapshot) = unobservable(&context, &published)?;
@@ -59,7 +56,6 @@ pub fn status(root: &Path, cancel: &CancelToken) -> Result<StatusReport> {
 
     let repo = context.repo()?;
     let digest = discovery_digest(repo.as_ref(), &context.walk, observed.as_ref());
-
     let plan = plan_for(
         RefreshMode::Incremental,
         &published,
@@ -90,7 +86,6 @@ fn unobservable(
     published: &Published,
 ) -> Result<(GitLabel, Option<Oid>, SnapshotLabel)> {
     let head = context.repo()?.map(|repo| repo.head_oid()).transpose()?;
-
     let snapshot = match published {
         Published::Ready(_) => SnapshotLabel::Unknown,
         Published::Unusable(reason) => unusable_label(*reason),
@@ -121,7 +116,6 @@ fn snapshot_label(plan: &RefreshPlan) -> SnapshotLabel {
         (RefreshMode::Incremental, _) if plan.is_empty_delta() => SnapshotLabel::Fresh,
         (RefreshMode::Incremental, _) => SnapshotLabel::Stale,
         (RefreshMode::Full, Some(reason)) => unusable_label(reason),
-
         (RefreshMode::Full, None) => SnapshotLabel::Unknown,
     }
 }

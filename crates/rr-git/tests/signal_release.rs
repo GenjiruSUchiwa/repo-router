@@ -13,17 +13,14 @@ use rr_git::{release_locks_signal_safe, RepositoryWriteGuard};
 fn the_signal_safe_release_removes_a_claim_that_is_still_held() {
     let temp = tempfile::tempdir().unwrap();
     let guard = RepositoryWriteGuard::acquire(temp.path()).unwrap();
-
     let lock = guard.path().with_extension("lock");
     assert!(lock.exists(), "the claim is not on disk to begin with");
-
     release_locks_signal_safe();
 
     assert!(
         !lock.exists(),
         "a held claim outlived the release, so a signalled run would refuse every later one"
     );
-
     drop(guard);
     RepositoryWriteGuard::acquire(temp.path()).expect("the claim was released");
 }

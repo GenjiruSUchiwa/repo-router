@@ -183,7 +183,6 @@ impl GitRepo {
     /// Acquires canonical content for source verification from an already-opened
     /// handle, preferring the object database when the index proves it safe.
     fn acquire_source(&self, path: &RelPath, opened: &OpenedFile) -> Result<AcquireOutcome> {
-
         if let Some(oid) = self.index_oid(path)? {
             if self.blob_size(oid)? > MAX_VERIFIED_CONTENT_BYTES {
                 return Ok(AcquireOutcome::Refused(ContentPathState::TooLarge));
@@ -195,7 +194,6 @@ impl GitRepo {
             return Ok(AcquireOutcome::Refused(ContentPathState::TooLarge));
         };
         let canonical = self.convert_to_git(worktree.as_slice(), path)?;
-
         if byte_len(&canonical) > MAX_VERIFIED_CONTENT_BYTES {
             return Ok(AcquireOutcome::Refused(ContentPathState::TooLarge));
         }
@@ -501,7 +499,6 @@ mod tests {
     #[test]
     fn a_stale_index_timestamp_never_serves_the_recorded_identity() {
         let (temp, repo) = committed_repo();
-
         let index = std::fs::OpenOptions::new()
             .write(true)
             .open(temp.path().join(".git/index"))
@@ -609,7 +606,6 @@ mod tests {
             2,
             "the final check reacquires rather than trusting recorded metadata"
         );
-
         write(temp.path(), "src/copy.rs", &content.bytes);
         std::fs::rename(temp.path().join("src/copy.rs"), temp.path().join(SOURCE)).unwrap();
         assert_eq!(revalidate(&repo), Revalidation::Fresh);
@@ -671,7 +667,6 @@ mod tests {
     impl SigpipeDisposition {
         #[allow(unsafe_code)]
         fn install(handler: libc::sighandler_t) -> Self {
-
             Self(unsafe { libc::signal(libc::SIGPIPE, handler) })
         }
     }
@@ -680,7 +675,6 @@ mod tests {
     impl Drop for SigpipeDisposition {
         #[allow(unsafe_code)]
         fn drop(&mut self) {
-
             unsafe {
                 libc::signal(libc::SIGPIPE, self.0);
             }

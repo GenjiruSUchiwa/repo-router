@@ -74,7 +74,6 @@ fn main() -> ExitCode {
             Ok(code) => ExitCode::from(code),
             Err(err) => {
                 diagnose(&format!("rr: query: {}", one_line(&err)));
-
                 ExitCode::from(1)
             }
         },
@@ -163,13 +162,11 @@ fn one_line(err: &anyhow::Error) -> String {
     let mut line = String::with_capacity(rendered.len());
     let mut pending_space = false;
     for character in rendered.chars() {
-
         if character.is_control() || matches!(character, '\u{2028}' | '\u{2029}') {
             pending_space = !line.is_empty();
             continue;
         }
         if pending_space {
-
             if character.is_whitespace() {
                 continue;
             }

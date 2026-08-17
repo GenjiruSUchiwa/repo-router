@@ -95,7 +95,6 @@ impl Worker {
                 .put(&CacheKey::new(content.oid, source.lang), &facts)
                 .is_err()
         {
-
             stats.cache_write_failures += 1;
         }
 
@@ -133,7 +132,6 @@ impl Worker {
             record_status(&mut stats, input.parse_status);
             return Ok((Some(input), stats));
         }
-
         let (input, rebuilt) = self.process(source, cache)?;
         stats.add_assign(rebuilt);
         Ok((input, stats))
@@ -151,7 +149,6 @@ impl Worker {
         };
 
         match repo.probe_content(&source.path)? {
-
             ContentProbe::CleanGitBlob(oid) => {
                 stats.clean_probes += 1;
                 if let Some(facts) = lookup(cache, oid, source.lang, stats)? {
@@ -167,7 +164,6 @@ impl Worker {
                 let Some(content) = repo.acquire_content(&source.path, probe)? else {
                     return Ok(Acquired::Vanished);
                 };
-
                 if content.oid != oid {
                     return Err(Error::Content(format!(
                         "clean object identity mismatch for {}",
@@ -177,7 +173,6 @@ impl Worker {
                 stats.clean_blob_reads += 1;
                 Ok(Acquired::Pending(content))
             }
-
             ContentProbe::ReadRequired => {
                 let Some(content) =
                     repo.acquire_content(&source.path, ContentProbe::ReadRequired)?
@@ -208,7 +203,6 @@ impl Worker {
         match self.registry.for_lang(lang) {
             Some(Ok(extractor)) => extractor.extract(&content.bytes).map_err(Error::Core),
             Some(Err(message)) => Err(Error::Content(message)),
-
             None => Ok(degraded_facts(&content.bytes, DegradedReason::NoExtractor)),
         }
     }

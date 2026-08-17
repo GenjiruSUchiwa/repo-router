@@ -42,7 +42,6 @@ fn a_map_for_a_tags_indexed_directory_has_a_populated_api_section() {
     assert!(api.contains("Service"), "{map}");
     assert!(api.contains("def run(value):"), "{map}");
     assert!(!api.contains("_None._"), "{map}");
-
     assert!(!map.contains("service.py::"), "{map}");
 }
 

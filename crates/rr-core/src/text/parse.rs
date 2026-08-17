@@ -471,7 +471,6 @@ fn parse_field(line: &str) -> TextResult<(String, RawValue)> {
     if value.starts_with('"') {
         return Ok((key.to_owned(), RawValue::Text(unquote(value)?)));
     }
-
     if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
         return Err(TextError::Frontmatter {
             reason: "frontmatter value is neither a quoted string nor an unsigned integer",
@@ -520,7 +519,6 @@ fn unquote(value: &str) -> TextResult<String> {
             Some('r') => out.push('\r'),
             Some('t') => out.push('\t'),
             Some('u') => {
-
                 let digits: String = characters.by_ref().take(4).collect();
                 if digits.len() != 4 || !digits.bytes().all(|byte| byte.is_ascii_hexdigit()) {
                     return Err(TextError::Frontmatter {
@@ -636,7 +634,6 @@ fn verify_generated_hash(
     purpose: Option<&str>,
     stored: Digest,
 ) -> bool {
-
     let carried: Vec<(&str, render::Value)> = fields
         .iter()
         .map(|(key, value)| {
@@ -685,7 +682,6 @@ struct Body<'a> {
 
 impl<'a> Body<'a> {
     fn new(body: &'a str) -> Self {
-
         let mut lines: Vec<&str> = body.split('\n').collect();
         if lines.last() == Some(&"") {
             lines.pop();
@@ -887,7 +883,6 @@ fn parse_api_line(file: &str, line: &str) -> TextResult<ParsedApiRecord> {
         });
     }
     let (path, symbol) = encode::decode_destination(&destination)?;
-
     if symbol.as_deref() != Some(trailing_identifier(&name)) {
         return Err(TextError::Record {
             reason: "an API record links to a symbol other than the one it names",
@@ -968,7 +963,6 @@ fn parse_symbol_record(line: &str) -> TextResult<ParsedSymbolRecord> {
     let visibility = visibility.to_owned();
     let anchor = anchor.to_owned();
     let api_hash = Digest::parse(hash)?;
-
     if !VisibilityLabel::is_known(&visibility) {
         return Err(TextError::Record {
             reason: "a symbol record's visibility is not a recognized visibility label",
@@ -982,10 +976,8 @@ fn parse_symbol_record(line: &str) -> TextResult<ParsedSymbolRecord> {
             reason: "a symbol record's line is not positive",
         });
     }
-
     let (map, _) = encode::decode_destination(map)?;
     let map = map.as_str().to_owned();
-
     let symbol = encode::decode_destination_component(symbol)?;
     Ok(ParsedSymbolRecord {
         symbol,

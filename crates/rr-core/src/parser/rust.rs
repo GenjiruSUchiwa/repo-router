@@ -649,7 +649,6 @@ fn declaration_line(item: Span, signature: Span, source: &str, name: &str) -> St
         line
     }
 }
-
 #[allow(clippy::naive_bytecount)]
 fn signature_span(
     kind: DefKind,
@@ -677,7 +676,6 @@ fn signature_span(
     let end_line = if end_byte == expanded.start_byte() {
         expanded.start_line()
     } else {
-
         let start = expanded.start_byte() as usize;
         let newlines = bytes[start..end - 1]
             .iter()
@@ -767,7 +765,6 @@ fn visibility(node: Node<'_>, source: &str) -> Visibility {
         return Visibility::Public;
     };
     match inner.kind() {
-
         "crate" if !has_in => Visibility::Crate,
         "self" | "super" => Visibility::Restricted(inner.kind().to_string()),
         _ => {
@@ -827,7 +824,6 @@ fn impl_qualifier(node: Node<'_>, source: &str) -> Result<String> {
 fn test_signals(node: Node<'_>, source: &str) -> TestSignals {
     let mut explicit_attribute = false;
     let mut inside_cfg_test = false;
-
     for attr in attached_attributes(node) {
         let path = attribute_path(attr, source).unwrap_or_default();
         if is_explicit_test_attr(&path) {
@@ -837,7 +833,6 @@ fn test_signals(node: Node<'_>, source: &str) -> TestSignals {
             inside_cfg_test = true;
         }
     }
-
     let mut current = node.parent();
     while let Some(item) = current {
         if is_definition_item(item)
@@ -860,7 +855,6 @@ fn test_signals(node: Node<'_>, source: &str) -> TestSignals {
     TestSignals {
         explicit_attribute,
         inside_cfg_test,
-
         inside_test_scope: false,
     }
 }
@@ -1156,7 +1150,6 @@ fn expand_use_tree(
                             message: "use_as_clause missing path",
                         })?;
                 let alias = field_text(node, "alias", source).map(str::to_string);
-
                 let path = if path_node.kind() == "self" {
                     if prefix.is_empty() {
                         "self".to_string()
@@ -1174,7 +1167,6 @@ fn expand_use_tree(
                     alias,
                     is_public,
                     is_glob: false,
-
                     span: node_span(node, source)?,
                 });
             }
@@ -1630,12 +1622,10 @@ fn via_cfg_attr() {}
                 .test_signals
                 .inside_cfg_test
         };
-
         assert!(!signal("feature_string"));
         assert!(!signal("feature_hyphen"));
         assert!(signal("direct"));
         assert!(signal("nested_all"));
-
         assert!(signal("negated"));
         assert!(signal("via_cfg_attr"));
     }
@@ -1916,7 +1906,6 @@ use a as _;
         }
         nested.push_str("};\n");
         let mut extractor = RustExtractor::new().unwrap();
-
         let facts = extractor.extract(nested.as_bytes()).unwrap();
         drop(facts);
     }
@@ -1941,7 +1930,6 @@ use a as _;
 
     #[test]
     fn error_node_suppresses_internal_references_and_imports() {
-
         let src = "fn ok() { bar(); }\nmatch { use crate::x; foo(); }\n";
         let facts = extract(src);
         let ParseStatus::Recovered { error_nodes, .. } = facts.status() else {

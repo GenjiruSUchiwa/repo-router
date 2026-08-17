@@ -238,7 +238,6 @@ pub fn route_exact(snapshot: &Snapshot, query: &ParsedQuery<'_>) -> ExactOutcome
                 symbols,
                 effective_path_qualifier,
             ) {
-
                 ExactOutcome::Miss => {}
                 outcome => return outcome,
             }
@@ -257,7 +256,6 @@ pub fn route_exact(snapshot: &Snapshot, query: &ParsedQuery<'_>) -> ExactOutcome
                 symbols,
                 effective_path_qualifier,
             ) {
-
                 ExactOutcome::Miss => {}
                 outcome => return outcome,
             }

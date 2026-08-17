@@ -270,7 +270,6 @@ pub fn render_init_json(targets: &[InitTarget<'_>]) -> String {
         schema_version: INIT_SCHEMA_VERSION,
         targets,
     };
-
     serde_json::to_string(&report)
         .unwrap_or_else(|_| String::from("{\"schema_version\":1,\"targets\":[]}"))
 }

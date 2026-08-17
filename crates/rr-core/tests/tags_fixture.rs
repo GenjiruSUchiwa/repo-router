@@ -260,7 +260,6 @@ fn a_broken_python_indent_recovers_rather_than_truncating() {
             parse_errors: false
         }
     ));
-
     assert_eq!(def(&facts, "before").kind.to_string(), "function");
     assert_eq!(def(&facts, "Service").kind.to_string(), "class");
     assert_eq!(
@@ -268,7 +267,6 @@ fn a_broken_python_indent_recovers_rather_than_truncating() {
         Some("Service.run")
     );
     assert_eq!(def(&facts, "after").kind.to_string(), "function");
-
     let method = def(&facts, "run");
     let class = def(&facts, "Service");
     assert!(method.body_idents.iter().any(|ident| ident == "helper"));
@@ -330,7 +328,6 @@ fn a_typescript_member_reports_the_visibility_it_declares() {
     );
     assert_eq!(visibility("baseUrl"), "Public");
     assert_eq!(visibility("send"), "Public");
-
     assert_eq!(
         def(&facts, "send").local_qualified.as_deref(),
         Some("Client.send")
@@ -345,7 +342,6 @@ fn a_typescript_binding_is_a_function_only_when_its_initializer_is_one() {
     assert_eq!(def(&facts, "makeClient").kind.to_string(), "function");
     assert_eq!(def(&facts, "DEFAULT_CEILING").kind.to_string(), "variable");
     assert_eq!(def(&facts, "INTERNAL_PREFIX").kind.to_string(), "variable");
-
     assert_eq!(def(&facts, "later").kind.to_string(), "variable");
 }
 
@@ -366,7 +362,6 @@ fn a_containers_body_idents_do_not_absorb_member_doc_prose() {
         "container absorbed member doc prose: {:?}",
         options.body_idents
     );
-
     assert!(base_url.span.start_byte() < base_url.signature_span.start_byte());
     assert_eq!(base_url.signature, "readonly baseUrl: string");
 }
@@ -378,13 +373,11 @@ fn typescript_documentation_is_the_comment_run_and_not_the_body() {
     let (_, facts) = facts_for(Lang::TypeScript, "typescript", "surface.ts");
     let ceiling = def(&facts, "DEFAULT_CEILING");
     assert!(ceiling.doc_idents.iter().any(|ident| ident == "ceiling"));
-
     assert!(def(&facts, "INTERNAL_PREFIX").doc_idents.is_empty());
 
     let join = def(&facts, "join");
     assert!(join.doc_idents.iter().any(|ident| ident == "Joins"));
     assert!(join.body_idents.iter().any(|ident| ident == "strict"));
-
     assert!(def(&facts, "Client")
         .attribute_idents
         .iter()
@@ -513,10 +506,8 @@ fn a_typescript_ambient_declaration_keeps_the_declare_keyword() {
         .doc_idents
         .iter()
         .any(|ident| ident == "transport"));
-
     assert_eq!(def(&facts, "token").visibility, Visibility::Private);
     assert_eq!(def(&facts, "release").kind.to_string(), "method");
-
     let sessions: Vec<_> = facts
         .defs()
         .iter()
@@ -615,7 +606,6 @@ fn every_import_kind_variant_has_a_producer() {
             produced.insert(import.kind);
         }
     }
-
     assert_eq!(
         produced.into_iter().collect::<Vec<_>>(),
         ImportKind::ALL.to_vec()

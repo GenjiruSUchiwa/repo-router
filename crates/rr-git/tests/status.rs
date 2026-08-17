@@ -95,7 +95,6 @@ fn status_before_any_refresh_reports_a_missing_snapshot() {
 
     assert_eq!(report.snapshot, SnapshotLabel::Missing);
     assert_eq!(report.git, GitLabel::Clean);
-
     assert_eq!(report.stale_paths, None);
     assert_eq!(report.unresolved, 0);
 }
@@ -126,7 +125,6 @@ fn a_dirty_tree_that_was_indexed_dirty_is_still_fresh() {
     published(temp.path());
 
     let report = agrees_with_refresh(temp.path());
-
     assert_eq!(report.git, GitLabel::Dirty);
     assert_eq!(report.snapshot, SnapshotLabel::Fresh);
 }
@@ -137,7 +135,6 @@ fn a_reverted_file_is_reported_stale_even_though_git_says_nothing() {
     seed(temp.path());
     write(temp.path(), "src/lib.rs", "pub fn edited() {}\n");
     published(temp.path());
-
     write(temp.path(), "src/lib.rs", "pub fn one() {}\n");
 
     let report = agrees_with_refresh(temp.path());
@@ -197,7 +194,6 @@ fn a_conflicted_path_outranks_the_modifications_that_accompany_it() {
     );
 
     let report = look(temp.path());
-
     assert_eq!(report.git, GitLabel::Conflicted);
 }
 
@@ -211,7 +207,6 @@ fn a_root_outside_git_can_be_described_but_not_compared() {
 
     assert_eq!(report.git, GitLabel::NoGit);
     assert_eq!(report.head, None);
-
     assert_eq!(report.snapshot, SnapshotLabel::Unknown);
     assert_eq!(report.stale_paths, None);
 }
@@ -256,7 +251,6 @@ fn an_uncommitted_ignore_rule_stops_forcing_a_rebuild_once_it_is_absorbed() {
     write(temp.path(), ".gitignore", "generated/\n");
 
     let report = agrees_with_refresh(temp.path());
-
     assert_eq!(report.snapshot, SnapshotLabel::Stale);
 }
 
@@ -298,7 +292,6 @@ fn status_creates_no_state_directory_in_a_repository_it_has_never_built() {
     seed(temp.path());
 
     let _ = look(temp.path());
-
     assert!(
         !temp.path().join(".rr").exists(),
         "status created the state directory"
@@ -415,7 +408,6 @@ fn an_edit_to_a_tracked_file_inside_an_ignored_directory_settles() {
         "skipped/hidden.rs",
         "pub fn hidden(x: u8) {}\n",
     );
-
     let first = agrees_with_refresh(temp.path());
     let settled = agrees_with_refresh(temp.path());
 
@@ -475,7 +467,6 @@ fn a_symlink_that_becomes_a_source_file_is_indexed() {
         .expect("failed to create the symlink");
     git_add_and_commit(temp.path(), "add a symlink named like a source file");
     published(temp.path());
-
     fs::remove_file(temp.path().join("src/alias.rs")).expect("failed to drop the symlink");
     std::os::unix::fs::symlink("../src/lib.rs", temp.path().join("src/alias.rs"))
         .expect("failed to repoint the symlink");
@@ -525,7 +516,6 @@ fn a_delta_that_contradicts_itself_is_not_reported_as_an_unreadable_repository()
     let mut observed = repo
         .observe_state(&CancelToken::new())
         .expect("observation failed");
-
     let moved = |target: &str| WorktreeChange {
         kind: ChangeKind::Renamed,
         path: RelPath::try_from(target).expect("bad path"),

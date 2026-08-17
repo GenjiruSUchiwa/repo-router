@@ -194,7 +194,6 @@ impl VisibilityLabel {
                 label: "package",
                 key: "package".to_owned(),
             }),
-
             Visibility::FilePrivate => Some(Self {
                 label: "fileprivate",
                 key: "fileprivate".to_owned(),
@@ -276,7 +275,6 @@ impl ApiRecord {
     fn write_api_hash(&self, stream: &mut HashStream) {
         stream.text(&self.path);
         stream.text(&self.name);
-
         stream.text(&self.anchor_name);
         stream.text(self.kind.as_str());
         stream.text(&self.visibility.key);
@@ -555,7 +553,6 @@ fn index_hash_of(
         }
         stream.count(scope.api.len());
         for record in &scope.api {
-
             record.write_api_hash(&mut stream);
             stream.u32(record.start_line);
         }
@@ -589,7 +586,6 @@ fn check_budget(budget: u32) -> TextResult<usize> {
             reason: "a page budget of zero cannot hold a page",
         });
     }
-
     Ok(usize::try_from(u64::from(budget) * u64::from(BYTES_PER_TOKEN)).unwrap_or(usize::MAX))
 }
 
@@ -659,7 +655,6 @@ fn collect_directories(snapshot: &Snapshot) -> TextResult<BTreeMap<ScopePath, Di
             })?
             .to_owned();
         let (scope, file_name) = split_directory(&path)?;
-
         let file_fidelity = Fidelity::of(&file.parse_status);
         for ancestor in ancestors_of(&scope) {
             let draft = directories.entry(ancestor).or_default();
@@ -741,7 +736,6 @@ fn collect_file(
                 reason: "snapshot symbol has an empty name or signature",
             });
         }
-
         if is_test(file, symbol) {
             named_tests += 1;
             draft.tests.push(TestRecord {
@@ -845,7 +839,6 @@ fn collect_symbol_lines(scopes: &[Scope]) -> TextResult<Vec<SymbolLine>> {
         }
     }
     lines.sort_by(SymbolLine::order);
-
     if lines
         .windows(2)
         .any(|pair| pair[0].identity() == pair[1].identity())

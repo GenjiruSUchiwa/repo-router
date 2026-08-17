@@ -361,7 +361,6 @@ fn compare(
             &mut validation,
         );
     }
-
     for path in owned_paths_on_disk(root, &planned) {
         match read_and_classify_existing(root, &path) {
             Ok(true) => validation.removable.push(path),
@@ -406,7 +405,6 @@ fn classify_managed_ignore(
     }
     let existing = match std::fs::read_to_string(root.join(path)) {
         Ok(text) => text,
-
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return,
         Err(_) => {
             validation
@@ -440,7 +438,6 @@ fn classify(
     }
 
     let absolute = root.join(path);
-
     if std::fs::symlink_metadata(&absolute).is_ok_and(|meta| meta.file_type().is_symlink()) {
         validation
             .conflicts
@@ -470,7 +467,6 @@ fn classify(
         return;
     }
     if repairs_in_place(kind, outcome) {
-
         validation.symbols_repaired = true;
         validation.stale.push(path.to_owned());
         return;
@@ -513,7 +509,6 @@ fn case_collisions<'a>(
         } else {
             root.join(directory)
         };
-
         let Ok(entries) = std::fs::read_dir(&absolute) else {
             continue;
         };
@@ -529,7 +524,6 @@ fn case_collisions<'a>(
                 .iter()
                 .find(|entry| entry.eq_ignore_ascii_case(name))
             {
-
                 if absolute.join(name).symlink_metadata().is_err() {
                     continue;
                 }

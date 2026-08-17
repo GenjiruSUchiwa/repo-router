@@ -85,7 +85,6 @@ fn apply(dir: &Path, op: &Op, step: usize) {
         Op::Stage => git(dir, &["add", "-A"]),
         Op::Commit => {
             git(dir, &["add", "-A"]);
-
             let _ = Command::new("git")
                 .args(["commit", "-qm", "step"])
                 .current_dir(dir)
@@ -168,11 +167,9 @@ const SEED: [u8; 32] = *b"repo-router differential oracle!";
 
 #[test]
 fn any_history_of_ordinary_edits_agrees_with_a_full_rebuild() {
-
     let config = ProptestConfig {
         cases: 12,
         max_shrink_iters: 64,
-
         failure_persistence: None,
         ..ProptestConfig::default()
     };
@@ -187,7 +184,6 @@ fn any_history_of_ordinary_edits_agrees_with_a_full_rebuild() {
         }
         Ok(())
     });
-
     if let Err(error) = outcome {
         panic!("{error}");
     }

@@ -204,7 +204,6 @@ pub trait TermLookup {
 
 impl TermLookup for Lexicon {
     fn get(&self, canonical: &str) -> Option<TermId> {
-
         Lexicon::get(self, canonical)
     }
 }

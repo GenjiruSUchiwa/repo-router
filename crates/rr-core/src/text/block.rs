@@ -57,7 +57,6 @@ pub fn apply_block(
         return Ok(block.to_owned());
     };
     let normalized = super::parse::normalize_newlines_public(existing)?;
-
     let was_crlf = existing.contains('\r');
     let applied = apply_to_lf(&normalized, markers, block)?;
     Ok(if was_crlf {
@@ -114,7 +113,6 @@ fn append_block(existing: &str, block: &str) -> String {
         if !existing.ends_with('\n') {
             out.push('\n');
         }
-
         if !out.ends_with("\n\n") {
             out.push('\n');
         }
@@ -159,7 +157,6 @@ mod tests {
         assert!(updated.ends_with("after\n"));
         assert!(updated.contains(replacement));
         assert!(!updated.contains("/SYMBOLS.md"));
-
         let before = "before\n";
         let after = "after\n";
         assert_eq!(&updated[..before.len()], before);
@@ -240,7 +237,6 @@ mod tests {
             apply_block(Some(&existing), CONTRACT_MARKERS, CONTRACT_BLOCK).unwrap();
         assert!(updated_contract.contains(BLOCK.trim_end()));
         assert!(updated_contract.contains(CONTRACT_BLOCK.trim_end()));
-
         let other_begins: Vec<_> = updated
             .lines()
             .filter(|line| *line == CONTRACT_MARKERS.begin)

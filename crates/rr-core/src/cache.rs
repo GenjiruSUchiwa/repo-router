@@ -128,7 +128,6 @@ impl FactCache {
     /// # Errors
     /// Returns [`Error::CacheIo`] if the directory cannot be created or is not writable.
     pub fn open(repo_root: &Path) -> Result<Self> {
-
         crate::workspace::ensure_private(repo_root).map_err(|source| Error::CacheIo {
             path: crate::workspace::state_dir(repo_root),
             source,
@@ -295,7 +294,6 @@ mod tests {
         assert_eq!(cache.stats().hits(), 0, "a stale entry was served");
         assert_eq!(cache.stats().corrupt(), 0, "a stale entry was even opened");
         assert_eq!(cache.stats().misses(), 1);
-
         let rebuilt = DummyFacts {
             symbols: vec!["written_by_schema_3".to_string()],
             imports: Vec::new(),
