@@ -70,32 +70,10 @@ fn main() -> ExitCode {
     }
 }
 
-/// Puts SIGPIPE back to its default disposition, before anything can print.
-///
-/// Rust's runtime ignores SIGPIPE, which turns "the consumer stopped reading"
-/// into an `EPIPE` that every writer has to notice. The `println!` family does
-/// not notice: it panics — `failed printing to stdout: Broken pipe (os error
-/// 32)`, exit 101 — and that panic is the failure `docs/OBSERVATIONS.md` §9.6
-/// recorded in Radar and issue #1 asked this binary not to repeat.
-///
-/// Noticing `ErrorKind::BrokenPipe` at rr's own write boundary would not be
-/// enough, because rr is not the only writer in this process. `rr --help`,
-/// `rr --version` and every usage error are printed by `clap`, and no boundary
-/// this crate owns can reach those writes. A disposition covers every write in
-/// the process, including the ones in dependencies, and covers them from the
-/// first statement of `main` rather than from wherever the first `Output` call
-/// happens to be.
-///
-/// The price is that the process is *terminated*, not unwound: no destructor
-/// runs, so nothing may be printed while the publication guard is held. See the
-/// `exit` module in `refresh.rs`, and `tests/broken_pipe.rs`, which pins it.
+/// Restores SIGPIPE to `SIG_DFL`. Rust ignores it, so clap's prints panic
+/// on a closed pipe (exit 101). A disposition covers those writes too.
 #[cfg(unix)]
 fn restore_default_sigpipe() {
-    // Not error-checked, and not checkable: `signal` reports `SIG_ERR` only for
-    // `SIGKILL` and `SIGSTOP`, so there is no failure to report and no half
-    // change to undo. `signal` rather than `sigaction` because the one trap in
-    // `signal` is the BSD/SysV disagreement over re-arming a handler, and
-    // `SIG_DFL` installs no handler.
     unsafe {
         libc::signal(libc::SIGPIPE, libc::SIG_DFL);
     }

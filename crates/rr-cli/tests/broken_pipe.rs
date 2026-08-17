@@ -1,10 +1,7 @@
-//! `rr` and a consumer that stopped reading.
+//! Broken-pipe contract: a consumer that stopped reading.
 //!
-//! An agent runs `rr` through a pipe, so a pipe whose reader has gone is the
-//! ordinary case and not the exotic one. Every test here writes into a pipe
-//! whose read end was closed *before* the child was spawned, so none of them
-//! depends on beating a consumer that is on its way out — the race that makes a
-//! broken-pipe test pass on a laptop and flake in CI.
+//! Every test writes into a pipe whose read end was closed before spawn,
+//! so none of them race a consumer on its way out.
 
 #![cfg(unix)]
 #![allow(clippy::unwrap_used)]
@@ -25,14 +22,9 @@ enum Closed {
     Stderr,
 }
 
-/// A stream the child can only fail to write to.
-///
-/// The read end is closed before the child exists, so its very first byte is a
-/// write to a pipe with no reader. Dropping a `Stdio::piped()` handle after
-/// spawning produces the same condition only when the parent wins the race.
+/// Write end of a pipe whose read end is already closed.
 fn closed_pipe() -> Stdio {
     let mut fds = [0 as libc::c_int; 2];
-    // `pipe` fills exactly the two descriptors of the array it is handed.
     let created = unsafe { libc::pipe(fds.as_mut_ptr()) };
     assert_eq!(
         created,
@@ -40,17 +32,11 @@ fn closed_pipe() -> Stdio {
         "pipe(2) failed: {}",
         std::io::Error::last_os_error()
     );
-    // Nothing else owns the read end, and nothing will ever read it.
     unsafe { libc::close(fds[0]) };
-    // Ownership of the write end moves into the child's stdio.
     unsafe { Stdio::from_raw_fd(fds[1]) }
 }
 
-/// Runs `rr` with one stream connected to a pipe nobody reads and the other
-/// captured, so a regression to a panic has somewhere to be seen.
-///
-/// `RUST_BACKTRACE=1` is deliberate: if this ever regresses, the assertion on
-/// an empty stream fails with the whole backtrace in the message.
+/// Run `rr` with one stream on a closed pipe and the other captured.
 fn run_into_closed(dir: &Path, args: &[&str], closed: Closed) -> Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_rr"));
     command
@@ -118,13 +104,9 @@ fn a_diagnostic_written_to_a_closed_stderr_is_silent_too() {
     let repo = mapped_repo();
 
     for args in [
-        // crates/rr-cli/src/main.rs:63 — the query arm's own diagnostic.
         vec!["query", ""],
-        // clap's unrecognised-subcommand error, before any command runs.
         vec!["nosuchcommand"],
-        // clap's value error, which the parser raises rather than `run_refresh`.
         vec!["refresh", "--threads", "0"],
-        // crates/rr-cli/src/main.rs:81 — `finish`, the door every command error leaves by.
         vec!["refresh", "--root", "/definitely/not/a/repository"],
     ] {
         let output = run_into_closed(repo.path(), &args, Closed::Stderr);
@@ -182,16 +164,12 @@ fn a_broken_pipe_prints_no_panic_and_no_backtrace() {
 #[test]
 fn a_signalled_run_leaves_no_publication_lock_behind() {
     let repo = mapped_repo();
-    // Something to actually rebuild, so this run takes the guard rather than
-    // reporting the snapshot already current.
     common::write(repo.path(), "src/auth/session.rs", "pub fn session() {}\n");
     common::commit_all(repo.path(), "add session");
 
     let killed = run_into_closed(repo.path(), &["map"], Closed::Stdout);
     assert_eq!(killed.status.signal(), Some(libc::SIGPIPE));
 
-    // Named by `workspace::publication_lock_path` as `.rr/local/publication`;
-    // matched by prefix so the lock crate's own suffix is not restated here.
     let leftovers: Vec<String> = std::fs::read_dir(repo.path().join(".rr").join("local"))
         .unwrap()
         .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
