@@ -6,14 +6,16 @@
 //! is; `rr-git` decides *what the file says*; this module is the only place
 //! that puts the two together.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{bail, Context};
+use rr_core::cancel::CancelToken;
 use rr_core::index::Snapshot;
 use rr_core::path::RelPath;
 use rr_core::query::{parse_query, resolve_route_anchor, route_query, QueryRequest};
 use rr_core::ranking::{RankingScratch, DEFAULT_RANKING_PROFILE};
+use rr_core::refresh::SnapshotLabel;
 use rr_core::render::{
     encode_anchor, render_json, render_json_explained, render_text, render_text_explained,
 };
@@ -147,14 +149,8 @@ impl Workspace {
             if snapshot.meta.no_git {
                 bail!("index repository mismatch; run 'rr map'");
             }
-            if snapshot.meta.repo_head_oid != head_oid {
-                // The route cache is not slow in this window, it is
-                // unreachable: routing never runs, so committing the maps and
-                // then asking a question makes the cache look broken on the
-                // first day of use. Whether this refusal stays at all is #44's
-                // HEAD-to-HEAD fast path to decide, so the refusal names it
-                // rather than quietly implementing an answer here.
-                bail!("index is stale; run 'rr refresh' (until then no query is answered, cached or not; see #44)");
+            if snapshot.meta.repo_head_oid != head_oid && !index_still_holds(&root)? {
+                bail!("index is stale; run 'rr refresh'");
             }
         } else if !snapshot.meta.no_git {
             bail!("index repository mismatch; run 'rr map'");
@@ -166,6 +162,29 @@ impl Workspace {
             snapshot,
         })
     }
+}
+
+/// Whether the snapshot still describes the repository, asked properly.
+///
+/// A moved `HEAD` is not a stale index. The commit that moves it most often is
+/// the one that commits the generated maps, which touches no indexed source at
+/// all — and `rr status` already knows that, because #44 gave it the
+/// `HEAD`-to-`HEAD` tree diff. Comparing commit ids here instead left the two
+/// commands contradicting each other on the same snapshot in the same second:
+/// `snapshot: fresh, stale_paths: 0` from one, `index is stale` from the other.
+/// So this asks `rr status`'s own question rather than a cheaper one that gives
+/// a different answer.
+///
+/// Only reached when the ids differ, so the common case pays nothing: the walk
+/// costs what it costs exactly in the window that was previously a hard refusal.
+fn index_still_holds(root: &Path) -> anyhow::Result<bool> {
+    let report =
+        rr_git::status(root, &CancelToken::new()).context("compare index to repository")?;
+    // `Unknown` is ignorance, not evidence — a tree that could not be compared
+    // has said nothing, and refusing on nothing is the behaviour that was wrong
+    // in the first place. Only a plan that would actually reconsider paths
+    // refuses.
+    Ok(report.snapshot != SnapshotLabel::Stale)
 }
 
 /// The cached answer to this question, if there is one that is still true.
