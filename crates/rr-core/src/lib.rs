@@ -34,6 +34,7 @@ pub mod cache;
 pub mod cancel;
 pub mod check;
 pub mod content;
+pub mod envelope;
 pub mod facts;
 pub mod impact;
 pub mod index;
@@ -81,12 +82,12 @@ pub use facts::{
 /// function `rr_core::impact::impact` and reads the module's own documentation on
 /// the way past, which is where the resolved-edges-only contract is stated.
 pub use impact::{
-    carries_over, overlay, render_impact_json, render_impact_text, ChangedDefinition, ChangedFile,
+    overlay, render_impact_json, render_impact_text, ChangedDefinition, ChangedFile,
     DefinitionChange, Direction, Edge, EdgeKind, Endpoint, EndpointJson, EndpointKind, Evidence,
     FileChange, FileState, Graph, HunkRange, ImpactCycle, ImpactEdge, ImpactNode, ImpactRequest,
-    ImpactResultV1, ImpactStatus, NodeKey, Reached, ResolutionCounts, SchemaStamp, Side,
-    TestImpact, TestReason, UnfollowedImport, DEFAULT_DEPTH, DEFAULT_LIMIT, IMPACT_COMMAND,
-    IMPACT_CONFLICTED_PATH, IMPACT_SCHEMA_VERSION, IMPACT_WORKTREE_RACED, MAX_DEPTH, MAX_LIMIT,
+    ImpactResultV1, ImpactStatus, NodeKey, Reached, ResolutionCounts, Side, TestImpact, TestReason,
+    UnfollowedImport, DEFAULT_DEPTH, DEFAULT_LIMIT, IMPACT_COMMAND, IMPACT_CONFLICTED_PATH,
+    IMPACT_SCHEMA_VERSION, IMPACT_WORKTREE_RACED, MAX_DEPTH, MAX_LIMIT,
 };
 pub use lang::Lang;
 pub use lex::TermId as LexTermId;

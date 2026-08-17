@@ -50,16 +50,15 @@ pub mod render;
 pub use render::{render_impact_json, render_impact_text};
 
 use crate::check::{DiagnosticV1, Severity};
-use crate::facts::{DefKind, ParseStatus, ReferenceKind, FACT_SCHEMA_VERSION};
+use crate::facts::{DefKind, ParseStatus, ReferenceKind};
 use crate::index::{
     FileId, FileInput, ImportRecord, ReferenceRecord, Resolution, Snapshot, SnapshotBuilder,
-    SymbolId, SymbolRecord, BUILD_VERSION,
+    SymbolId, SymbolRecord,
 };
 use crate::lex::query_terms;
 use crate::oid::Oid;
 use crate::path::RelPath;
 use crate::render::encode_anchor;
-use crate::snapshot::SNAPSHOT_SCHEMA_VERSION;
 use crate::{Error, Result};
 
 /// Version of the `impact` JSON contract.
@@ -326,62 +325,6 @@ impl FileChange {
     }
 }
 
-/// The three versions a persisted record must have been written under before an
-/// endpoint may reuse it instead of reading the file again.
-///
-/// Taken from the caller rather than read off the snapshot value, because only
-/// one of the three is recorded in it: `build_version` sits in
-/// [`crate::index::SnapshotMeta`], the snapshot schema is proven by the envelope
-/// the loader decoded, and the fact schema by the key the fact cache was read
-/// under. A caller that cannot state all three has not proven the record
-/// describes the bytes this endpoint holds.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SchemaStamp {
-    /// [`BUILD_VERSION`] the record was indexed under.
-    pub build_version: u32,
-    /// [`FACT_SCHEMA_VERSION`] its facts were extracted under.
-    pub fact_schema_version: u32,
-    /// [`SNAPSHOT_SCHEMA_VERSION`] its envelope was written under.
-    pub snapshot_schema_version: u32,
-}
-
-impl SchemaStamp {
-    /// The stamp this binary writes.
-    ///
-    /// Every value is read from the constant that defines it. A version copied
-    /// into a second place is a version that gets bumped in one of them.
-    #[must_use]
-    pub const fn current() -> Self {
-        Self {
-            build_version: BUILD_VERSION,
-            fact_schema_version: FACT_SCHEMA_VERSION,
-            snapshot_schema_version: SNAPSHOT_SCHEMA_VERSION,
-        }
-    }
-}
-
-/// Whether the published snapshot's records for one file may stand in for a
-/// fresh read of it at one endpoint.
-///
-/// Four agreements, and all four are required. The file's `content_oid` must be
-/// the bytes the endpoint holds, and the three schema versions must be this
-/// binary's: a record written by another build of the indexer describes a
-/// vocabulary this one no longer produces, and mixing the two silently would put
-/// two incompatible halves of an index in one graph.
-#[must_use]
-pub fn carries_over(
-    published: &Snapshot,
-    written_under: SchemaStamp,
-    path: &str,
-    content_oid: Oid,
-) -> bool {
-    written_under == SchemaStamp::current()
-        && published.meta.build_version == BUILD_VERSION
-        && published
-            .file_by_path(path)
-            .is_some_and(|file| file.content_oid == content_oid)
-}
-
 /// Builds the in-memory snapshot one endpoint's graph is read from.
 ///
 /// **It never touches `.rr/local/snapshot.bin`, and that is a contract rather
@@ -395,6 +338,18 @@ pub fn carries_over(
 /// from *its* bytes. A path the endpoint does not hold is spelled by its
 /// absence from `inputs` rather than by a removal list, so there is no second
 /// way to say the same thing and no way for the two to disagree.
+///
+/// Nothing here re-checks which schema versions the inputs were produced under,
+/// and that is deliberate rather than an omission. Freshness is four agreements
+/// — the file's bytes, the extractor, the fact schema and the snapshot schema —
+/// and every one of them is already settled before a `FileInput` exists:
+/// [`crate::CacheKey`] carries `oid`, `lang`, `extractor` and `schema`, so facts
+/// read under any other combination are a cache miss rather than a reusable
+/// record, and the snapshot schema is proven by the envelope
+/// ([`crate::envelope`]) the loader decoded, which refuses another version
+/// outright. A stamp restating those four here would be a second place to bump
+/// a version, and the failure that produces is one of the two copies staying
+/// behind — a check that reads as a guarantee while agreeing with nothing.
 ///
 /// The build goes through [`SnapshotBuilder`], the same one `rr refresh` uses,
 /// for the reason every rule in [`crate::check`] delegates: an overlay whose

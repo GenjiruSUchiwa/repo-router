@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use tempfile::NamedTempFile;
 
+use crate::envelope;
 use crate::index::Snapshot;
 
 /// Bumped whenever the snapshot's own layout changes, so a file written by an
@@ -39,7 +40,15 @@ use crate::index::Snapshot;
 /// Version 12 carries [`crate::facts::Visibility::FilePrivate`] (`FACT_SCHEMA_VERSION` 9).
 pub const SNAPSHOT_SCHEMA_VERSION: u32 = 12;
 pub const SNAPSHOT_MAGIC: [u8; 8] = *b"RRIDX\0\0\0";
-const HEADER_LEN: usize = 8 + 4 + 8 + 32;
+/// Named here for the tests that reach into the header; the width itself is
+/// [`crate::envelope`]'s, so there is one definition of it and not two.
+///
+/// Test-only because the encoder and decoder no longer measure the header
+/// themselves — they hand the whole file to [`crate::envelope`] — and a second
+/// non-test spelling of a width this module does not use is exactly the copy
+/// the extraction removed.
+#[cfg(test)]
+const HEADER_LEN: usize = envelope::HEADER_LEN;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RebuildReason {
@@ -251,54 +260,41 @@ impl SnapshotStore {
     }
 }
 
+/// Frames one payload as a snapshot file.
+///
+/// The framing itself belongs to [`crate::envelope`], which the co-change cache
+/// also writes through: the layout is a format, and a format with two
+/// implementations drifts without either one's tests noticing.
 fn encode(payload: &[u8]) -> Result<Vec<u8>, SnapshotIoError> {
-    let checksum = blake3::hash(payload);
-    let length = u64::try_from(payload.len()).map_err(|_| SnapshotIoError::LengthOverflow)?;
-    let capacity = HEADER_LEN
-        .checked_add(payload.len())
-        .ok_or(SnapshotIoError::LengthOverflow)?;
-    let mut bytes = Vec::with_capacity(capacity);
-    bytes.extend_from_slice(&SNAPSHOT_MAGIC);
-    bytes.extend_from_slice(&SNAPSHOT_SCHEMA_VERSION.to_le_bytes());
-    bytes.extend_from_slice(&length.to_le_bytes());
-    bytes.extend_from_slice(checksum.as_bytes());
-    bytes.extend_from_slice(payload);
-    Ok(bytes)
+    envelope::wrap(SNAPSHOT_MAGIC, SNAPSHOT_SCHEMA_VERSION, payload)
+        .ok_or(SnapshotIoError::LengthOverflow)
 }
 
+/// Reads one snapshot file, or says why it has to be rebuilt.
+///
+/// The envelope answers the framing questions and this answers the payload's:
+/// every [`envelope::Framing`] arm maps to the [`RebuildReason`] that already
+/// named it, so what a caller — and `rr check`'s RR0002 — sees is unchanged.
 fn decode(bytes: &[u8]) -> LoadOutcome {
-    if bytes.len() < HEADER_LEN {
-        return LoadOutcome::NeedsRebuild(RebuildReason::LengthMismatch);
-    }
-    if bytes[..8] != SNAPSHOT_MAGIC {
-        return LoadOutcome::NeedsRebuild(RebuildReason::BadMagic);
-    }
-    let version = u32::from_le_bytes(bytes[8..12].try_into().unwrap_or([0; 4]));
-    if version != SNAPSHOT_SCHEMA_VERSION {
-        return LoadOutcome::NeedsRebuild(RebuildReason::UnsupportedVersion { found: version });
-    }
-    let length = match bytes[12..20].try_into() {
-        Ok(raw) => u64::from_le_bytes(raw),
-        Err(_) => return LoadOutcome::NeedsRebuild(RebuildReason::LengthMismatch),
+    let payload = match envelope::unwrap(SNAPSHOT_MAGIC, SNAPSHOT_SCHEMA_VERSION, bytes) {
+        envelope::Framing::Payload(payload) => payload,
+        envelope::Framing::BadMagic => {
+            return LoadOutcome::NeedsRebuild(RebuildReason::BadMagic);
+        }
+        envelope::Framing::UnsupportedVersion { found } => {
+            return LoadOutcome::NeedsRebuild(RebuildReason::UnsupportedVersion { found });
+        }
+        envelope::Framing::LengthMismatch => {
+            return LoadOutcome::NeedsRebuild(RebuildReason::LengthMismatch);
+        }
+        envelope::Framing::TrailingBytes => {
+            return LoadOutcome::NeedsRebuild(RebuildReason::TrailingBytes);
+        }
+        envelope::Framing::ChecksumMismatch => {
+            return LoadOutcome::NeedsRebuild(RebuildReason::ChecksumMismatch);
+        }
     };
-    let Ok(length) = usize::try_from(length) else {
-        return LoadOutcome::NeedsRebuild(RebuildReason::LengthMismatch);
-    };
-    let Some(end) = HEADER_LEN.checked_add(length) else {
-        return LoadOutcome::NeedsRebuild(RebuildReason::LengthMismatch);
-    };
-    if bytes.len() < end {
-        return LoadOutcome::NeedsRebuild(RebuildReason::LengthMismatch);
-    }
-    if bytes.len() > end {
-        return LoadOutcome::NeedsRebuild(RebuildReason::TrailingBytes);
-    }
-    let expected = &bytes[20..52];
-    let actual = blake3::hash(&bytes[HEADER_LEN..]);
-    if expected != actual.as_bytes() {
-        return LoadOutcome::NeedsRebuild(RebuildReason::ChecksumMismatch);
-    }
-    let parsed = postcard::take_from_bytes::<Snapshot>(&bytes[HEADER_LEN..]);
+    let parsed = postcard::take_from_bytes::<Snapshot>(payload);
     let Ok((snapshot, remainder)) = parsed else {
         return LoadOutcome::NeedsRebuild(RebuildReason::InvalidPayload);
     };

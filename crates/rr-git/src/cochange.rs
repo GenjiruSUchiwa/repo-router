@@ -27,9 +27,9 @@ use gix::objs::tree::EntryMode;
 use serde::{Deserialize, Serialize};
 
 use rr_core::cancel::CancelToken;
+use rr_core::envelope::{self, Framing};
 use rr_core::path::RelPath;
 use rr_core::ranking::MARGIN_SCALE;
-use rr_core::snapshot::SNAPSHOT_MAGIC;
 use rr_core::walk::{collected_lang, WalkCfg};
 
 use crate::content::object_id;
@@ -56,14 +56,14 @@ pub const COCHANGE_CONFIG_VERSION: u32 = 1;
 
 /// The cache file's name inside the machine-local state directory.
 const CACHE_FILE: &str = "cochange.bin";
-/// End of the envelope's magic, and the start of its version word.
-const MAGIC_END: usize = SNAPSHOT_MAGIC.len();
-/// End of the envelope's `u32` version word.
-const VERSION_END: usize = MAGIC_END + 4;
-/// End of the envelope's `u64` payload length.
-const LENGTH_END: usize = VERSION_END + 8;
-/// Width of the whole header: magic, version, length, BLAKE3 checksum.
-const HEADER_LEN: usize = LENGTH_END + 32;
+/// This cache's own magic.
+///
+/// Its own, and not the snapshot's: two formats behind one magic are told apart
+/// only by their version words, and those two numbers are counted
+/// independently. The day they meet, a valid cache file passes the snapshot's
+/// magic *and* version check and is refused by the payload decoder instead —
+/// which is `rr check` reporting a corrupt snapshot over a file that is not one.
+const COCHANGE_MAGIC: [u8; 8] = *b"RRCOC\0\0\0";
 
 /// How often two files changed in the same commit, inside the window.
 ///
@@ -567,48 +567,26 @@ fn read_cache(root: &Path, key: &HistoryKey, eligible: usize) -> Option<Vec<Vec<
     addressable.then_some(cached.commits)
 }
 
-/// The payload inside one envelope, or `None` if this is not that envelope.
+/// The payload inside one cache file, or `None` if this is not one.
 ///
-/// The layout is `crates/rr-core/src/snapshot.rs`'s, field for field and in its
-/// order: the same magic, a version word, a payload length, a BLAKE3 checksum
-/// over the payload. One length equality rejects both halves of the truncation
-/// question at once — fewer bytes than the header claims, and more — and the
-/// checksum is only consulted once the length agrees, because a digest over
-/// bytes of unknown extent proves nothing.
-///
-/// Sharing the magic is safe in both directions: the version word carries
-/// [`COCHANGE_CONFIG_VERSION`] where the snapshot's carries
-/// [`rr_core::snapshot::SNAPSHOT_SCHEMA_VERSION`], so neither file can be
-/// decoded as the other.
+/// Every framing fault collapses to `None` here, where the snapshot's loader
+/// keeps them apart: this file is rebuildable and the only decision to take is
+/// whether to recompute, so naming the fault would be a distinction nothing acts
+/// on. [`rr_core::envelope`] owns the layout for both.
 fn payload_of(bytes: &[u8]) -> Option<&[u8]> {
-    if bytes.len() < HEADER_LEN || bytes[..MAGIC_END] != SNAPSHOT_MAGIC {
-        return None;
+    match envelope::unwrap(COCHANGE_MAGIC, COCHANGE_CONFIG_VERSION, bytes) {
+        Framing::Payload(payload) => Some(payload),
+        Framing::BadMagic
+        | Framing::UnsupportedVersion { .. }
+        | Framing::LengthMismatch
+        | Framing::TrailingBytes
+        | Framing::ChecksumMismatch => None,
     }
-    let version = u32::from_le_bytes(bytes[MAGIC_END..VERSION_END].try_into().ok()?);
-    if version != COCHANGE_CONFIG_VERSION {
-        return None;
-    }
-    let length = usize::try_from(u64::from_le_bytes(
-        bytes[VERSION_END..LENGTH_END].try_into().ok()?,
-    ))
-    .ok()?;
-    if bytes.len() != HEADER_LEN.checked_add(length)? {
-        return None;
-    }
-    let payload = &bytes[HEADER_LEN..];
-    (blake3::hash(payload).as_bytes() == &bytes[LENGTH_END..HEADER_LEN]).then_some(payload)
 }
 
 /// One payload wrapped in the envelope [`payload_of`] reads back.
-fn envelope(payload: &[u8]) -> Option<Vec<u8>> {
-    let length = u64::try_from(payload.len()).ok()?;
-    let mut bytes = Vec::with_capacity(HEADER_LEN.saturating_add(payload.len()));
-    bytes.extend_from_slice(&SNAPSHOT_MAGIC);
-    bytes.extend_from_slice(&COCHANGE_CONFIG_VERSION.to_le_bytes());
-    bytes.extend_from_slice(&length.to_le_bytes());
-    bytes.extend_from_slice(blake3::hash(payload).as_bytes());
-    bytes.extend_from_slice(payload);
-    Some(bytes)
+fn framed(payload: &[u8]) -> Option<Vec<u8>> {
+    envelope::wrap(COCHANGE_MAGIC, COCHANGE_CONFIG_VERSION, payload)
 }
 
 /// Writes the history back, best effort.
@@ -621,7 +599,7 @@ fn write_cache(root: &Path, cached: &CachedHistory) {
     let Ok(payload) = postcard::to_allocvec(cached) else {
         return;
     };
-    let Some(bytes) = envelope(&payload) else {
+    let Some(bytes) = framed(&payload) else {
         return;
     };
     if rr_core::workspace::ensure_private(root).is_err() {
@@ -680,7 +658,7 @@ mod tests {
 
     #[test]
     fn the_envelope_refuses_truncation_and_trailing_bytes() {
-        let bytes = envelope(b"payload").unwrap_or_default();
+        let bytes = framed(b"payload").unwrap_or_default();
         assert_eq!(payload_of(&bytes), Some(&b"payload"[..]));
 
         let mut extended = bytes.clone();
@@ -696,12 +674,24 @@ mod tests {
         assert_eq!(payload_of(&corrupt), None, "a wrong checksum is refused");
 
         let mut other_version = bytes;
-        other_version[MAGIC_END] = other_version[MAGIC_END].wrapping_add(1);
+        let version_word = COCHANGE_MAGIC.len();
+        other_version[version_word] = other_version[version_word].wrapping_add(1);
         assert_eq!(
             payload_of(&other_version),
             None,
             "another config version is refused"
         );
+    }
+
+    /// The cache and the snapshot are two formats, so they carry two magics.
+    ///
+    /// Pinned rather than assumed: sharing one magic and separating the two
+    /// files by their independently counted version words works until the two
+    /// numbers meet, and the failure it produces then is a valid cache file
+    /// reported as a corrupt snapshot.
+    #[test]
+    fn the_cache_does_not_share_the_snapshot_magic() {
+        assert_ne!(COCHANGE_MAGIC, rr_core::snapshot::SNAPSHOT_MAGIC);
     }
 
     #[test]
@@ -711,7 +701,7 @@ mod tests {
             commits: vec![vec![0, 1], vec![], vec![1]],
         };
         let payload = postcard::to_allocvec(&cached).unwrap_or_default();
-        let bytes = envelope(&payload).unwrap_or_default();
+        let bytes = framed(&payload).unwrap_or_default();
         let read = payload_of(&bytes)
             .and_then(|payload| postcard::take_from_bytes::<CachedHistory>(payload).ok());
         assert_eq!(read.map(|(value, _)| value), Some(cached));
