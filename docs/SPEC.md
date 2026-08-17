@@ -1103,6 +1103,18 @@ Exit codes:
 - `2`: candidates
 - `3`: none
 - `4`: expected source refusal
+
+A caller that stops reading before `rr` has finished writing sees none of these.
+`rr` restores the default SIGPIPE disposition before its first print, so
+`rr query … | head -1` is *terminated* by SIGPIPE and a shell reports `141` —
+the same thing `head`, `grep` and `sort` do, and the reason the failure is
+silent: nothing is written to stderr and no backtrace is produced. `rr` never
+returns 141; it is killed, so `WIFSIGNALED` is what distinguishes it from an
+ordinary exit. This applies to every command, `--help` and `--version` included,
+and to a closed stderr exactly as to a closed stdout. Redirecting a stream is not
+closing it: `rr … 2>/dev/null` is unaffected. On a platform without SIGPIPE the
+write fails instead and the broken pipe is reported as the ordinary `1`.
+
 Do not expose unstable internal ranking internals unless `--debug` is used.
 
 ---
