@@ -36,6 +36,7 @@ pub const JAVASCRIPT_EXTRACTOR_VERSION: u32 = 1;
 pub const JSX_EXTRACTOR_VERSION: u32 = 1;
 pub const GO_EXTRACTOR_VERSION: u32 = 1;
 pub const JAVA_EXTRACTOR_VERSION: u32 = 2;
+pub const CSHARP_EXTRACTOR_VERSION: u32 = 1;
 pub const C_EXTRACTOR_VERSION: u32 = 1;
 pub const CPP_EXTRACTOR_VERSION: u32 = 1;
 pub const RUBY_EXTRACTOR_VERSION: u32 = 1;
@@ -55,6 +56,7 @@ pub const fn extractor_version(lang: Lang) -> u32 {
         Lang::Jsx => JSX_EXTRACTOR_VERSION,
         Lang::Go => GO_EXTRACTOR_VERSION,
         Lang::Java => JAVA_EXTRACTOR_VERSION,
+        Lang::CSharp => CSHARP_EXTRACTOR_VERSION,
         Lang::C => C_EXTRACTOR_VERSION,
         Lang::Cpp => CPP_EXTRACTOR_VERSION,
         Lang::Ruby => RUBY_EXTRACTOR_VERSION,
@@ -208,6 +210,7 @@ const EXTRACTORS: &[(Lang, Tier, Builder)] = &[
     (Lang::Jsx, Tier::Tags, build_jsx),
     (Lang::Go, Tier::Tags, build_go),
     (Lang::Java, Tier::Tags, build_java),
+    (Lang::CSharp, Tier::Tags, build_csharp),
     (Lang::C, Tier::Tags, build_c),
     (Lang::Cpp, Tier::Tags, build_cpp),
     (Lang::Ruby, Tier::Tags, build_ruby),
@@ -248,6 +251,10 @@ fn build_go() -> Built {
 
 fn build_java() -> Built {
     TagsExtractor::new(&tags::JAVA).map(|extractor| Box::new(extractor) as Box<dyn Extractor>)
+}
+
+fn build_csharp() -> Built {
+    TagsExtractor::new(&tags::CSHARP).map(|extractor| Box::new(extractor) as Box<dyn Extractor>)
 }
 
 fn build_c() -> Built {
@@ -395,9 +402,10 @@ mod tests {
         assert!(supported.contains(&Lang::Rust));
         assert!(supported.contains(&Lang::Python));
         assert!(supported.contains(&Lang::JavaScript));
+        assert!(supported.contains(&Lang::CSharp));
         assert!(supported.contains(&Lang::Go));
         assert!(supported.contains(&Lang::Lua));
-        assert!(!supported.contains(&Lang::CSharp));
+
         let mut unique = supported.clone();
         unique.sort();
         unique.dedup();
@@ -426,9 +434,9 @@ mod tests {
     }
 
     #[test]
-    fn for_lang_returns_none_for_an_unsupported_language() {
+    fn for_lang_serves_a_registered_language() {
         let mut registry = Registry::new();
-        assert!(registry.for_lang(Lang::CSharp).is_none());
+        assert!(registry.for_lang(Lang::CSharp).is_some());
     }
 
     #[test]
@@ -436,10 +444,10 @@ mod tests {
         for lang in Registry::supported() {
             assert!(
                 extractor_version(lang) > 0,
-                "{lang} has an extractor but no extractor version"
+                "{lang} has an extractor but no extractor version",
             );
         }
-        assert_eq!(extractor_version(Lang::CSharp), 0);
+        assert_eq!(extractor_version(Lang::CSharp), CSHARP_EXTRACTOR_VERSION);
     }
 
     #[test]
@@ -456,7 +464,7 @@ mod tests {
         let supported = Registry::supported();
         let indexable = Registry::indexable();
         assert!(indexable.contains(&Lang::CSharp));
-        assert!(!supported.contains(&Lang::CSharp));
+        assert!(supported.contains(&Lang::CSharp));
         for lang in supported {
             assert!(
                 indexable.contains(&lang),
@@ -466,8 +474,8 @@ mod tests {
     }
 
     #[test]
-    fn tier_reports_lexical_for_a_language_with_no_extractor() {
-        assert_eq!(tier(Lang::CSharp), Tier::Lexical);
+    fn tier_reports_the_registered_tier() {
+        assert_eq!(tier(Lang::CSharp), Tier::Tags);
         assert_eq!(tier(Lang::Rust), Tier::Complete);
         assert_eq!(tier(Lang::Python), Tier::Tags);
         assert_eq!(tier(Lang::Go), Tier::Tags);

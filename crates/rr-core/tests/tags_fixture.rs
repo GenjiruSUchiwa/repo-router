@@ -622,6 +622,7 @@ fn surface_fixture(lang: Lang) -> (&'static str, &'static str) {
         Lang::Jsx => ("javascript", "surface.jsx"),
         Lang::Go => ("go", "surface.go"),
         Lang::Java => ("java", "surface.java"),
+        Lang::CSharp => ("csharp", "surface.cs"),
         Lang::C => ("c", "surface.c"),
         Lang::Cpp => ("cpp", "surface.cpp"),
         Lang::Ruby => ("ruby", "surface.rb"),
@@ -640,6 +641,7 @@ fn imports_fixture(lang: Lang) -> Option<(&'static str, &'static str)> {
         Lang::JavaScript => ("javascript", "imports.js"),
         Lang::Go => ("go", "imports.go"),
         Lang::Java => ("java", "imports.java"),
+        Lang::CSharp => ("csharp", "imports.cs"),
         Lang::C => ("c", "imports.c"),
         Lang::Cpp => ("cpp", "imports.cpp"),
         Lang::Ruby => ("ruby", "imports.rb"),
@@ -757,6 +759,18 @@ fn a_java_fixture_has_a_readable_golden_projection() {
 fn a_java_imports_fixture_has_a_readable_golden_projection() {
     let (_, facts) = facts_for(Lang::Java, "java", "imports.java");
     insta::assert_yaml_snapshot!("java_imports", to_snapshot("imports.java", &facts));
+}
+
+#[test]
+fn a_csharp_fixture_has_a_readable_golden_projection() {
+    let (_, facts) = facts_for(Lang::CSharp, "csharp", "surface.cs");
+    insta::assert_yaml_snapshot!("csharp_surface", to_snapshot("surface.cs", &facts));
+}
+
+#[test]
+fn a_csharp_imports_fixture_has_a_readable_golden_projection() {
+    let (_, facts) = facts_for(Lang::CSharp, "csharp", "imports.cs");
+    insta::assert_yaml_snapshot!("csharp_imports", to_snapshot("imports.cs", &facts));
 }
 
 #[test]
