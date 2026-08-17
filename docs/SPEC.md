@@ -1612,33 +1612,58 @@ fn query(index: &RepositoryIndex, raw: &str) -> QueryResult {
 
 # 27. Pseudocode — verified source
 
-```rust
-fn verified_source(anchor: &SourceAnchor, repo: &Path) -> Result<VerifiedSource> {
-    let path = repo.join(&anchor.path);
-    let bytes = fs::read(&path)?;
-    let current_hash = blake3::hash(&bytes);
+Identity is compared, never repaired. There is no `reparse_and_relocate_symbol`
+and there must not be one: re-identifying a moved symbol answers a question the
+caller did not ask, and hides that the index no longer describes the file. §12
+states the rule; this is the shape it takes.
 
-    let current_anchor = if current_hash.as_bytes() == &anchor.indexed_hash {
-        anchor.clone()
-    } else {
-        reparse_and_relocate_symbol(&path, &bytes, anchor.symbol.as_deref())?
-            .ok_or(Error::StaleAnchor)?
+```rust
+fn verified_source(anchor: &SourceAnchor, repo: &Path) -> Result<SourceResult> {
+    // Acquire once. A refusal here is a state of the path, not a failure:
+    // missing, symlink, not-regular, too-large.
+    let current = match acquire(repo, &anchor.path)? {
+        Acquired::Refused(state) => return Ok(SourceResult::Refused(state)),
+        Acquired::Content(content) => content,
     };
 
-    let source = bounded_lines(
-        &bytes,
-        current_anchor.start_line,
-        current_anchor.end_line,
-        MAX_SOURCE_LINES,
-    )?;
+    // The only question asked of the content. A mismatch is `stale` and the
+    // bytes are never decoded, described, or previewed.
+    if current.representation != anchor.representation || current.oid != anchor.indexed_oid {
+        return Ok(SourceResult::Refused(Status::Stale));
+    }
+    if current.bytes.len() > MAX_VERIFIED_INPUT {
+        return Ok(SourceResult::Refused(Status::TooLarge));
+    }
 
-    Ok(VerifiedSource {
-        anchor: current_anchor,
-        source,
-        verified: true,
-    })
+    // Reached only once identity matched, so these are provably the indexed
+    // bytes: "not text" is then a fact about the file, not snapshot corruption,
+    // and it is permanent — no refresh clears it.
+    let Some(text) = as_utf8_without_nul(&current.bytes) else {
+        return Ok(SourceResult::Refused(Status::NotText));
+    };
+
+    // A span that does not fit its own content is the one real corruption:
+    // the bytes are the indexed bytes, so only the recorded span can be wrong.
+    let span = anchor.span.unwrap_or_else(|| whole_file_span(&text));
+    span.validate_for(&text)?;
+
+    let Some(window) = select_window(&text, span, BOUNDED_SOURCE_BUDGETS) else {
+        return Ok(SourceResult::Refused(Status::LineTooLong));
+    };
+
+    // Prepared, not served. Re-deriving the canonical identity is what catches
+    // a same-size, same-timestamp overwrite that a metadata comparison misses.
+    let pending = PendingPacket::from(window);
+    match revalidate(repo, &anchor.path, &current)? {
+        Revalidation::Fresh => Ok(SourceResult::Served(pending.release())),
+        Revalidation::Refused(state) => Ok(SourceResult::Refused(state)),
+    }
 }
 ```
+
+Every refusal — `stale`, `missing`, `symlink`, `not-regular`, `too-large`,
+`line-too-long`, `not-text`, `raced` — returns no content, no preview, no
+current OID, and no relocated line number.
 
 ---
 

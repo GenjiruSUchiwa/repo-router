@@ -35,8 +35,12 @@ violated, 3 snapshot missing. To be wired as a CI hook of the repo itself.
    Rust) + `queries.yaml` extended to 40 questions (like Radar) with
    hand-verified expected anchors.
 2. `cargo test --release corpus`: top-3 ≥ 36/40, wrong directs = 0 (blocking).
-3. Criterion: cold/warm map, query p50/p95 (target < 30 ms p95 on the
-   10,000-file corpus — parity with Radar's published figure).
+3. Criterion: cold/warm map, query p50/p95. Radar's published ~28.74 ms/<30 ms
+   figure is directional context, not an acceptance criterion for this
+   workload — SPEC.md:73 forbids hard-coding a published benchmark claim as a
+   guarantee, and the corpus here is not the corpus that figure was measured
+   on. The gate is the regression rule in the GitHub issue body: a point
+   estimate >10% slower whose bootstrap 95% lower bound is >5% slower.
 4. The numbers go into `BENCHMARKS.md` with the exact command to reproduce
    them — never a number without its command.
 
