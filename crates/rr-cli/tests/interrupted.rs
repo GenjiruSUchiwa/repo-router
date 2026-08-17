@@ -147,7 +147,11 @@ fn ctrl_c_while_publishing_stops_the_run_and_releases_the_claim() {
         Some(130),
         "an interrupted refresh returns 128 + SIGINT rather than being killed"
     );
-    assert_eq!(status.signal(), None, "the first Ctrl-C is caught, not fatal");
+    assert_eq!(
+        status.signal(),
+        None,
+        "the first Ctrl-C is caught, not fatal"
+    );
     assert_the_claim_was_released(repo.path());
 }
 
