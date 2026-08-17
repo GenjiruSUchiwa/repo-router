@@ -105,19 +105,8 @@ fn restore_default_sigpipe() {
 #[cfg(not(unix))]
 fn restore_default_sigpipe() {}
 
-/// Reports a failure on stderr, or gives up reporting it.
-///
-/// The write result is deliberately discarded. A diagnostic has exactly one
-/// channel, and if that channel is gone there is nowhere left to say so:
-/// writing the complaint to stdout instead would drop it into the middle of the
-/// report a script is parsing, which is the interleaving `Output::print_error`
-/// exists to prevent. The exit code is the report of last resort.
-///
-/// On unix this line is not even reached for the case that motivates it: a
-/// write to a pipe whose reader has gone raises SIGPIPE, and `main` restored
-/// that disposition before anything could print. The `Result` matters on the
-/// platforms `restore_default_sigpipe` deliberately does nothing on, where an
-/// `eprintln!` here would panic instead.
+/// Writes a diagnostic to stderr. Ignores write errors: if stderr is gone,
+/// there is nowhere else to say so.
 fn diagnose(message: &str) {
     let _ = Output::print_error(message);
 }
