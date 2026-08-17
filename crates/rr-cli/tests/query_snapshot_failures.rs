@@ -110,7 +110,8 @@ fn test_stale_snapshot() {
     assert!(output.stdout.is_empty());
     assert_eq!(
         String::from_utf8(output.stderr).unwrap(),
-        "rr: query: index is stale; run 'rr refresh'\n"
+        "rr: query: index is stale; run 'rr refresh' \
+         (until then no query is answered, cached or not; see #44)\n"
     );
 }
 

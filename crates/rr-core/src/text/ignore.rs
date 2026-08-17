@@ -4,8 +4,9 @@
 //! committed `MAP.md`, the one file this issue exists to put under version
 //! control.
 //!
-//! Issue #12 adds `/ROUTES.md` through this same helper rather than a second
-//! managed block.
+//! `/ROUTES.md` is registered through this same helper rather than through a
+//! second managed block, which is why [`OWNED_PATTERNS`] has three entries and
+//! not two lists.
 
 use super::{BlockMarkers, TextResult};
 
@@ -21,7 +22,13 @@ pub const IGNORE_MARKERS: BlockMarkers = BlockMarkers {
 };
 
 /// The patterns this issue owns.
-const OWNED_PATTERNS: [&str; 2] = ["/SYMBOLS.md", "/local/"];
+///
+/// `/ROUTES.md` does not make that file private — `.rr/.gitignore` already
+/// starts with the `*` that `workspace::ensure_private` stamps, and that prunes
+/// the whole subtree. It is here because the stamp is a blanket a user may
+/// legitimately replace (`ensure_private` leaves a hand-edited rule alone), and
+/// this list is the part that still names, file by file, what rr claims.
+const OWNED_PATTERNS: [&str; 3] = ["/ROUTES.md", "/SYMBOLS.md", "/local/"];
 
 /// The exact managed block for a set of patterns.
 ///
@@ -72,11 +79,12 @@ mod tests {
     fn the_block_is_sorted_and_exact() {
         assert_eq!(
             owned_block(),
-            "# rr:begin local artifacts\n/SYMBOLS.md\n/local/\n# rr:end local artifacts\n"
+            "# rr:begin local artifacts\n/ROUTES.md\n/SYMBOLS.md\n/local/\n\
+             # rr:end local artifacts\n"
         );
         assert_eq!(
-            managed_ignore_block(&["/local/", "/SYMBOLS.md"]),
-            managed_ignore_block(&["/SYMBOLS.md", "/local/"])
+            managed_ignore_block(&["/local/", "/SYMBOLS.md", "/ROUTES.md"]),
+            managed_ignore_block(&["/ROUTES.md", "/SYMBOLS.md", "/local/"])
         );
     }
 

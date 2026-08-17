@@ -39,9 +39,40 @@ pub fn publish(
     root: &Path,
     budget: u32,
 ) -> anyhow::Result<TextReport> {
-    let report = write_generation(staged, root)?;
+    let mut report = write_generation(staged, root)?;
+    report.routes_retired = reconcile_routes(snapshot, root, budget);
     confirm(snapshot, root, budget)?;
     Ok(report)
+}
+
+/// Drops routes the new generation invalidated, and returns how many.
+///
+/// Done here rather than lazily on the next query so the count reaches the
+/// refresh report: "eleven routes retired" is the one place a user learns that
+/// a rename moved things. A lazy reader would still be *correct* — the
+/// `api_hash` check in `rr query`'s route lookup is what actually protects an
+/// answer — but it would never be able to say so.
+///
+/// Called from here and nowhere else, because every caller that reaches
+/// [`publish`] already holds the publication guard. The `UpToDate` branch of
+/// `refresh` returns without taking one, and nothing there invalidated a route.
+fn reconcile_routes(snapshot: &Snapshot, root: &Path, budget: u32) -> u32 {
+    let Ok(catalog) = rr_core::text::projected_map_catalog(snapshot, budget) else {
+        return 0;
+    };
+    let mut retired = 0_u32;
+    rr_core::text::update_routes(root, |table| {
+        table.retain(|record| {
+            let live = rr_core::query::resolve_route_anchor(snapshot, &record.anchor)
+                .and_then(|symbol| catalog.owner(symbol))
+                .is_some_and(|identity| identity.api_hash().digest() == record.api_hash);
+            if !live {
+                retired += 1;
+            }
+            live
+        })
+    });
+    retired
 }
 
 fn write_generation(staged: &StagedText, root: &Path) -> anyhow::Result<TextReport> {

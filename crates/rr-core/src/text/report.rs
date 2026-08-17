@@ -71,6 +71,13 @@ pub struct TextReport {
     pub over_budget: Vec<String>,
     /// Every path that stopped the run, empty on a run that published.
     pub conflicts: Vec<Conflict>,
+    /// Learned routes this generation invalidated and dropped.
+    ///
+    /// Reported rather than acted on: the `api_hash` check on the query path is
+    /// what actually protects an answer, and a lazy reader would be just as
+    /// correct. What it could never do is *say so*, and "eleven routes retired"
+    /// is the one place a user learns that a rename moved things.
+    pub routes_retired: u32,
 }
 
 impl TextReport {

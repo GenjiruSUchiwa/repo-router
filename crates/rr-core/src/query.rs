@@ -453,6 +453,33 @@ fn find_file_id_by_path(snapshot: &Snapshot, path: &str) -> Option<FileId> {
         .and_then(|index| snapshot.files.get(index).map(|file| file.id))
 }
 
+/// The symbol an anchor names, if the snapshot holds exactly one.
+///
+/// Exactly one is the whole contract. A file can hold two public definitions
+/// with one name — a struct and its constructor function, two overloads under a
+/// tags-tier grammar — and a cache that picked between them would answer a
+/// question the user never asked. Two matches is a miss, and a miss costs one
+/// ordinary query.
+///
+/// `None` also for a file anchor: an anchor with no `#` names a file, and a
+/// file has no scope API identity to go stale against.
+#[must_use]
+pub fn resolve_route_anchor(snapshot: &Snapshot, anchor: &str) -> Option<SymbolId> {
+    let (path, symbol_name) = crate::render::decode_anchor(anchor).ok()?;
+    let name = symbol_name?;
+    let file_id = find_file_id_by_path(snapshot, path.as_str())?;
+    let symbols = lookup_exact_name(snapshot, &name)?;
+    let mut matched = symbols
+        .iter()
+        .copied()
+        .filter(|id| symbol_matches_path(snapshot, *id, Some(file_id)));
+    let only = matched.next()?;
+    if matched.next().is_some() {
+        return None;
+    }
+    Some(only)
+}
+
 fn lookup_route<'a>(
     routes: &'a [crate::index::ExactRoute],
     strings: &[String],
@@ -529,5 +556,95 @@ pub fn finish_exact(outcome: ExactOutcome) -> QueryResult {
             reason: NoneReason::NotFound,
             pipeline: Pipeline::Exact,
         },
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use crate::index::{ContentRepresentation, FileInput, SnapshotBuilder, SnapshotMeta};
+    use crate::lang::Lang;
+    use crate::oid::Oid;
+    use crate::parser::RustExtractor;
+    use crate::render::encode_anchor;
+    use crate::result::resolve_anchor;
+
+    fn snapshot(sources: &[(&str, &str)]) -> Snapshot {
+        let mut extractor = RustExtractor::new().unwrap();
+        let inputs = sources
+            .iter()
+            .map(|(path, code)| FileInput {
+                path: RelPath::new(*path).unwrap(),
+                oid: Oid::from_raw(blake3::hash(code.as_bytes()).as_bytes()).unwrap(),
+                representation: ContentRepresentation::RawNoGit,
+                generated: false,
+                language: Lang::Rust,
+                parse_status: crate::facts::ParseStatus::Complete,
+                facts: extractor.extract(code.as_bytes()).unwrap(),
+            })
+            .collect();
+        let (snapshot, _) = SnapshotBuilder::new(SnapshotMeta::new(None, true, [0; 32]))
+            .build(inputs)
+            .unwrap();
+        snapshot
+    }
+
+    /// The round trip a stored route depends on: what `rr query` printed is what
+    /// `.rr/ROUTES.md` holds, and reading it back names the same symbol.
+    #[test]
+    fn an_anchor_round_trips_to_the_symbol_it_named() {
+        let snapshot = snapshot(&[
+            (
+                "src/auth/token.rs",
+                "pub fn verify_token() -> bool { true }\n",
+            ),
+            ("src/auth/keys.rs", "pub fn rotate_signing_key() {}\n"),
+        ]);
+
+        for symbol in &snapshot.symbols {
+            let anchor = resolve_anchor(&snapshot, TargetId::Symbol(symbol.id)).unwrap();
+            let encoded = encode_anchor(anchor.path, anchor.symbol);
+            assert_eq!(
+                resolve_route_anchor(&snapshot, &encoded),
+                Some(symbol.id),
+                "the anchor {encoded} did not resolve back to the symbol it names"
+            );
+        }
+    }
+
+    /// Exactly one is the whole contract. Two public definitions of one name in
+    /// one file make the anchor a question the snapshot cannot answer, and
+    /// answering it with the first one would be a silently wrong route.
+    #[test]
+    fn an_ambiguous_anchor_resolves_to_nothing() {
+        let snapshot = snapshot(&[(
+            "src/auth/token.rs",
+            "pub mod issue { pub fn verify() {} }\npub mod refresh { pub fn verify() {} }\n",
+        )]);
+        let named = snapshot
+            .symbols
+            .iter()
+            .filter(|symbol| {
+                snapshot
+                    .strings
+                    .get(symbol.name.index())
+                    .is_some_and(|name| name == "verify")
+            })
+            .count();
+        assert_eq!(named, 2, "the fixture must be ambiguous to test ambiguity");
+
+        assert_eq!(
+            resolve_route_anchor(&snapshot, "src/auth/token.rs#verify"),
+            None
+        );
+    }
+
+    /// Pins D5: a file target has no owning scope record, so a file anchor could
+    /// never be told it went stale and is never a route.
+    #[test]
+    fn a_file_anchor_resolves_to_nothing() {
+        let snapshot = snapshot(&[("src/auth/token.rs", "pub fn verify_token() {}\n")]);
+        assert_eq!(resolve_route_anchor(&snapshot, "src/auth/token.rs"), None);
     }
 }

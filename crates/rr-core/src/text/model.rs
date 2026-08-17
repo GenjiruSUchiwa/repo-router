@@ -247,9 +247,10 @@ impl ApiRecord {
     fn write_api_hash(&self, stream: &mut HashStream) {
         stream.text(&self.path);
         stream.text(&self.name);
-        // The anchor is what issue #12 will have stored against a route, and
-        // an api_hash that did not cover it could leave a route pointing at a
-        // location this projection no longer spells the same way.
+        // The anchor is what issue #12 stores against a route in
+        // `.rr/ROUTES.md`, and an api_hash that did not cover it could leave a
+        // route pointing at a location this projection no longer spells the
+        // same way.
         stream.text(&self.anchor_name);
         stream.text(self.kind.as_str());
         stream.text(&self.visibility.key);
@@ -803,7 +804,7 @@ fn link_children(directories: &mut BTreeMap<ScopePath, DirectoryDraft>) {
     }
 }
 
-/// The per-scope API identity issue #12 stores against a route.
+/// The per-scope API identity `.rr/ROUTES.md` stores against a route.
 fn api_hash_of(records: &[ApiRecord]) -> ApiHash {
     let mut stream = HashStream::new("api");
     stream.u32(u32::try_from(records.len()).unwrap_or(u32::MAX));
