@@ -70,11 +70,7 @@ fn rr_query_routes_into_typescript_and_python_definitions() {
     assert_eq!(typescript["result"], "direct");
     assert_eq!(typescript["anchor"]["path"], "src/client.ts");
     assert_eq!(typescript["anchor"]["symbol"], "describe");
-    // The declaration and its body, and not the doc comment on line 14. A
-    // tags-tier span is the definition node's own range: a decorator is part of
-    // that node and lands inside the span, a preceding comment is not and does
-    // not. Rust's hand-written extractor reaches back over both.
-    assert_eq!(typescript["anchor"]["lines"], serde_json::json!([15, 17]));
+    assert_eq!(typescript["anchor"]["lines"], serde_json::json!([14, 17]));
 
     // Python, by its own.
     let python = run(

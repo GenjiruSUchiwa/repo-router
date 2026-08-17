@@ -355,9 +355,6 @@ fn a_typescript_binding_is_a_function_only_when_its_initializer_is_one() {
     assert_eq!(def(&facts, "later").kind.to_string(), "variable");
 }
 
-/// A documented member inside a documented container: the member's doc words
-/// must not appear in the container's `body_idents`. Fails on any tags tier
-/// that starts the member span at the declaration node alone (#53).
 #[test]
 fn a_containers_body_idents_do_not_absorb_member_doc_prose() {
     let (_, facts) = facts_for(Lang::TypeScript, "typescript", "surface.ts");
