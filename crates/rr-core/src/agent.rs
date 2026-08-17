@@ -44,32 +44,49 @@ pub const CONTRACT_BLOCK: &str = concat!(
     "<!-- rr:begin agent contract -->\n",
     r#"## Finding code in this repository
 
-This repository is indexed by `rr`. Ask it before you grep. `rr` answers with a
-single anchor you can open, and it is the only thing here that knows which of
-several same-named symbols is the one you want.
+This repository is indexed by `rr`. Start with one question, asked once:
+`rr query` resolves it locally against the index with zero model calls, and
+prints the exact anchor to open. The map is for orientation, not for answers;
+grep is not a symbol search tool.
 
-**Ask a question.**
-
-```
-rr query "where is the auth token verified"
-```
-
-It prints one line and exits `0`:
+**Step 1 — ask once.**
 
 ```
-FINAL SOURCE ANCHOR (copy exactly): src/auth/token.rs#verify_token
+rr query "<your complete task>"
 ```
 
-Copy the anchor exactly. It is `path#symbol` with `%`, `#` and control bytes
-percent-encoded, and it is what every other `rr` command accepts.
+Copy the `FINAL SOURCE ANCHOR` exactly and open it. It is `path#symbol` with
+`%`, `#` and control bytes percent-encoded, and it is what every other `rr`
+command accepts. The command makes zero model calls. Open source only for
+implementation details.
+
+**Step 2 — orient with the map, never answer from it.**
+
+- `./MAP.md` — one in every indexed directory, committed. It lists that
+  directory's public API and links to its children. Read only the map
+  frontmatter first; follow a `Routes` line to the file it names. One
+  directory is always one file: when a section holds more than the map
+  budget, the page keeps the entries that fit and says so on the line
+  `+ N more <things> omitted by the map budget`.
+- `.rr/SYMBOLS.md` — every indexed symbol, one TAB-separated row each:
+  `symbol`, `visibility`, `map`, `source`, `line`, `api_hash`. Machine-local,
+  not committed. Search it when exactly one symbol name is known.
+
+The map routes, the source answers: confirm every answer against the file a
+link or an anchor points at. If a map lacks the target or looks stale, fall
+back to normal search, then run `rr refresh`.
+
+**No grep for symbols.** When you need a symbol or its callers, ask `rr query`
+again — but never more than once per question: a candidate list or a refusal
+is a complete answer, not a prompt to re-ask.
 
 **The exit codes are the protocol.**
 
 | code | output | what to do |
 | --- | --- | --- |
 | `0` | `FINAL SOURCE ANCHOR (copy exactly): <anchor>` | open it |
-| `2` | `source candidates:` then up to three numbered anchors | pick one, or re-ask with more words |
-| `3` | `NO ANCHOR (index has no match)` or `NO ANCHOR (confidence too low)` | re-ask, add `--path`, or run `rr map` if this repository was never indexed |
+| `2` | `source candidates:` then up to three numbered anchors | open the first; re-ask only with genuinely new words |
+| `3` | `NO ANCHOR (index has no match)` or `NO ANCHOR (confidence too low)` | read the nearest `MAP.md` instead; run `rr map` if this repository was never indexed |
 | `4` | a `STALE SOURCE` or other refusal line | run `rr refresh`, then ask again |
 | `1` | `rr: query: <reason>` on stderr | read the reason; `index is stale; run 'rr refresh'` is the common one |
 
@@ -90,18 +107,6 @@ that consumes it.
 - `--json` emits one object instead of prose.
 - `--path src/auth/token.rs` narrows to one file.
 - `--explain` reports what the ranker did.
-
-## Reading the repository without running anything
-
-- **`MAP.md`** — one in every indexed directory, committed. It lists that
-  directory's public API and links to its children. Start at the repository root
-  and follow the links down. One directory is always one file: when a section
-  holds more than the map budget, the page keeps the entries that fit and says
-  so on the line `+ N more <things> omitted by the map budget`. Ask `rr query`
-  for anything the page says it dropped.
-- **`.rr/SYMBOLS.md`** — every indexed symbol, one TAB-separated row each:
-  `symbol`, `visibility`, `map`, `source`, `line`, `api_hash`. Machine-local, not
-  committed.
 
 ## What not to edit
 
