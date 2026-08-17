@@ -31,6 +31,7 @@
 //! | [`STATUS_SCHEMA_VERSION`](crate::STATUS_SCHEMA_VERSION) | `rr status` | 3 |
 //! | [`INIT_SCHEMA_VERSION`](crate::agent::INIT_SCHEMA_VERSION) | `rr init` | 1 |
 //! | [`CHECK_SCHEMA_VERSION`](crate::CHECK_SCHEMA_VERSION) | `rr check` | 1 |
+//! | [`IMPACT_SCHEMA_VERSION`](crate::IMPACT_SCHEMA_VERSION) | `rr impact` | 1 |
 //!
 //! `rr refresh` and `rr map` share one because they share a report: `rr map` is
 //! `rr refresh --full` under another name.
@@ -135,6 +136,16 @@
 //!   was adjudicated. A rule id added later adds no key and does not bump this;
 //!   a *rule id spelling* removed or re-meant does, because a pipeline greps for
 //!   those the way a consumer matches on an enum.
+//!
+//! ## `rr impact`
+//!
+//! - **1** — the surface as #14 shipped it: `schema_version`, `command`,
+//!   `status`, `base`, `target`, `depth`, `changed_files`,
+//!   `changed_definitions`, `direct_edges`, `affected`, `dependencies`,
+//!   `cycles`, `tests`, `resolution`, `diagnostics`, `unfollowed_imports`. A
+//!   counter added to `resolution` adds a key and does not bump this; a widening
+//!   of what counts as an edge does, because a consumer that read `affected` as
+//!   "resolved edges only" would now be wrong about every entry.
 //!
 //! ## `rr query`
 //!
