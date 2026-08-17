@@ -101,14 +101,7 @@ fn restore_default_sigpipe() {
     }
 }
 
-/// Elsewhere there is no SIGPIPE to restore, and nothing here pretends there is.
-///
-/// A closed pipe surfaces as `ErrorKind::BrokenPipe` from the write itself, and
-/// the `io::Result` every `Output` method returns already carries it to `main`,
-/// which reports it as the ordinary `1`. That path is stated rather than
-/// implemented because no CI job builds it — the matrix is `macos-14`,
-/// `ubuntu-latest` and `ubuntu-24.04-arm` — and a broken-pipe path nothing
-/// compiles is a claim nothing checks. Issue #46 holds the ledger entry.
+/// No-op: this platform has no SIGPIPE.
 #[cfg(not(unix))]
 fn restore_default_sigpipe() {}
 
