@@ -1,0 +1,37 @@
+{
+ "mapfirst": {
+  "sessions": 36,
+  "correct": "36/36",
+  "cout_total_usd": 3.8973,
+  "cout_moyen_usd": 0.1083,
+  "input_moy": 11,
+  "output_moy": 884,
+  "cache_read_moy": 189211,
+  "tools": {
+   "Skill": 7,
+   "rr-query": 21,
+   "grep": 37,
+   "read": 24,
+   "read-MAP": 7,
+   "ToolSearch": 1,
+   "bash-other": 8
+  }
+ },
+ "radarstyle": {
+  "sessions": 36,
+  "correct": "36/36",
+  "cout_total_usd": 3.3573,
+  "cout_moyen_usd": 0.0933,
+  "input_moy": 11,
+  "output_moy": 844,
+  "cache_read_moy": 188273,
+  "tools": {
+   "rr-query": 34,
+   "grep": 36,
+   "read": 16,
+   "Skill": 8,
+   "bash-other": 10,
+   "Agent": 1
+  }
+ }
+}

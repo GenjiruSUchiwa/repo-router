@@ -1,0 +1,1 @@
+`Axios.prototype.get` is not written as a literal method — it's generated dynamically at `lib/core/Axios.js:266-277`. `utils.forEach(['delete', 'get', 'head', 'options'], ...)` assigns `Axios.prototype[method]` for each no-body-data method, so `get` builds a request via `this.request(mergeConfig(config || {}, {method: 'get', url, data}))`.

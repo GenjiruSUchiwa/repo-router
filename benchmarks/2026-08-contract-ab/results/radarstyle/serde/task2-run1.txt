@@ -1,0 +1,1 @@
+The `derive(Serialize)` macro is defined in `serde_derive/src/lib.rs:113`, via `#[proc_macro_derive(Serialize, attributes(serde))]`. The actual code-generation logic it dispatches to lives in `serde_derive/src/ser.rs`.

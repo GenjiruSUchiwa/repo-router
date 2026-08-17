@@ -1,0 +1,183 @@
+{
+ "agg": {
+  "control": {
+   "sessions": 36,
+   "correct": "36/36",
+   "cout_total": 2.8171,
+   "cout_moyen": 0.0783,
+   "input_moy": 9,
+   "output_moy": 737,
+   "cache_read_moy": 145174,
+   "rr_query": 2,
+   "grep": 46,
+   "read_MAP": 0,
+   "read": 24
+  },
+  "mapfirst": {
+   "sessions": 36,
+   "correct": "36/36",
+   "cout_total": 3.8973,
+   "cout_moyen": 0.1083,
+   "input_moy": 11,
+   "output_moy": 884,
+   "cache_read_moy": 189211,
+   "rr_query": 21,
+   "grep": 37,
+   "read_MAP": 7,
+   "read": 24
+  },
+  "radarstyle": {
+   "sessions": 36,
+   "correct": "36/36",
+   "cout_total": 3.3573,
+   "cout_moyen": 0.0933,
+   "input_moy": 11,
+   "output_moy": 844,
+   "cache_read_moy": 188273,
+   "rr_query": 34,
+   "grep": 36,
+   "read_MAP": 0,
+   "read": 16
+  }
+ },
+ "by_repo": {
+  "Dapper": {
+   "control": {
+    "correct": "6/6",
+    "cout": 0.4764,
+    "rr_query": 0,
+    "grep": 12,
+    "read_MAP": 0
+   },
+   "mapfirst": {
+    "correct": "6/6",
+    "cout": 0.7665,
+    "rr_query": 4,
+    "grep": 10,
+    "read_MAP": 2
+   },
+   "radarstyle": {
+    "correct": "6/6",
+    "cout": 0.7253,
+    "rr_query": 6,
+    "grep": 8,
+    "read_MAP": 0
+   }
+  },
+  "axios": {
+   "control": {
+    "correct": "6/6",
+    "cout": 0.4249,
+    "rr_query": 0,
+    "grep": 4,
+    "read_MAP": 0
+   },
+   "mapfirst": {
+    "correct": "6/6",
+    "cout": 0.697,
+    "rr_query": 2,
+    "grep": 4,
+    "read_MAP": 1
+   },
+   "radarstyle": {
+    "correct": "6/6",
+    "cout": 0.6356,
+    "rr_query": 6,
+    "grep": 4,
+    "read_MAP": 0
+   }
+  },
+  "cobra": {
+   "control": {
+    "correct": "6/6",
+    "cout": 0.3498,
+    "rr_query": 2,
+    "grep": 6,
+    "read_MAP": 0
+   },
+   "mapfirst": {
+    "correct": "6/6",
+    "cout": 0.5721,
+    "rr_query": 4,
+    "grep": 7,
+    "read_MAP": 0
+   },
+   "radarstyle": {
+    "correct": "6/6",
+    "cout": 0.3621,
+    "rr_query": 4,
+    "grep": 6,
+    "read_MAP": 0
+   }
+  },
+  "date-fns": {
+   "control": {
+    "correct": "6/6",
+    "cout": 0.6321,
+    "rr_query": 0,
+    "grep": 0,
+    "read_MAP": 0
+   },
+   "mapfirst": {
+    "correct": "6/6",
+    "cout": 0.6122,
+    "rr_query": 4,
+    "grep": 0,
+    "read_MAP": 2
+   },
+   "radarstyle": {
+    "correct": "6/6",
+    "cout": 0.5808,
+    "rr_query": 6,
+    "grep": 1,
+    "read_MAP": 0
+   }
+  },
+  "gson": {
+   "control": {
+    "correct": "6/6",
+    "cout": 0.6025,
+    "rr_query": 0,
+    "grep": 9,
+    "read_MAP": 0
+   },
+   "mapfirst": {
+    "correct": "6/6",
+    "cout": 0.7626,
+    "rr_query": 3,
+    "grep": 8,
+    "read_MAP": 2
+   },
+   "radarstyle": {
+    "correct": "6/6",
+    "cout": 0.6272,
+    "rr_query": 6,
+    "grep": 9,
+    "read_MAP": 0
+   }
+  },
+  "serde": {
+   "control": {
+    "correct": "6/6",
+    "cout": 0.3313,
+    "rr_query": 0,
+    "grep": 15,
+    "read_MAP": 0
+   },
+   "mapfirst": {
+    "correct": "6/6",
+    "cout": 0.4868,
+    "rr_query": 4,
+    "grep": 8,
+    "read_MAP": 0
+   },
+   "radarstyle": {
+    "correct": "6/6",
+    "cout": 0.4263,
+    "rr_query": 6,
+    "grep": 8,
+    "read_MAP": 0
+   }
+  }
+ }
+}

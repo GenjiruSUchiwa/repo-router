@@ -1,0 +1,1 @@
+`get` is generated dynamically in `lib/core/Axios.js:266` — `utils.forEach(['delete', 'get', 'head', 'options'], ...)` attaches `Axios.prototype.get` (and the others) programmatically rather than as a hand-written method.

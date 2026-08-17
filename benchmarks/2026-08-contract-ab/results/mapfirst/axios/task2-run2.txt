@@ -1,0 +1,1 @@
+`Axios.prototype.get` is added dynamically at `lib/core/Axios.js:266-277`, via `utils.forEach(['delete', 'get', 'head', 'options'], ...)`, which assigns `Axios.prototype[method]` to a function that calls `this.request(mergeConfig(...))` with `method: 'get'`.

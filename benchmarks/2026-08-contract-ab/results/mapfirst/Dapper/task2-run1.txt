@@ -1,0 +1,14 @@
+The default column→property matching lives in `Dapper/DefaultTypeMap.cs`:
+
+- **`DefaultTypeMap.GetMember(columnName)`** (`DefaultTypeMap.cs:147`) is the entry point — it's the implementation of `SqlMapper.ITypeMap.GetMember` used for materializing rows into POCOs. It first tries `MatchFirstOrDefault` against `Properties`, then falls back to matching fields directly.
+
+- **`MatchFirstOrDefault<T>`** (`DefaultTypeMap.cs:185`) implements the actual naming strategy, in this preference order:
+  1. Exact ordinal match (`ColumnName == PropertyName`)
+  2. Case-insensitive exact match
+  3. If `MatchNamesWithUnderscores` is enabled: strip underscores from the column name and repeat exact/case-insensitive matches, then also strip underscores from the property name and match again (handles `User_Id` ↔ `UserId` in either direction).
+
+- **`MatchNamesWithUnderscores`** (`DefaultTypeMap.cs:183`) is the static opt-in flag (`SqlMapper.TypeMapProvider`/global setting) that toggles the underscore-insensitive matching (e.g. `first_name` → `FirstName`). It's off by default — exact/case-insensitive matching only unless the user sets this.
+
+For fields (not properties), the same underscore-stripping logic is duplicated at `GetMember`'s field-lookup block (lines 159–173), also gated by `MatchNamesWithUnderscores`, and it additionally checks compiler-generated backing field names (`<Name>k__BackingField`) for get-only auto-properties.
+
+There's also `GetConstructorParameter` (line 134), which uses the same `MatchFirstOrDefault` strategy to map columns to constructor parameter names when Dapper materializes via a constructor instead of property setters.

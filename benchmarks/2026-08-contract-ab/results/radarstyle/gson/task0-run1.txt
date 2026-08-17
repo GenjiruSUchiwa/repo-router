@@ -1,0 +1,17 @@
+`rr` isn't installed in this environment, so I fell back to grep directly.
+
+`fromJson` is implemented in `gson/src/main/java/com/google/gson/Gson.java`, overloaded for various inputs:
+
+- `fromJson(String, Class<T>)` — line 850
+- `fromJson(String, Type)` — line 879
+- `fromJson(String, TypeToken<T>)` — line 909
+- `fromJson(Reader, Class<T>)` — line 940
+- `fromJson(Reader, Type)` — line 971
+- `fromJson(Reader, TypeToken<T>)` — line 1001
+- `fromJson(JsonReader, Type)` — line 1046 (the core implementation the others delegate to)
+- `fromJson(JsonReader, TypeToken<T>)` — line 1087
+- `fromJson(JsonElement, Class<T>)` — line 1159
+- `fromJson(JsonElement, Type)` — line 1186
+- `fromJson(JsonElement, TypeToken<T>)` — line 1212
+
+The `JsonReader`-based overloads (around line 1046–1130) contain the actual parsing/deserialization logic; the rest are convenience overloads that funnel into them.

@@ -1,0 +1,1 @@
+`Axios.prototype.get` is defined at `lib/core/Axios.js:268` inside `utils.forEach(['delete', 'get', 'head', 'options'], forEachMethodNoData)` (lines 266-277). It builds a config via `mergeConfig(config || {}, {method: 'get', url, data})` and dispatches through `this.request(...)`.

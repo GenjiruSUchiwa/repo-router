@@ -1,0 +1,16 @@
+ISO parsing entirely happens in `pkgs/core/src/parseISO/index.ts` — there's no delegation to another module's regex engine. The main entry point is `parseISO` (`pkgs/core/src/parseISO/index.ts:52`).
+
+Trace of the parsing chain:
+
+1. **`parseISO(argument, options)`** (`index.ts:52-99`) — orchestrates the whole conversion.
+2. **`splitDateString(dateString)`** (`index.ts:124`) — splits the raw string into `{date, time, timezone}` substrings using the `T`/space delimiter and a trailing `[Z+-]` regex (`patterns.timezone`, line 115).
+3. Date piece:
+   - **`parseYear(dateString, additionalDigits)`** (`index.ts:162`) — regex-matches the leading year/century digits, returns `{year, restDateString}`.
+   - **`parseDate(restDateString, year)`** (`index.ts:185`) — matches `dateRegex` (line 118-119) against the remainder to get day-of-year, month/day, or ISO week/day. Delegates to `dayOfISOWeekYear` (line 260) for week-date form, or builds a `Date` via `setUTCFullYear` otherwise. Validated by `validateDate`/`validateDayOfYearDate`/`validateWeekDate` (lines 282-297).
+4. Time piece (if present):
+   - **`parseTime(timeString)`** (`index.ts:222`) — matches `timeRegex` (line 120-121), sums hours/minutes/seconds into milliseconds, validated by `validateTime` (line 299).
+5. Timezone piece (if present):
+   - **`parseTimezone(timezoneString)`** (`index.ts:243`) — matches `timezoneRegex` (line 122), returns signed offset in ms, validated by `validateTimezone` (line 318).
+6. Back in `parseISO`: if no explicit timezone, it builds the result date by copying UTC fields onto a local-time `Date` (lines 78-96, treating the input as local time); if a timezone is present, it computes `timestamp + time + offset` and passes it through **`toDate`** (`../toDate/index.ts`, imported at line 6) to produce the final `DateType` instance (line 98), using `constructFrom` (line 5) for invalid-date short-circuits (line 56).
+
+So the actual ISO parsing logic (regex definitions and split/parse functions) lives entirely in `pkgs/core/src/parseISO/index.ts:112-320`, with `toDate`/`constructFrom` only used at the end to materialize the final `Date` object in the target type.

@@ -1,0 +1,15 @@
+The `rr` CLI isn't available in this environment (`command not found`), so I read the file directly instead.
+
+**Entry point:** `pkgs/core/src/parseISO/index.ts:52` — `parseISO(argument, options)`
+
+**Parsing chain:**
+
+1. **`splitDateString`** (line 124) splits the raw string into `date`, `time`, and `timezone` substrings using delimiter regexes (`T`/space for date-time, `Z`/space for timezone).
+2. **`parseYear`** (line 162) pulls the year (or century) off the front of the date substring via a dynamically-built regex (width depends on `additionalDigits`).
+3. **`parseDate`** (line 185) matches the remainder against `dateRegex` (line 118–119) to extract day-of-year, month/day, or ISO week/weekday, validates it (`validateDate`/`validateDayOfYearDate`/`validateWeekDate`), and builds a UTC `Date` via `date.setUTCFullYear(...)` (line 213) or `dayOfISOWeekYear` (line 260, for week-date format).
+4. Back in `parseISO`, the resulting `date` becomes the base `timestamp` (line 69).
+5. **`parseTime`** (line 222) parses the time substring against `timeRegex`, converting hours/minutes/seconds into milliseconds.
+6. **`parseTimezone`** (line 243) parses the offset substring; if no timezone was present, the local components are derived from the UTC-computed date via `setFullYear`/`setHours` on a `toDate(0, options?.in)` base instead (lines 82–95).
+7. Final result: `toDate(timestamp + time + offset, options?.in)` (line 98) — `toDate` (from `../toDate/index.ts`) constructs the actual `Date`/`DateType` instance, respecting the `in` context option.
+
+So the core ISO parsing logic (regex matching and numeric extraction) lives entirely in `pkgs/core/src/parseISO/index.ts`, lines 124–320, orchestrated by `parseISO` at line 52.

@@ -1,0 +1,13 @@
+`rr` isn't installed here, so I read the source directly.
+
+## Parsing chain — `pkgs/core/src/parseISO/index.ts`
+
+The whole chain lives in one file, `parseISO/index.ts:52-99` (`parseISO` entry point):
+
+1. **`splitDateString`** (line 124) — splits the raw string into `{date, time, timezone}` substrings using regexes for the `T`/space delimiter and a trailing `Z`/`+`/`-` timezone match.
+2. **`parseYear`** (line 162) → **`parseDate`** (line 185) — `parseYear` regex-matches the leading year (accounting for `additionalDigits`), then `parseDate` matches the rest against `dateRegex` (line 118) to extract day-of-year, month/day, or ISO week/day, validates them (`validateDate`/`validateDayOfYearDate`/`validateWeekDate`), and builds a UTC `Date` via `date.setUTCFullYear(...)` (line 213) — this is the actual point where a native JS `Date` is first constructed from the parsed components.
+3. **`parseTime`** (line 222) — matches `dateStrings.time` against `timeRegex` (line 120), validates via `validateTime`, and returns milliseconds since midnight.
+4. **`parseTimezone`** (line 243) — matches `dateStrings.timezone` against `timezoneRegex` (line 122), returns an offset in ms (sign-flipped, since ISO `+` means "ahead of UTC" but the offset here is applied as "subtract to get UTC").
+5. Back in `parseISO` (lines 69-98): if there's an explicit timezone, it sums `timestamp + time + offset` and passes that through `toDate()` (`../toDate/index.ts`) to construct the final result, honoring the `options.in` context type. If there's no explicit timezone, it builds a `tmpDate` from UTC parts, then copies those year/month/day/hours/etc. onto a local-time `Date` via `setFullYear`/`setHours` (so the string is interpreted in the local time zone).
+
+**So: the actual ISO date/time parsing (regex matching + numeric conversion) happens at `pkgs/core/src/parseISO/index.ts:185` (`parseDate`, date components) and `:222`/`:243` (`parseTime`/`parseTimezone`), and the resulting `Date` object is finally produced at `pkgs/core/src/parseISO/index.ts:98`** (or line 95 for the no-explicit-timezone branch).

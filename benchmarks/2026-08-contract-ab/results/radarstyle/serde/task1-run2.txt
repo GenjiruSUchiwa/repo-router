@@ -1,0 +1,3 @@
+The `Serializer` trait is defined in `serde_core/src/ser/mod.rs:355`.
+
+Note: `rr` isn't available in this environment (command not found), so I used grep instead, which confirmed the trait as `pub trait Serializer: Sized`.

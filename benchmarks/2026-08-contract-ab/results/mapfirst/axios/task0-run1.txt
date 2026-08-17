@@ -1,0 +1,1 @@
+It's `lib/core/dispatchRequest.js:35` — it selects an adapter via `adapters.getAdapter(config.adapter || defaults.adapter, config)` (line 52, using `lib/adapters/adapters.js`) and runs it, applying transformRequest/transformResponse around the call as part of the request lifecycle described in AGENTS.md.

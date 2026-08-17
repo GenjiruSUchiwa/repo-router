@@ -1,0 +1,8 @@
+`Query<T>` is implemented as an extension method on `IDbConnection` in `Dapper/SqlMapper.cs:844` (with an overload taking a `CommandDefinition` at line 1062).
+
+What it does:
+- Wraps the sql/param/transaction/timeout/commandType args into a `CommandDefinition`, using `CommandFlags.Buffered` or `None` depending on the `buffered` flag (SqlMapper.cs:846).
+- Delegates to the internal `QueryImpl<T>(cnn, command, typeof(T))` (SqlMapper.cs:847), which actually opens/uses the connection, executes the reader, and materializes rows into `T` via Dapper's type-mapping/deserializer machinery.
+- If buffered, it eagerly calls `.ToList()` on the results before returning (fully reads and closes the reader); if unbuffered, it returns the lazy `IEnumerable<T>` from `QueryImpl` directly, meaning the reader stays open until enumeration completes (SqlMapper.cs:848).
+
+There's also a `Type`-based non-generic overload (`Query(this IDbConnection cnn, Type type, ...)` at line 952) that does the same thing but returns `IEnumerable<object>` for a runtime-specified type.

@@ -1,0 +1,1 @@
+The `#[derive(Serialize)]` macro entry point is `derive_serialize` in `serde_derive/src/lib.rs:114`, which delegates to `ser::expand_derive_serialize` (implemented in `serde_derive/src/ser.rs`).

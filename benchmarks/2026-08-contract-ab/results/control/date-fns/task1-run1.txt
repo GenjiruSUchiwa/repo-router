@@ -1,0 +1,18 @@
+All the ISO parsing logic lives in one file: `pkgs/core/src/parseISO/index.ts`. Here's the chain:
+
+**Entry point** — `parseISO(argument, options)` at `pkgs/core/src/parseISO/index.ts:52`.
+
+1. **Split** (line 59): `splitDateString(argument)` (line 124) breaks the raw string into `{date, time, timezone}` substrings by splitting on `T`/space and matching a trailing `[Z+-]...` timezone suffix with the `timezone` regex (line 115).
+
+2. **Parse the date part** (lines 62-65):
+   - `parseYear(dateStrings.date, additionalDigits)` (line 162) regex-matches a 4-digit (or extended) year or 2-digit century off the front of the date string, returning `{year, restDateString}`.
+   - `parseDate(parseYearResult.restDateString, year)` (line 185) matches the remainder against `dateRegex` (line 118-119), which handles three ISO date forms — ordinal (`DDD`), calendar (`-MM-DD`), and week date (`Www-D`). It builds a `Date` via `setUTCFullYear`/`dayOfISOWeekYear`, validating with `validateDate`/`validateDayOfYearDate`/`validateWeekDate`.
+   - Result is checked with `isNaN(+date)` (line 67) — invalid input short-circuits to `invalidDate()`.
+
+3. **Parse the time part** (lines 73-76): if present, `parseTime(dateStrings.time)` (line 222) matches `timeRegex` (line 120-121) and converts hours/minutes/seconds (with comma/period decimal support) into milliseconds, validated by `validateTime`.
+
+4. **Parse the timezone part** (lines 78-96): if a timezone was captured, `parseTimezone` (line 243) matches `timezoneRegex` (line 122) and computes a signed millisecond offset. If no timezone was present in the string, it instead builds the date from UTC field getters onto a fresh `toDate(0, options?.in)` instance (local-time interpretation, lines 82-95).
+
+5. **Final construction** (line 98): `toDate(timestamp + time + offset, options?.in)` (from `../toDate/index.ts`) combines the millisecond components into the final `Date` (or a custom date type via the `in` context option), which `constructFrom` (line 5, used at line 56 for the invalid-date case) also relies on.
+
+So the actual regex-based ISO parsing happens entirely at `pkgs/core/src/parseISO/index.ts:112-320` (the `patterns`/`dateRegex`/`timeRegex`/`timezoneRegex` constants and their consuming functions), orchestrated by the top-level function at `index.ts:52`.

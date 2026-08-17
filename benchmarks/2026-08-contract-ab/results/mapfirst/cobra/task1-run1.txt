@@ -1,0 +1,1 @@
+`AddCommand` is defined at `command.go:1342` — `func (c *Command) AddCommand(cmds ...*Command)`.

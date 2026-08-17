@@ -1,0 +1,7 @@
+Flag parsing for a command happens in `(*Command).ParseFlags` at `command.go:1868`. It:
+
+1. Skips entirely if `c.DisableFlagParsing` is set.
+2. Calls `c.mergePersistentFlags()` (`command.go:1898`) to merge persistent flags from the command and all its parents into `c.Flags()`.
+3. Delegates the actual parsing to the underlying `pflag.FlagSet` via `c.Flags().Parse(args)` (`command.go:1882`) — cobra itself doesn't parse flags, it wraps `github.com/spf13/pflag`.
+
+`ParseFlags` is invoked during execution in `execute()` (`command.go:854`) and `Find`/arg-stripping logic (`command.go:919`), which is reached from `ExecuteC` (`command.go:1084`) when running a command.

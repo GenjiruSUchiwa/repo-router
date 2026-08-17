@@ -1,0 +1,31 @@
+Now I have the full chain and can summarize it clearly.
+
+## The `toJson` chain in Gson
+
+**1. Entry points (`Gson.java`)** — several overloads all funnel down to one core method:
+
+- `toJson(Object src)` → `toJson(src, src.getClass())` (`Gson.java:565`)
+- `toJson(Object src, Type typeOfSrc)` → builds a `StringBuilder`, calls `toJson(src, typeOfSrc, writer)` (`Gson.java:590`)
+- `toJson(Object src, Type typeOfSrc, Appendable writer)` → wraps the `Appendable` in a `JsonWriter`, calls the `JsonWriter` overload (`Gson.java:640`)
+- `toJson(Object src, Type typeOfSrc, JsonWriter writer)` — **the core method** (`Gson.java:670`)
+
+**2. Core serialization (`Gson.java:670`)**
+```java
+TypeAdapter<Object> adapter = getAdapter(TypeToken.get(typeOfSrc));
+...
+adapter.write(writer, src);
+```
+It resolves the right `TypeAdapter` for the source type, applies the `Gson` instance's settings (strictness, HTML-safety, serialize-nulls) onto the `JsonWriter`, then delegates the actual writing to `adapter.write(...)`, restoring the writer's prior settings in a `finally` block.
+
+**3. Adapter resolution (`Gson.getAdapter`, `Gson.java:340`)**
+- Checks a `typeTokenCache` for an already-resolved adapter.
+- Otherwise iterates the registered `TypeAdapterFactory` list (built-in ones plus any registered via `GsonBuilder`), calling `factory.create(this, type)` until one returns non-null.
+- Uses a `FutureTypeAdapter`/thread-local map to handle cyclic type dependencies (e.g., self-referencing classes), then caches the resolved adapter for reuse.
+
+**4. Actual writing** — the resolved `TypeAdapter<T>` (abstract method `write(JsonWriter, T)` in `TypeAdapter.java:131`) does the real work: for reflective object serialization this is typically `ReflectiveTypeAdapterFactory`'s adapter, which iterates the object's fields and writes JSON name/value pairs to the low-level `JsonWriter` (which emits the actual JSON text/tokens).
+
+**Related paths:**
+- `toJsonTree(Object)` follows the same chain but writes into a `JsonTreeWriter` instead of a text writer, producing a `JsonElement` tree rather than a `String`.
+- `toJson(JsonElement, JsonWriter)` (`Gson.java:751`) is a separate, simpler path for writing an already-built `JsonElement` tree via `Streams.write(jsonElement, writer)` — it bypasses adapter resolution entirely since there's no source object type to resolve.
+
+So the flow is: **`toJson(src)` → resolve `Type` → `getAdapter(type)` picks a `TypeAdapter` via `TypeAdapterFactory` chain → `adapter.write(jsonWriter, src)` → `JsonWriter` emits tokens.**

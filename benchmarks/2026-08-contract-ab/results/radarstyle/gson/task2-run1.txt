@@ -1,0 +1,18 @@
+Here's the full `toJson` implementation chain in Gson (`gson/src/main/java/com/google/gson/Gson.java`):
+
+**1. Public entry points** (all converge on the same core method):
+- `toJson(Object src)` (Gson.java:565) → uses `src.getClass()` → calls `toJson(src, typeOfSrc)`
+- `toJson(Object src, Type typeOfSrc)` (:590) → builds a `StringBuilder`, calls `toJson(src, typeOfSrc, writer)`
+- `toJson(Object src, Appendable writer)` (:612) → resolves runtime class → delegates to `toJson(src, typeOfSrc, writer)`
+- `toJson(Object src, Type typeOfSrc, Appendable writer)` (:640) → wraps the `Appendable` in a `JsonWriter` via `newJsonWriter(...)`, calls the core method
+
+**2. Core serialization method — `toJson(Object src, Type typeOfSrc, JsonWriter writer)`** (:670):
+- Resolves a `TypeAdapter<Object>` for `typeOfSrc` via `getAdapter(TypeToken.get(typeOfSrc))` (:340)
+  - `getAdapter` checks a `typeTokenCache`, then a `threadLocalAdapterResults` map to handle recursive/self-referential types, then iterates registered `factories` (the ordered chain of `TypeAdapterFactory` instances — built-ins plus user-registered ones), calling `factory.create(this, type)` until one returns non-null.
+- Saves/overrides the writer's `strictness`, `htmlSafe`, and `serializeNulls` settings from the `Gson` instance config.
+- Calls `adapter.write(writer, src)` — this is where actual serialization happens, dispatched to the specific `TypeAdapter` (e.g. for a POJO, `ReflectiveTypeAdapterFactory`'s adapter, which reflectively reads each field's value and recursively calls its own field-level adapter's `write`, see `ReflectiveTypeAdapterFactory.java:222`).
+- Restores the writer's original settings in a `finally` block.
+
+**3. `JsonElement`-based overloads** — `toJson(JsonElement)` (:708) and `toJson(JsonElement, Appendable/JsonWriter)` (:722, :751) follow the same writer-setup pattern but delegate the actual tree-writing to `Streams.write(jsonElement, writer)` instead of a `TypeAdapter`.
+
+**Summary of the chain:** `toJson(Object)` → `toJson(Object, Type)` → `toJson(Object, Type, Appendable)` → `toJson(Object, Type, JsonWriter)` → `getAdapter(TypeToken)` (resolves adapter via factory chain) → `TypeAdapter.write(JsonWriter, Object)` (actual recursive serialization).

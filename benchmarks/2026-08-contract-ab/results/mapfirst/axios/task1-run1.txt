@@ -1,0 +1,14 @@
+The XHR adapter lives in `lib/adapters/xhr.js:16` — a plain object property, only defined when `XMLHttpRequest` exists (`isXHRAdapterSupported`), so it's selectively excluded on platforms without it (e.g. Node).
+
+How it works, per the request lifecycle in `AGENTS.md`:
+
+1. **Selection**: `lib/adapters/adapters.js#getAdapter` picks an adapter from the configured preference list (`['xhr', 'http', 'fetch']` by default), choosing by capability rather than environment name.
+2. **Config resolution**: `resolveConfig(config)` (line 19, `lib/helpers/resolveConfig.js`) resolves the final URL, headers, auth, and XSRF token handling for the browser.
+3. **XHR setup**: it creates `new XMLHttpRequest()`, opens it with `request.open(method, url, true)` (async), and sets `request.timeout`.
+4. **Headers**: normalized `AxiosHeaders` are applied via `setRequestHeader`, with `Content-Type` stripped if there's no body.
+5. **Progress/credentials**: `withCredentials`, `responseType`, and upload/download progress listeners (`progressEventReducer`) are wired up.
+6. **Cancellation**: both `CancelToken` and `AbortSignal` are subscribed to a shared `onCanceled` handler that calls `request.abort()` — consistent with the "must work at any lifecycle stage" rule in AGENTS.md.
+7. **Completion**: `onloadend` (or the `onreadystatechange` fallback for older browsers) builds the `AxiosResponse` object and calls `settle()`, which resolves/rejects the promise based on `validateStatus`. `onerror`, `ontimeout`, and `onabort` handle failure paths, each producing an appropriate `AxiosError` (`ERR_NETWORK`, `ECONNABORTED`/`ETIMEDOUT`).
+8. **Send**: finally `request.send(requestData || null)` fires the actual request.
+
+This adapter only handles step 6 (I/O) of the 9-step lifecycle in AGENTS.md — interceptors, config merging, and transforms happen in `lib/core/` before/after this adapter runs.

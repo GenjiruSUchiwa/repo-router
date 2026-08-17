@@ -1,0 +1,22 @@
+Here's the full call chain for `gson.toJson(obj)`:
+
+**1. Entry points** (`Gson.java`)
+- `toJson(Object src)` (line 565) → resolves the runtime class via `src.getClass()`, delegates to `toJson(src, typeOfSrc)`.
+- `toJson(Object, Type)` (590) → creates a `StringBuilder`, calls `toJson(src, typeOfSrc, writer)`.
+- `toJson(Object, Type, Appendable)` (640) → wraps the `Appendable` in a `JsonWriter` (`newJsonWriter`), calls `toJson(src, typeOfSrc, jsonWriter)`.
+
+**2. Core method** — `toJson(Object src, Type typeOfSrc, JsonWriter writer)` (670)
+- Looks up the right `TypeAdapter<Object>` via `getAdapter(TypeToken.get(typeOfSrc))`.
+- Applies this `Gson` instance's settings to the writer (strictness, `htmlSafe`, `serializeNulls`), saving old values.
+- Calls `adapter.write(writer, src)` — this is where the actual serialization happens.
+- Restores the writer's original settings in a `finally` block.
+
+**3. Adapter resolution** — `getAdapter(TypeToken<T> type)` (340)
+- Checks `typeTokenCache` for a previously resolved adapter.
+- Otherwise iterates the ordered `factories` list (built-in adapters registered before user/reflective ones), calling `factory.create(this, type)` on each until one returns non-null.
+- Uses a `FutureTypeAdapter` placeholder + `threadLocalAdapterResults` map to handle cyclic type references (e.g., a class containing a field of its own type) during resolution.
+- Caches the resolved adapter globally once resolution completes.
+
+**4. Actual writing** — delegated to the resolved `TypeAdapter.write(JsonWriter, T)`. For a normal POJO with no custom adapter, this ends up being `ReflectiveTypeAdapterFactory`'s adapter, which reflectively walks the object's fields (respecting `@SerializedName`, `@Expose`, exclusion strategies, etc.) and recursively calls each field's own `TypeAdapter.write(...)` (obtained again via `getAdapter`), writing JSON tokens (`beginObject`/`name`/`value`/`endObject`) to the `JsonWriter`, which streams characters to the underlying `Writer`/`Appendable`.
+
+So the chain is: `toJson(Object)` → `toJson(Object, Type)` → `toJson(Object, Type, Appendable)` (wraps in `JsonWriter`) → `toJson(Object, Type, JsonWriter)` (resolves adapter, sets writer options) → `TypeAdapter.write(...)` (recursive, reflection-based for POJOs) → `JsonWriter` streams the tokens out as text.

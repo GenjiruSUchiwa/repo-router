@@ -1,0 +1,9 @@
+Flag parsing happens in `command.go`, along this chain:
+
+- `Command.Execute()` → `ExecuteContext()` → `ExecuteC()` (command.go:1084): resolves the target subcommand via `c.Find(args)` (or `Traverse`), then calls `cmd.execute(flags)` at line 1148.
+- `Command.execute()` (command.go:905): calls `c.ParseFlags(a)` at line 919.
+- `Command.ParseFlags()` (command.go:1867): merges persistent flags via `mergePersistentFlags()`, then does the actual parse at **command.go:1882**: `c.Flags().Parse(args)` — delegating to `pflag.FlagSet.Parse`.
+
+So the real parsing work is pflag's, invoked from `Command.ParseFlags` in command.go.
+
+Note: the `rr` tool referenced in CLAUDE.md isn't installed in this environment (`command not found`), so I used a direct code search instead.

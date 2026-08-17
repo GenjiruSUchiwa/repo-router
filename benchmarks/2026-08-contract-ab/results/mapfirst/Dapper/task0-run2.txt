@@ -1,0 +1,12 @@
+`Query<T>` for a raw `IDbConnection` is defined in `Dapper/SqlMapper.cs:844` (the string-sql overload) and `Dapper/SqlMapper.cs:1062` (the `CommandDefinition` overload). Both wrap a call to the private `QueryImpl<T>` (`Dapper/SqlMapper.cs:1202`).
+
+What it does:
+1. `Query<T>` builds a `CommandDefinition` from the sql/params/transaction/etc., then calls `QueryImpl<T>(cnn, command, typeof(T))`, and if `buffered` is true, materializes it with `.ToList()` (otherwise returns the lazy `IEnumerable<T>` as-is).
+2. `QueryImpl<T>` (SqlMapper.cs:1202-1263) is the actual execution engine:
+   - Computes an `Identity` cache key from the SQL text, connection, param type, and target type, and looks up a cached deserializer/param-reader via `GetCacheInfo`.
+   - Opens the connection if it was closed (`cnn.Open()`), sets up the `IDbCommand` via `command.SetupCommand`, and executes `ExecuteReaderWithFlagsFallback` with `SequentialAccess | SingleResult`.
+   - Computes a hash of the reader's columns; if it doesn't match the cached deserializer, builds a new one via `GetDeserializer` (which emits a dynamic IL method mapping columns to `T`'s members/constructor) and caches it.
+   - Iterates `reader.Read()`, invoking the deserializer function per row and `yield return`s each mapped `T` instance.
+   - Cleans up (disposes reader/command, closes the connection if it opened it) in a `finally` block.
+
+So `Query<T>` is a thin wrapper that turns the sql + params into a `CommandDefinition`, and `QueryImpl` does the real work: open connection → execute reader → build/cache a per-row deserializer → yield-stream (or list-buffer) typed results.

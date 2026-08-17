@@ -1,0 +1,14 @@
+The core naming logic lives in `Dapper/DefaultTypeMap.cs`, implementing `SqlMapper.ITypeMap`.
+
+**Property matching** happens in `GetMember(string columnName)` (line 147), which calls `MatchFirstOrDefault` (line 185) against `Properties` — the settable public/non-public instance properties (gathered via reflection in `GetSettableProps`). The match order is a cascading fallback:
+
+1. Exact, ordinal match (`Id` == `Id`)
+2. Exact, case-insensitive match (`id` == `Id`)
+3. If `MatchNamesWithUnderscores` is enabled: strip underscores from the column name and repeat ordinal, then case-insensitive matching against unmodified property names
+4. Then also strip underscores from the *property* names and repeat ordinal/case-insensitive matching
+
+If no property matches, it falls back to fields (including compiler-generated `<Name>k__BackingField` names for auto-properties), with a similar exact → backing-field → case-insensitive → underscore-stripped cascade.
+
+**`MatchNamesWithUnderscores`** (line 183) is a static, global opt-in flag (default `false`) that lets a column like `User_Id` map to a property `UserId`.
+
+For custom mapping needs, `CustomPropertyTypeMap.cs` lets consumers supply their own `Func<Type, string, PropertyInfo>` mapping function instead of relying on this convention-based default.

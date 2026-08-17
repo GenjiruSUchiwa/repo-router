@@ -1,0 +1,13 @@
+In the browser, axios uses `lib/adapters/xhr.js` (`lib/adapters/adapters.js` picks it first when `XMLHttpRequest` is defined). Flow of `dispatchXhrRequest`:
+
+1. **Config resolution** — `resolveConfig(config)` merges base URL, auth, headers, XSRF token, withCredentials, etc. into `_config`.
+2. **Setup** — creates `new XMLHttpRequest()`, calls `request.open(method, url, true)` for async mode, and sets `request.timeout`.
+3. **Response handling** — registers `onloadend` (or an `onreadystatechange` shim for older browsers) that builds an `AxiosResponse`-like object from `request.responseText`/`request.response`, `status`, `statusText`, and parsed headers (`AxiosHeaders.from(request.getAllResponseHeaders())`), then passes it to `settle()`, which resolves or rejects the promise based on `validateStatus`.
+4. **Error paths** — `onabort`, `onerror`, and `ontimeout` each reject with an appropriate `AxiosError` (`ECONNABORTED`, `ERR_NETWORK`, `ETIMEDOUT`/`ECONNABORTED`).
+5. **Headers/body prep** — sets request headers via `setRequestHeader`, applies `withCredentials` and `responseType`.
+6. **Progress tracking** — wires `progressEventReducer`-throttled listeners for download (`request.addEventListener('progress', ...)`) and upload (`request.upload.addEventListener('progress', ...)`) progress callbacks.
+7. **Cancellation** — subscribes to `CancelToken` and/or `AbortSignal`, calling `request.abort()` and rejecting with `CanceledError` when triggered.
+8. **Protocol check** — rejects unsupported protocols before sending.
+9. **Send** — `request.send(requestData || null)` fires the actual request; everything else is event-driven until `onloadend`/`settle` resolves the returned `Promise`.
+
+This is invoked from the core dispatch pipeline (`lib/core/dispatchRequest.js` → adapter selected via `adapters.getAdapter(config.adapter)`), consistent with the request lifecycle described in `AGENTS.md` (interceptors → adapter → transformResponse → response interceptors).

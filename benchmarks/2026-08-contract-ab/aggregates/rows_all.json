@@ -1,0 +1,1082 @@
+[
+ {
+  "contract": "control",
+  "repo": "Dapper",
+  "repo_lower": "dapper",
+  "task": "task0-run1",
+  "ok": true,
+  "expected": "SqlMapper.cs",
+  "resp_len": 1052,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-Dapper/62368481-2404-4a5b-b686-40407fdeb80c.jsonl"
+ },
+ {
+  "contract": "control",
+  "repo": "Dapper",
+  "repo_lower": "dapper",
+  "task": "task0-run2",
+  "ok": true,
+  "expected": "SqlMapper.cs",
+  "resp_len": 1057,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-Dapper/3f6b680f-d47c-4832-9bc6-45b0196dfb3f.jsonl"
+ },
+ {
+  "contract": "control",
+  "repo": "Dapper",
+  "repo_lower": "dapper",
+  "task": "task1-run1",
+  "ok": true,
+  "expected": "SqlMapper.cs",
+  "resp_len": 192,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-Dapper/7f45ec9b-a15e-4aca-9947-9aba916151ce.jsonl"
+ },
+ {
+  "contract": "control",
+  "repo": "Dapper",
+  "repo_lower": "dapper",
+  "task": "task1-run2",
+  "ok": true,
+  "expected": "SqlMapper.cs",
+  "resp_len": 193,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-Dapper/7bb4f80c-e41f-4e48-9de1-c7818ab9404e.jsonl"
+ },
+ {
+  "contract": "control",
+  "repo": "Dapper",
+  "repo_lower": "dapper",
+  "task": "task2-run1",
+  "ok": true,
+  "expected": "DefaultTypeMap.cs",
+  "resp_len": 1305,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-Dapper/1a3cf784-40df-4524-adca-3befffc5be99.jsonl"
+ },
+ {
+  "contract": "control",
+  "repo": "Dapper",
+  "repo_lower": "dapper",
+  "task": "task2-run2",
+  "ok": true,
+  "expected": "DefaultTypeMap.cs",
+  "resp_len": 1467,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-Dapper/983ef195-44d0-4f6a-932e-0fed1398348d.jsonl"
+ },
+ {
+  "contract": "control",
+  "repo": "axios",
+  "repo_lower": "axios",
+  "task": "task0-run1",
+  "ok": true,
+  "expected": "dispatchRequest.js",
+  "resp_len": 298,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-axios/e6481c25-6d70-4222-b176-890893c5e5e7.jsonl"
+ },
+ {
+  "contract": "control",
+  "repo": "axios",
+  "repo_lower": "axios",
+  "task": "task0-run2",
+  "ok": true,
+  "expected": "dispatchRequest.js",
+  "resp_len": 274,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-axios/775c0087-c5ba-4d11-8d47-b298acdec51c.jsonl"
+ },
+ {
+  "contract": "control",
+  "repo": "axios",
+  "repo_lower": "axios",
+  "task": "task1-run1",
+  "ok": true,
+  "expected": "xhr.js",
+  "resp_len": 2369,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-axios/60739dd8-dee9-4df3-a0fa-773f0269d6f2.jsonl"
+ },
+ {
+  "contract": "control",
+  "repo": "axios",
+  "repo_lower": "axios",
+  "task": "task1-run2",
+  "ok": true,
+  "expected": "xhr.js",
+  "resp_len": 1974,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-axios/91bc787e-8cbe-4fb5-b1e0-6a4747f342de.jsonl"
+ },
+ {
+  "contract": "control",
+  "repo": "axios",
+  "repo_lower": "axios",
+  "task": "task2-run1",
+  "ok": true,
+  "expected": "Axios.js",
+  "resp_len": 282,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-axios/c6a422a5-f01a-448a-a711-9ecefaf60c8c.jsonl"
+ },
+ {
+  "contract": "control",
+  "repo": "axios",
+  "repo_lower": "axios",
+  "task": "task2-run2",
+  "ok": true,
+  "expected": "Axios.js",
+  "resp_len": 222,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-axios/4b8f7560-1ca8-423c-82a5-68b43cb3114b.jsonl"
+ },
+ {
+  "contract": "control",
+  "repo": "cobra",
+  "repo_lower": "cobra",
+  "task": "task0-run1",
+  "ok": true,
+  "expected": "command.go",
+  "resp_len": 155,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-cobra/7c417f98-241c-4dc9-a60b-2d429862b41c.jsonl"
+ },
+ {
+  "contract": "control",
+  "repo": "cobra",
+  "repo_lower": "cobra",
+  "task": "task0-run2",
+  "ok": true,
+  "expected": "command.go",
+  "resp_len": 255,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-cobra/596661a3-03d3-455e-9993-7fdc893cb07a.jsonl"
+ },
+ {
+  "contract": "control",
+  "repo": "cobra",
+  "repo_lower": "cobra",
+  "task": "task1-run1",
+  "ok": true,
+  "expected": "command.go",
+  "resp_len": 67,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-cobra/a7cf0204-430d-4374-a4c9-5ccc89743143.jsonl"
+ },
+ {
+  "contract": "control",
+  "repo": "cobra",
+  "repo_lower": "cobra",
+  "task": "task1-run2",
+  "ok": true,
+  "expected": "command.go",
+  "resp_len": 66,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-cobra/7e86efea-af7a-4415-877c-2bf377d9184e.jsonl"
+ },
+ {
+  "contract": "control",
+  "repo": "cobra",
+  "repo_lower": "cobra",
+  "task": "task2-run1",
+  "ok": true,
+  "expected": "command.go",
+  "resp_len": 572,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-cobra/0a91001d-9522-4909-9717-98b5aab35084.jsonl"
+ },
+ {
+  "contract": "control",
+  "repo": "cobra",
+  "repo_lower": "cobra",
+  "task": "task2-run2",
+  "ok": true,
+  "expected": "command.go",
+  "resp_len": 667,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-cobra/17ad58c8-b53d-4aa8-aa29-bedeb0fa1d41.jsonl"
+ },
+ {
+  "contract": "control",
+  "repo": "date-fns",
+  "repo_lower": "date-fns",
+  "task": "task0-run1",
+  "ok": true,
+  "expected": "format/index.ts",
+  "resp_len": 1608,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-date-fns/d6c37e07-9b65-4198-895a-6a5067963cb3.jsonl"
+ },
+ {
+  "contract": "control",
+  "repo": "date-fns",
+  "repo_lower": "date-fns",
+  "task": "task0-run2",
+  "ok": true,
+  "expected": "format/index.ts",
+  "resp_len": 1423,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-date-fns/e7dcc106-b8ff-4608-918f-aa358e3ec1d1.jsonl"
+ },
+ {
+  "contract": "control",
+  "repo": "date-fns",
+  "repo_lower": "date-fns",
+  "task": "task1-run1",
+  "ok": true,
+  "expected": "parseISO/index.ts",
+  "resp_len": 2314,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-date-fns/ddcba9bd-aa95-48ac-9e6a-0dffe2c185ef.jsonl"
+ },
+ {
+  "contract": "control",
+  "repo": "date-fns",
+  "repo_lower": "date-fns",
+  "task": "task1-run2",
+  "ok": true,
+  "expected": "parseISO/index.ts",
+  "resp_len": 2002,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-date-fns/7bc810b8-7102-416f-907b-13fe287fe22a.jsonl"
+ },
+ {
+  "contract": "control",
+  "repo": "date-fns",
+  "repo_lower": "date-fns",
+  "task": "task2-run1",
+  "ok": true,
+  "expected": "isValid/index.ts",
+  "resp_len": 757,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-date-fns/8df19200-a468-43f6-9798-5933a75c5311.jsonl"
+ },
+ {
+  "contract": "control",
+  "repo": "date-fns",
+  "repo_lower": "date-fns",
+  "task": "task2-run2",
+  "ok": true,
+  "expected": "isValid/index.ts",
+  "resp_len": 860,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-date-fns/14a1b93c-4db6-4977-a933-98922a73205f.jsonl"
+ },
+ {
+  "contract": "control",
+  "repo": "gson",
+  "repo_lower": "gson",
+  "task": "task0-run1",
+  "ok": true,
+  "expected": "Gson.java",
+  "resp_len": 627,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-gson/5adc38a7-4aba-486e-977f-058affb08ebf.jsonl"
+ },
+ {
+  "contract": "control",
+  "repo": "gson",
+  "repo_lower": "gson",
+  "task": "task0-run2",
+  "ok": true,
+  "expected": "Gson.java",
+  "resp_len": 301,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-gson/cc1656f0-9b72-4ce3-8725-b3caaac9e850.jsonl"
+ },
+ {
+  "contract": "control",
+  "repo": "gson",
+  "repo_lower": "gson",
+  "task": "task1-run1",
+  "ok": true,
+  "expected": "GsonBuilder.java",
+  "resp_len": 820,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-gson/8edca002-fe45-4ab1-95c7-ea320a31b531.jsonl"
+ },
+ {
+  "contract": "control",
+  "repo": "gson",
+  "repo_lower": "gson",
+  "task": "task1-run2",
+  "ok": true,
+  "expected": "GsonBuilder.java",
+  "resp_len": 797,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-gson/476b0ab2-12da-45ed-b13a-beeac2247631.jsonl"
+ },
+ {
+  "contract": "control",
+  "repo": "gson",
+  "repo_lower": "gson",
+  "task": "task2-run1",
+  "ok": true,
+  "expected": "Gson.java",
+  "resp_len": 2321,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-gson/a61563c0-3ee1-4add-9395-680d64ff3907.jsonl"
+ },
+ {
+  "contract": "control",
+  "repo": "gson",
+  "repo_lower": "gson",
+  "task": "task2-run2",
+  "ok": true,
+  "expected": "Gson.java",
+  "resp_len": 2316,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-gson/e906020d-9c90-4386-94ee-ef14ae80b656.jsonl"
+ },
+ {
+  "contract": "control",
+  "repo": "serde",
+  "repo_lower": "serde",
+  "task": "task0-run1",
+  "ok": true,
+  "expected": "ser/mod.rs",
+  "resp_len": 170,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-serde/313034b5-6f42-4333-bacd-aa66a5eaa50e.jsonl"
+ },
+ {
+  "contract": "control",
+  "repo": "serde",
+  "repo_lower": "serde",
+  "task": "task0-run2",
+  "ok": true,
+  "expected": "ser/mod.rs",
+  "resp_len": 134,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-serde/d89bfd75-b9c0-4a3f-999c-5abde1a00cd2.jsonl"
+ },
+ {
+  "contract": "control",
+  "repo": "serde",
+  "repo_lower": "serde",
+  "task": "task1-run1",
+  "ok": true,
+  "expected": "ser/mod.rs",
+  "resp_len": 70,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-serde/b86ce4b1-264f-49ec-b909-c8a00d89bd7a.jsonl"
+ },
+ {
+  "contract": "control",
+  "repo": "serde",
+  "repo_lower": "serde",
+  "task": "task1-run2",
+  "ok": true,
+  "expected": "ser/mod.rs",
+  "resp_len": 70,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-serde/071acf71-13f7-4f5b-aa68-57c64b67df64.jsonl"
+ },
+ {
+  "contract": "control",
+  "repo": "serde",
+  "repo_lower": "serde",
+  "task": "task2-run1",
+  "ok": true,
+  "expected": "lib.rs",
+  "resp_len": 262,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-serde/5c257ac5-db60-47d9-b370-c431b70cc8c6.jsonl"
+ },
+ {
+  "contract": "control",
+  "repo": "serde",
+  "repo_lower": "serde",
+  "task": "task2-run2",
+  "ok": true,
+  "expected": "lib.rs",
+  "resp_len": 76,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-serde/a5630291-f1cc-438d-b21f-9cc66aac096b.jsonl"
+ },
+ {
+  "contract": "mapfirst",
+  "repo": "Dapper",
+  "task": "task0-run1",
+  "ok": true,
+  "expected": "SqlMapper.cs",
+  "resp_len": 1983,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-Dapper/c2a0cac4-92d6-4820-9fff-57443069af5f.jsonl",
+  "repo_lower": "dapper"
+ },
+ {
+  "contract": "mapfirst",
+  "repo": "Dapper",
+  "task": "task0-run2",
+  "ok": true,
+  "expected": "SqlMapper.cs",
+  "resp_len": 1635,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-Dapper/f24c8e61-794c-4c70-a07d-0f77e045c311.jsonl",
+  "repo_lower": "dapper"
+ },
+ {
+  "contract": "mapfirst",
+  "repo": "Dapper",
+  "task": "task1-run1",
+  "ok": true,
+  "expected": "SqlMapper.cs",
+  "resp_len": 200,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-Dapper/92d7c229-ffcd-4dc3-b525-43822d87db59.jsonl",
+  "repo_lower": "dapper"
+ },
+ {
+  "contract": "mapfirst",
+  "repo": "Dapper",
+  "task": "task1-run2",
+  "ok": true,
+  "expected": "SqlMapper.cs",
+  "resp_len": 182,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-Dapper/24dbfe14-6e79-46f7-8c79-3ac234d08d81.jsonl",
+  "repo_lower": "dapper"
+ },
+ {
+  "contract": "mapfirst",
+  "repo": "Dapper",
+  "task": "task2-run1",
+  "ok": true,
+  "expected": "DefaultTypeMap.cs",
+  "resp_len": 1652,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-Dapper/b845cab5-3665-4669-bcc4-0c5231b1c66b.jsonl",
+  "repo_lower": "dapper"
+ },
+ {
+  "contract": "mapfirst",
+  "repo": "Dapper",
+  "task": "task2-run2",
+  "ok": true,
+  "expected": "DefaultTypeMap.cs",
+  "resp_len": 1403,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-Dapper/8f00151a-b74f-4dfd-b887-081811fdfd65.jsonl",
+  "repo_lower": "dapper"
+ },
+ {
+  "contract": "mapfirst",
+  "repo": "axios",
+  "task": "task0-run1",
+  "ok": true,
+  "expected": "dispatchRequest.js",
+  "resp_len": 306,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-axios/196ab5f6-293a-4fb3-9968-09e9543af716.jsonl",
+  "repo_lower": "axios"
+ },
+ {
+  "contract": "mapfirst",
+  "repo": "axios",
+  "task": "task0-run2",
+  "ok": true,
+  "expected": "dispatchRequest.js",
+  "resp_len": 215,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-axios/51a1287d-8f28-41f5-8d11-f0eeae4e30a4.jsonl",
+  "repo_lower": "axios"
+ },
+ {
+  "contract": "mapfirst",
+  "repo": "axios",
+  "task": "task1-run1",
+  "ok": true,
+  "expected": "xhr.js",
+  "resp_len": 1879,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-axios/cce881fb-ec49-41cf-a50c-610c1d72d746.jsonl",
+  "repo_lower": "axios"
+ },
+ {
+  "contract": "mapfirst",
+  "repo": "axios",
+  "task": "task1-run2",
+  "ok": true,
+  "expected": "xhr.js",
+  "resp_len": 2164,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-axios/dd6a3133-cc90-4955-817a-c5c0e5dfb764.jsonl",
+  "repo_lower": "axios"
+ },
+ {
+  "contract": "mapfirst",
+  "repo": "axios",
+  "task": "task2-run1",
+  "ok": true,
+  "expected": "Axios.js",
+  "resp_len": 269,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-axios/515a7a7f-a0c7-4502-a402-6261e0a87eab.jsonl",
+  "repo_lower": "axios"
+ },
+ {
+  "contract": "mapfirst",
+  "repo": "axios",
+  "task": "task2-run2",
+  "ok": true,
+  "expected": "Axios.js",
+  "resp_len": 259,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-axios/681a79c2-4099-42a6-aef0-46cc440f1794.jsonl",
+  "repo_lower": "axios"
+ },
+ {
+  "contract": "mapfirst",
+  "repo": "cobra",
+  "task": "task0-run1",
+  "ok": true,
+  "expected": "command.go",
+  "resp_len": 65,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-cobra/b5982c43-297d-4cb4-bc0b-6a9e6e01ae36.jsonl",
+  "repo_lower": "cobra"
+ },
+ {
+  "contract": "mapfirst",
+  "repo": "cobra",
+  "task": "task0-run2",
+  "ok": true,
+  "expected": "command.go",
+  "resp_len": 264,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-cobra/325e13fd-ecef-4673-bf57-35b52964cec9.jsonl",
+  "repo_lower": "cobra"
+ },
+ {
+  "contract": "mapfirst",
+  "repo": "cobra",
+  "task": "task1-run1",
+  "ok": true,
+  "expected": "command.go",
+  "resp_len": 97,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-cobra/79590cbd-d684-4954-b567-30787c84c950.jsonl",
+  "repo_lower": "cobra"
+ },
+ {
+  "contract": "mapfirst",
+  "repo": "cobra",
+  "task": "task1-run2",
+  "ok": true,
+  "expected": "command.go",
+  "resp_len": 97,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-cobra/8d9487e9-4b83-40e5-bbd8-6077b8342519.jsonl",
+  "repo_lower": "cobra"
+ },
+ {
+  "contract": "mapfirst",
+  "repo": "cobra",
+  "task": "task2-run1",
+  "ok": true,
+  "expected": "command.go",
+  "resp_len": 337,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-cobra/2a2f7d1e-7e10-4fe8-be19-83f950ec3bde.jsonl",
+  "repo_lower": "cobra"
+ },
+ {
+  "contract": "mapfirst",
+  "repo": "cobra",
+  "task": "task2-run2",
+  "ok": true,
+  "expected": "command.go",
+  "resp_len": 707,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-cobra/f2065be2-ebc7-4ee6-b905-6fb9d7bf45ff.jsonl",
+  "repo_lower": "cobra"
+ },
+ {
+  "contract": "mapfirst",
+  "repo": "date-fns",
+  "task": "task0-run1",
+  "ok": true,
+  "expected": "format/index.ts",
+  "resp_len": 1311,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-date-fns/0fc5f62b-f22a-4bda-92eb-f35fe97fc837.jsonl",
+  "repo_lower": "date-fns"
+ },
+ {
+  "contract": "mapfirst",
+  "repo": "date-fns",
+  "task": "task0-run2",
+  "ok": true,
+  "expected": "format/index.ts",
+  "resp_len": 981,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-date-fns/e443a582-c3c4-4b89-9bd2-79e64b9d398b.jsonl",
+  "repo_lower": "date-fns"
+ },
+ {
+  "contract": "mapfirst",
+  "repo": "date-fns",
+  "task": "task1-run1",
+  "ok": true,
+  "expected": "parseISO/index.ts",
+  "resp_len": 2161,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-date-fns/ab02c6b3-b804-4323-bcc5-fbabd6948d85.jsonl",
+  "repo_lower": "date-fns"
+ },
+ {
+  "contract": "mapfirst",
+  "repo": "date-fns",
+  "task": "task1-run2",
+  "ok": true,
+  "expected": "parseISO/index.ts",
+  "resp_len": 1743,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-date-fns/456b917a-30e3-4ef3-b55e-435e10da5d5a.jsonl",
+  "repo_lower": "date-fns"
+ },
+ {
+  "contract": "mapfirst",
+  "repo": "date-fns",
+  "task": "task2-run1",
+  "ok": true,
+  "expected": "isValid/index.ts",
+  "resp_len": 821,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-date-fns/5d80277b-c5e2-4fac-beea-ed204a22a0e7.jsonl",
+  "repo_lower": "date-fns"
+ },
+ {
+  "contract": "mapfirst",
+  "repo": "date-fns",
+  "task": "task2-run2",
+  "ok": true,
+  "expected": "isValid/index.ts",
+  "resp_len": 623,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-date-fns/e7053c8d-d343-4024-8c72-e16e00513a8a.jsonl",
+  "repo_lower": "date-fns"
+ },
+ {
+  "contract": "mapfirst",
+  "repo": "gson",
+  "task": "task0-run1",
+  "ok": true,
+  "expected": "Gson.java",
+  "resp_len": 625,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-gson/0aa240c5-dc2d-4d62-8092-b724f7ab8706.jsonl",
+  "repo_lower": "gson"
+ },
+ {
+  "contract": "mapfirst",
+  "repo": "gson",
+  "task": "task0-run2",
+  "ok": true,
+  "expected": "Gson.java",
+  "resp_len": 431,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-gson/f88f686c-0285-4cff-ad9a-a2803763ed83.jsonl",
+  "repo_lower": "gson"
+ },
+ {
+  "contract": "mapfirst",
+  "repo": "gson",
+  "task": "task1-run1",
+  "ok": true,
+  "expected": "GsonBuilder.java",
+  "resp_len": 743,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-gson/777b9ca6-350a-4bab-8f84-69ccd933b8a8.jsonl",
+  "repo_lower": "gson"
+ },
+ {
+  "contract": "mapfirst",
+  "repo": "gson",
+  "task": "task1-run2",
+  "ok": true,
+  "expected": "GsonBuilder.java",
+  "resp_len": 629,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-gson/27362093-fb5a-4555-b760-41a1730db2c6.jsonl",
+  "repo_lower": "gson"
+ },
+ {
+  "contract": "mapfirst",
+  "repo": "gson",
+  "task": "task2-run1",
+  "ok": true,
+  "expected": "Gson.java",
+  "resp_len": 2431,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-gson/8878c61d-f289-4ce6-8801-5cfa50f9bf0b.jsonl",
+  "repo_lower": "gson"
+ },
+ {
+  "contract": "mapfirst",
+  "repo": "gson",
+  "task": "task2-run2",
+  "ok": true,
+  "expected": "Gson.java",
+  "resp_len": 2542,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-gson/5cd36e1f-05f1-4d99-a76c-e520e7558fd8.jsonl",
+  "repo_lower": "gson"
+ },
+ {
+  "contract": "mapfirst",
+  "repo": "serde",
+  "task": "task0-run1",
+  "ok": true,
+  "expected": "ser/mod.rs",
+  "resp_len": 130,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-serde/fe699be9-d49c-4581-a23e-f2615c159838.jsonl",
+  "repo_lower": "serde"
+ },
+ {
+  "contract": "mapfirst",
+  "repo": "serde",
+  "task": "task0-run2",
+  "ok": true,
+  "expected": "ser/mod.rs",
+  "resp_len": 151,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-serde/ec3e919e-e66e-4124-80ea-f5673b3b624f.jsonl",
+  "repo_lower": "serde"
+ },
+ {
+  "contract": "mapfirst",
+  "repo": "serde",
+  "task": "task1-run1",
+  "ok": true,
+  "expected": "ser/mod.rs",
+  "resp_len": 70,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-serde/1abacf9f-d1db-4031-946a-82b8ced6e9d5.jsonl",
+  "repo_lower": "serde"
+ },
+ {
+  "contract": "mapfirst",
+  "repo": "serde",
+  "task": "task1-run2",
+  "ok": true,
+  "expected": "ser/mod.rs",
+  "resp_len": 70,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-serde/17e8e701-0d5e-4b6c-9f65-7113107c42da.jsonl",
+  "repo_lower": "serde"
+ },
+ {
+  "contract": "mapfirst",
+  "repo": "serde",
+  "task": "task2-run1",
+  "ok": true,
+  "expected": "lib.rs",
+  "resp_len": 195,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-serde/8fc68143-e16e-4589-a90f-a83bf0da29d0.jsonl",
+  "repo_lower": "serde"
+ },
+ {
+  "contract": "mapfirst",
+  "repo": "serde",
+  "task": "task2-run2",
+  "ok": true,
+  "expected": "lib.rs",
+  "resp_len": 196,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-serde/a0c484db-aa64-48d8-ad32-7c7626cf7a39.jsonl",
+  "repo_lower": "serde"
+ },
+ {
+  "contract": "radarstyle",
+  "repo": "Dapper",
+  "task": "task0-run1",
+  "ok": true,
+  "expected": "SqlMapper.cs",
+  "resp_len": 1455,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-Dapper/1153c80c-0467-46fb-9570-3be8b2c63b03.jsonl",
+  "repo_lower": "dapper"
+ },
+ {
+  "contract": "radarstyle",
+  "repo": "Dapper",
+  "task": "task0-run2",
+  "ok": true,
+  "expected": "SqlMapper.cs",
+  "resp_len": 1972,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-Dapper/b2edd85e-62a0-42d1-b094-eca0a8a68aa6.jsonl",
+  "repo_lower": "dapper"
+ },
+ {
+  "contract": "radarstyle",
+  "repo": "Dapper",
+  "task": "task1-run1",
+  "ok": true,
+  "expected": "SqlMapper.cs",
+  "resp_len": 193,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-Dapper/8d2ab650-d35f-4420-a3d2-527339324c01.jsonl",
+  "repo_lower": "dapper"
+ },
+ {
+  "contract": "radarstyle",
+  "repo": "Dapper",
+  "task": "task1-run2",
+  "ok": true,
+  "expected": "SqlMapper.cs",
+  "resp_len": 198,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-Dapper/91821dca-d41b-4c8b-9e4e-f64ff06da68d.jsonl",
+  "repo_lower": "dapper"
+ },
+ {
+  "contract": "radarstyle",
+  "repo": "Dapper",
+  "task": "task2-run1",
+  "ok": true,
+  "expected": "DefaultTypeMap.cs",
+  "resp_len": 1439,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-Dapper/790249ef-0a48-44c7-8f90-363cfaaa29aa.jsonl",
+  "repo_lower": "dapper"
+ },
+ {
+  "contract": "radarstyle",
+  "repo": "Dapper",
+  "task": "task2-run2",
+  "ok": true,
+  "expected": "DefaultTypeMap.cs",
+  "resp_len": 1311,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-Dapper/67891e94-1d38-4fa6-aa12-4382101bc2af.jsonl",
+  "repo_lower": "dapper"
+ },
+ {
+  "contract": "radarstyle",
+  "repo": "axios",
+  "task": "task0-run1",
+  "ok": true,
+  "expected": "dispatchRequest.js",
+  "resp_len": 264,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-axios/10ade042-e052-4ef1-b724-5b5bed96fd7c.jsonl",
+  "repo_lower": "axios"
+ },
+ {
+  "contract": "radarstyle",
+  "repo": "axios",
+  "task": "task0-run2",
+  "ok": true,
+  "expected": "dispatchRequest.js",
+  "resp_len": 307,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-axios/aa3e628b-78be-4361-bb5a-e5f55094e564.jsonl",
+  "repo_lower": "axios"
+ },
+ {
+  "contract": "radarstyle",
+  "repo": "axios",
+  "task": "task1-run1",
+  "ok": true,
+  "expected": "xhr.js",
+  "resp_len": 1910,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-axios/c0862105-3e4d-4edd-b976-9b752c0c4da6.jsonl",
+  "repo_lower": "axios"
+ },
+ {
+  "contract": "radarstyle",
+  "repo": "axios",
+  "task": "task1-run2",
+  "ok": true,
+  "expected": "xhr.js",
+  "resp_len": 1793,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-axios/b401eefe-fb79-43d5-9391-950537af3487.jsonl",
+  "repo_lower": "axios"
+ },
+ {
+  "contract": "radarstyle",
+  "repo": "axios",
+  "task": "task2-run1",
+  "ok": true,
+  "expected": "Axios.js",
+  "resp_len": 342,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-axios/d58cd6c0-de0a-42fa-ae33-ef20fe7bd412.jsonl",
+  "repo_lower": "axios"
+ },
+ {
+  "contract": "radarstyle",
+  "repo": "axios",
+  "task": "task2-run2",
+  "ok": true,
+  "expected": "Axios.js",
+  "resp_len": 182,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-axios/9175b673-fe89-4648-8828-2698b628934e.jsonl",
+  "repo_lower": "axios"
+ },
+ {
+  "contract": "radarstyle",
+  "repo": "cobra",
+  "task": "task0-run1",
+  "ok": true,
+  "expected": "command.go",
+  "resp_len": 144,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-cobra/101016d1-d019-4403-b2fd-1643b90c3ba9.jsonl",
+  "repo_lower": "cobra"
+ },
+ {
+  "contract": "radarstyle",
+  "repo": "cobra",
+  "task": "task0-run2",
+  "ok": true,
+  "expected": "command.go",
+  "resp_len": 81,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-cobra/07d421df-f64d-4952-abbd-e636b3ddf409.jsonl",
+  "repo_lower": "cobra"
+ },
+ {
+  "contract": "radarstyle",
+  "repo": "cobra",
+  "task": "task1-run1",
+  "ok": true,
+  "expected": "command.go",
+  "resp_len": 95,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-cobra/6298d082-af68-4b8d-9ef6-e86780f4b75c.jsonl",
+  "repo_lower": "cobra"
+ },
+ {
+  "contract": "radarstyle",
+  "repo": "cobra",
+  "task": "task1-run2",
+  "ok": true,
+  "expected": "command.go",
+  "resp_len": 95,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-cobra/da893eee-249e-4db6-bb07-e1481bde05d1.jsonl",
+  "repo_lower": "cobra"
+ },
+ {
+  "contract": "radarstyle",
+  "repo": "cobra",
+  "task": "task2-run1",
+  "ok": true,
+  "expected": "command.go",
+  "resp_len": 336,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-cobra/00327c7e-8a8e-4ef5-bc31-87969ebc2c43.jsonl",
+  "repo_lower": "cobra"
+ },
+ {
+  "contract": "radarstyle",
+  "repo": "cobra",
+  "task": "task2-run2",
+  "ok": true,
+  "expected": "command.go",
+  "resp_len": 767,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-cobra/754bd4c8-8a7a-443e-a47e-244a3d31c879.jsonl",
+  "repo_lower": "cobra"
+ },
+ {
+  "contract": "radarstyle",
+  "repo": "date-fns",
+  "task": "task0-run1",
+  "ok": true,
+  "expected": "format/index.ts",
+  "resp_len": 1200,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-date-fns/b374e96b-8dd7-46fc-95fd-e0072f231a2e.jsonl",
+  "repo_lower": "date-fns"
+ },
+ {
+  "contract": "radarstyle",
+  "repo": "date-fns",
+  "task": "task0-run2",
+  "ok": true,
+  "expected": "format/index.ts",
+  "resp_len": 1524,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-date-fns/ca6df251-ae63-4012-b4f4-e63b9f85a7da.jsonl",
+  "repo_lower": "date-fns"
+ },
+ {
+  "contract": "radarstyle",
+  "repo": "date-fns",
+  "task": "task1-run1",
+  "ok": true,
+  "expected": "parseISO/index.ts",
+  "resp_len": 2095,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-date-fns/cc826a2d-bb07-452a-96c7-ca0c7e9d8595.jsonl",
+  "repo_lower": "date-fns"
+ },
+ {
+  "contract": "radarstyle",
+  "repo": "date-fns",
+  "task": "task1-run2",
+  "ok": true,
+  "expected": "parseISO/index.ts",
+  "resp_len": 1729,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-date-fns/824bb7b6-09f1-4266-9d6b-26b784627655.jsonl",
+  "repo_lower": "date-fns"
+ },
+ {
+  "contract": "radarstyle",
+  "repo": "date-fns",
+  "task": "task2-run1",
+  "ok": true,
+  "expected": "isValid/index.ts",
+  "resp_len": 744,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-date-fns/97b0b094-fc68-42c3-a6cc-21f17ab04807.jsonl",
+  "repo_lower": "date-fns"
+ },
+ {
+  "contract": "radarstyle",
+  "repo": "date-fns",
+  "task": "task2-run2",
+  "ok": true,
+  "expected": "isValid/index.ts",
+  "resp_len": 638,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-date-fns/e548c730-1891-4306-b9a1-5f228c5bd13d.jsonl",
+  "repo_lower": "date-fns"
+ },
+ {
+  "contract": "radarstyle",
+  "repo": "gson",
+  "task": "task0-run1",
+  "ok": true,
+  "expected": "Gson.java",
+  "resp_len": 891,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-gson/99d80033-68cc-4aad-919f-976ed4abd8e0.jsonl",
+  "repo_lower": "gson"
+ },
+ {
+  "contract": "radarstyle",
+  "repo": "gson",
+  "task": "task0-run2",
+  "ok": true,
+  "expected": "Gson.java",
+  "resp_len": 858,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-gson/68b3be11-b023-4e30-a227-cdb5da3b1daf.jsonl",
+  "repo_lower": "gson"
+ },
+ {
+  "contract": "radarstyle",
+  "repo": "gson",
+  "task": "task1-run1",
+  "ok": true,
+  "expected": "GsonBuilder.java",
+  "resp_len": 708,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-gson/802ac686-6e45-4e31-97d4-3ceadfdb772d.jsonl",
+  "repo_lower": "gson"
+ },
+ {
+  "contract": "radarstyle",
+  "repo": "gson",
+  "task": "task1-run2",
+  "ok": true,
+  "expected": "GsonBuilder.java",
+  "resp_len": 594,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-gson/bdb10db9-29ae-48cc-aa6f-8ab5eff0ac33.jsonl",
+  "repo_lower": "gson"
+ },
+ {
+  "contract": "radarstyle",
+  "repo": "gson",
+  "task": "task2-run1",
+  "ok": true,
+  "expected": "Gson.java",
+  "resp_len": 2256,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-gson/a908fc37-7c56-463a-8cb0-14418a99d9b6.jsonl",
+  "repo_lower": "gson"
+ },
+ {
+  "contract": "radarstyle",
+  "repo": "gson",
+  "task": "task2-run2",
+  "ok": true,
+  "expected": "Gson.java",
+  "resp_len": 1980,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-gson/467bd2ff-fc33-436c-841b-6d9163eccc0a.jsonl",
+  "repo_lower": "gson"
+ },
+ {
+  "contract": "radarstyle",
+  "repo": "serde",
+  "task": "task0-run1",
+  "ok": true,
+  "expected": "ser/mod.rs",
+  "resp_len": 138,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-serde/94d59b4f-892e-4ec3-af19-36bda62f61be.jsonl",
+  "repo_lower": "serde"
+ },
+ {
+  "contract": "radarstyle",
+  "repo": "serde",
+  "task": "task0-run2",
+  "ok": true,
+  "expected": "ser/mod.rs",
+  "resp_len": 201,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-serde/427ec9bb-d5dd-46e0-bd23-7c88d1f4ccd0.jsonl",
+  "repo_lower": "serde"
+ },
+ {
+  "contract": "radarstyle",
+  "repo": "serde",
+  "task": "task1-run1",
+  "ok": true,
+  "expected": "ser/mod.rs",
+  "resp_len": 145,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-serde/333e1993-52b7-4cab-87c3-13845ab7b1af.jsonl",
+  "repo_lower": "serde"
+ },
+ {
+  "contract": "radarstyle",
+  "repo": "serde",
+  "task": "task1-run2",
+  "ok": true,
+  "expected": "ser/mod.rs",
+  "resp_len": 223,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-serde/5b03411f-f0e3-45ea-8c43-7b9b3ed5c3e8.jsonl",
+  "repo_lower": "serde"
+ },
+ {
+  "contract": "radarstyle",
+  "repo": "serde",
+  "task": "task2-run1",
+  "ok": true,
+  "expected": "lib.rs",
+  "resp_len": 219,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-serde/b6de85a2-45f6-46f0-a7aa-1613ecb7ee6f.jsonl",
+  "repo_lower": "serde"
+ },
+ {
+  "contract": "radarstyle",
+  "repo": "serde",
+  "task": "task2-run2",
+  "ok": true,
+  "expected": "lib.rs",
+  "resp_len": 228,
+  "jsonl": "/Users/aristideherve.mbassidemoudourou/.claude/projects/-private-tmp-lang-bench-serde/166eb25f-5729-4879-8c10-0f522e7c4e21.jsonl",
+  "repo_lower": "serde"
+ }
+]
