@@ -26,7 +26,8 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
-    Version,
+    /// Print the version, or the language table with `--languages`.
+    Version(VersionArgs),
     /// Bring the snapshot back into agreement with the repository.
     Refresh(RefreshArgs),
     /// Rebuild the whole snapshot. `rr refresh --full` under an older name.
@@ -38,14 +39,25 @@ enum Commands {
     Query(query::Args),
 }
 
+#[derive(clap::Args, Debug)]
+struct VersionArgs {
+    /// List every language rr recognises and the tier it reaches.
+    #[arg(long)]
+    languages: bool,
+}
+
 fn main() -> ExitCode {
     install_signal_cleanup();
 
     let cli = Cli::parse();
     match cli.command {
-        Commands::Version => {
-            if let Err(err) = Output::print_version(env!("CARGO_PKG_VERSION"), env!("RR_GIT_HASH"))
-            {
+        Commands::Version(args) => {
+            let printed = if args.languages {
+                Output::print_languages()
+            } else {
+                Output::print_version(env!("CARGO_PKG_VERSION"), env!("RR_GIT_HASH"))
+            };
+            if let Err(err) = printed {
                 diagnose(&format!("rr: {err}"));
                 return ExitCode::from(1);
             }

@@ -233,3 +233,64 @@ fn a_rust_only_repository_is_indexed_exactly_as_before() {
     let second = std::fs::read(&path).unwrap();
     assert_eq!(first, second, "two builds of one repository disagreed");
 }
+
+#[test]
+fn a_polyglot_repository_indexes_deterministically() {
+    let temp = init_git_repo();
+    write(temp.path(), "src/router.rs", RUST);
+    write(temp.path(), "src/client.ts", TYPESCRIPT);
+    write(temp.path(), "src/badge.tsx", TSX);
+    write(temp.path(), "src/service.py", PYTHON);
+    write(
+        temp.path(),
+        "src/app.js",
+        "export function run() { return 1; }\n",
+    );
+    write(
+        temp.path(),
+        "src/icon.jsx",
+        "export const Icon = () => <i/>;\n",
+    );
+    write(temp.path(), "src/main.go", "package app\nfunc Run() {}\n");
+    write(
+        temp.path(),
+        "src/Service.java",
+        "public class Service { public void run() {} }\n",
+    );
+    write(temp.path(), "src/run.c", "int run(void) { return 0; }\n");
+    write(temp.path(), "src/run.cpp", "int run() { return 0; }\n");
+    write(temp.path(), "src/app.rb", "def run; end\n");
+    write(temp.path(), "src/app.lua", "function run() end\n");
+    write(
+        temp.path(),
+        "src/Service.php",
+        "<?php class Service { public function run() {} }\n",
+    );
+    write(temp.path(), "src/App.swift", "func run() {}\n");
+    write(temp.path(), "src/Greeter.cs", "class Greeter {}\n");
+    git_add_and_commit(temp.path(), "polyglot");
+
+    let first = build(temp.path());
+    first.validate().unwrap();
+    assert!(
+        first.files.len() >= 15,
+        "expected every shipped language plus C#"
+    );
+    let csharp = record(&first, "src/Greeter.cs");
+    assert!(
+        matches!(
+            csharp.parse_status,
+            ParseStatus::Degraded {
+                reason: rr_core::DegradedReason::NoExtractor,
+                ..
+            }
+        ),
+        "C# must be walked and degraded, not skipped"
+    );
+
+    let path = SnapshotStore::new(temp.path()).path().to_path_buf();
+    let first_bytes = std::fs::read(&path).unwrap();
+    drop(build(temp.path()));
+    let second_bytes = std::fs::read(&path).unwrap();
+    assert_eq!(first_bytes, second_bytes);
+}

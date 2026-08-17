@@ -620,6 +620,7 @@ fn every_import_kind_variant_has_a_producer() {
         (Lang::Rust, "rust", "imports.rs"),
         (Lang::Python, "python", "imports.py"),
         (Lang::TypeScript, "typescript", "imports.ts"),
+        (Lang::C, "c", "imports.c"),
     ] {
         let (_, facts) = facts_for(lang, language, name);
         for import in facts.imports() {
@@ -632,4 +633,223 @@ fn every_import_kind_variant_has_a_producer() {
         produced.into_iter().collect::<Vec<_>>(),
         ImportKind::ALL.to_vec()
     );
+}
+
+fn surface_fixture(lang: Lang) -> (&'static str, &'static str) {
+    match lang {
+        Lang::Rust => ("rust", "surface.rs"),
+        Lang::Python => ("python", "surface.py"),
+        Lang::TypeScript => ("typescript", "surface.ts"),
+        Lang::Tsx => ("typescript", "surface.tsx"),
+        Lang::JavaScript => ("javascript", "surface.js"),
+        Lang::Jsx => ("javascript", "surface.jsx"),
+        Lang::Go => ("go", "surface.go"),
+        Lang::Java => ("java", "surface.java"),
+        Lang::C => ("c", "surface.c"),
+        Lang::Cpp => ("cpp", "surface.cpp"),
+        Lang::Ruby => ("ruby", "surface.rb"),
+        Lang::Lua => ("lua", "surface.lua"),
+        Lang::Php => ("php", "surface.php"),
+        Lang::Swift => ("swift", "surface.swift"),
+        other => panic!("{other} is supported but has no surface fixture"),
+    }
+}
+
+fn imports_fixture(lang: Lang) -> Option<(&'static str, &'static str)> {
+    Some(match lang {
+        Lang::Rust => ("rust", "imports.rs"),
+        Lang::Python => ("python", "imports.py"),
+        Lang::TypeScript => ("typescript", "imports.ts"),
+        Lang::JavaScript => ("javascript", "imports.js"),
+        Lang::Go => ("go", "imports.go"),
+        Lang::Java => ("java", "imports.java"),
+        Lang::C => ("c", "imports.c"),
+        Lang::Cpp => ("cpp", "imports.cpp"),
+        Lang::Ruby => ("ruby", "imports.rb"),
+        Lang::Lua => ("lua", "imports.lua"),
+        Lang::Php => ("php", "imports.php"),
+        Lang::Swift => ("swift", "imports.swift"),
+        Lang::Tsx | Lang::Jsx => return None,
+        other => panic!("{other} is supported but has no imports fixture"),
+    })
+}
+
+#[test]
+fn every_shipped_language_extracts_at_least_one_definition() {
+    for lang in Registry::supported() {
+        let (language, name) = surface_fixture(lang);
+        let (_, facts) = facts_for(lang, language, name);
+        assert!(
+            !facts.defs().is_empty(),
+            "{lang} extracted no definitions from {language}/{name}"
+        );
+        assert!(
+            matches!(
+                facts.status(),
+                ParseStatus::Tags { .. } | ParseStatus::Complete
+            ),
+            "{lang} degraded instead of extracting"
+        );
+    }
+}
+
+#[test]
+fn every_shipped_language_is_deterministic() {
+    for lang in Registry::supported() {
+        let (language, name) = surface_fixture(lang);
+        let content = fs::read(fixture(language, name)).unwrap();
+        let first = extract(lang, &content);
+        let second = extract(lang, &content);
+        assert_eq!(first, second, "{lang} is not deterministic");
+    }
+}
+
+#[test]
+fn every_shipped_language_resolves_its_import_paths() {
+    for lang in Registry::supported() {
+        let Some((language, name)) = imports_fixture(lang) else {
+            continue;
+        };
+        let (_, facts) = facts_for(lang, language, name);
+        assert!(
+            !facts.imports().is_empty(),
+            "{lang} extracted no imports from {language}/{name}"
+        );
+        for import in facts.imports() {
+            assert!(
+                !import.path.is_empty(),
+                "{lang} produced an import with an empty path"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_javascript_fixture_has_a_readable_golden_projection() {
+    let (_, facts) = facts_for(Lang::JavaScript, "javascript", "surface.js");
+    insta::assert_yaml_snapshot!("javascript_surface", to_snapshot("surface.js", &facts));
+}
+
+#[test]
+fn a_javascript_imports_fixture_has_a_readable_golden_projection() {
+    let (_, facts) = facts_for(Lang::JavaScript, "javascript", "imports.js");
+    insta::assert_yaml_snapshot!("javascript_imports", to_snapshot("imports.js", &facts));
+}
+
+#[test]
+fn a_recovered_javascript_fixture_records_parse_errors() {
+    let (_, facts) = facts_for(Lang::JavaScript, "javascript", "recovered.js");
+    assert!(matches!(
+        facts.status(),
+        ParseStatus::Tags { parse_errors: true }
+    ));
+    insta::assert_yaml_snapshot!("javascript_recovered", to_snapshot("recovered.js", &facts));
+}
+
+#[test]
+fn a_jsx_fixture_has_a_readable_golden_projection() {
+    let (_, facts) = facts_for(Lang::Jsx, "javascript", "surface.jsx");
+    assert!(matches!(
+        facts.status(),
+        ParseStatus::Tags {
+            parse_errors: false
+        }
+    ));
+    insta::assert_yaml_snapshot!("jsx_surface", to_snapshot("surface.jsx", &facts));
+}
+
+#[test]
+fn a_go_fixture_has_a_readable_golden_projection() {
+    let (_, facts) = facts_for(Lang::Go, "go", "surface.go");
+    insta::assert_yaml_snapshot!("go_surface", to_snapshot("surface.go", &facts));
+}
+
+#[test]
+fn a_go_imports_fixture_has_a_readable_golden_projection() {
+    let (_, facts) = facts_for(Lang::Go, "go", "imports.go");
+    insta::assert_yaml_snapshot!("go_imports", to_snapshot("imports.go", &facts));
+}
+
+#[test]
+fn a_java_fixture_has_a_readable_golden_projection() {
+    let (_, facts) = facts_for(Lang::Java, "java", "surface.java");
+    insta::assert_yaml_snapshot!("java_surface", to_snapshot("surface.java", &facts));
+}
+
+#[test]
+fn a_java_imports_fixture_has_a_readable_golden_projection() {
+    let (_, facts) = facts_for(Lang::Java, "java", "imports.java");
+    insta::assert_yaml_snapshot!("java_imports", to_snapshot("imports.java", &facts));
+}
+
+#[test]
+fn a_c_fixture_has_a_readable_golden_projection() {
+    let (_, facts) = facts_for(Lang::C, "c", "surface.c");
+    insta::assert_yaml_snapshot!("c_surface", to_snapshot("surface.c", &facts));
+}
+
+#[test]
+fn a_c_imports_fixture_has_a_readable_golden_projection() {
+    let (_, facts) = facts_for(Lang::C, "c", "imports.c");
+    insta::assert_yaml_snapshot!("c_imports", to_snapshot("imports.c", &facts));
+}
+
+#[test]
+fn a_cpp_fixture_has_a_readable_golden_projection() {
+    let (_, facts) = facts_for(Lang::Cpp, "cpp", "surface.cpp");
+    insta::assert_yaml_snapshot!("cpp_surface", to_snapshot("surface.cpp", &facts));
+}
+
+#[test]
+fn a_cpp_imports_fixture_has_a_readable_golden_projection() {
+    let (_, facts) = facts_for(Lang::Cpp, "cpp", "imports.cpp");
+    insta::assert_yaml_snapshot!("cpp_imports", to_snapshot("imports.cpp", &facts));
+}
+
+#[test]
+fn a_ruby_fixture_has_a_readable_golden_projection() {
+    let (_, facts) = facts_for(Lang::Ruby, "ruby", "surface.rb");
+    insta::assert_yaml_snapshot!("ruby_surface", to_snapshot("surface.rb", &facts));
+}
+
+#[test]
+fn a_ruby_imports_fixture_has_a_readable_golden_projection() {
+    let (_, facts) = facts_for(Lang::Ruby, "ruby", "imports.rb");
+    insta::assert_yaml_snapshot!("ruby_imports", to_snapshot("imports.rb", &facts));
+}
+
+#[test]
+fn a_lua_fixture_has_a_readable_golden_projection() {
+    let (_, facts) = facts_for(Lang::Lua, "lua", "surface.lua");
+    insta::assert_yaml_snapshot!("lua_surface", to_snapshot("surface.lua", &facts));
+}
+
+#[test]
+fn a_lua_imports_fixture_has_a_readable_golden_projection() {
+    let (_, facts) = facts_for(Lang::Lua, "lua", "imports.lua");
+    insta::assert_yaml_snapshot!("lua_imports", to_snapshot("imports.lua", &facts));
+}
+
+#[test]
+fn a_php_fixture_has_a_readable_golden_projection() {
+    let (_, facts) = facts_for(Lang::Php, "php", "surface.php");
+    insta::assert_yaml_snapshot!("php_surface", to_snapshot("surface.php", &facts));
+}
+
+#[test]
+fn a_php_imports_fixture_has_a_readable_golden_projection() {
+    let (_, facts) = facts_for(Lang::Php, "php", "imports.php");
+    insta::assert_yaml_snapshot!("php_imports", to_snapshot("imports.php", &facts));
+}
+
+#[test]
+fn a_swift_fixture_has_a_readable_golden_projection() {
+    let (_, facts) = facts_for(Lang::Swift, "swift", "surface.swift");
+    insta::assert_yaml_snapshot!("swift_surface", to_snapshot("surface.swift", &facts));
+}
+
+#[test]
+fn a_swift_imports_fixture_has_a_readable_golden_projection() {
+    let (_, facts) = facts_for(Lang::Swift, "swift", "imports.swift");
+    insta::assert_yaml_snapshot!("swift_imports", to_snapshot("imports.swift", &facts));
 }

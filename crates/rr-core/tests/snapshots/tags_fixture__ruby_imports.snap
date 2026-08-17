@@ -1,0 +1,33 @@
+---
+source: crates/rr-core/tests/tags_fixture.rs
+expression: "to_snapshot(\"imports.rb\", &facts)"
+---
+path: imports.rb
+status: tags(parse_errors=false)
+defs: []
+references:
+  - name: require
+    kind: call
+    line: 1
+    owner: ~
+  - name: require_relative
+    kind: call
+    line: 2
+    owner: ~
+imports:
+  - kind: Require
+    path: json
+    name: ~
+    alias: ~
+    is_public: false
+    is_glob: false
+    line: 1
+    owner: ~
+  - kind: Require
+    path: "../lib/thing"
+    name: ~
+    alias: ~
+    is_public: false
+    is_glob: false
+    line: 2
+    owner: ~

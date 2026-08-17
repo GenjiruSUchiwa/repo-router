@@ -108,7 +108,7 @@ fn facts_made_without_an_extractor_are_never_cached() {
 
     // Phase one: the same bytes, read as a language rr cannot parse.
     let (unsupported, _) = worker
-        .process(&source("service.py", Lang::Lua), &cache)
+        .process(&source("service.py", Lang::CSharp), &cache)
         .unwrap();
     let unsupported = unsupported.unwrap().facts;
     assert!(matches!(
@@ -140,10 +140,10 @@ fn facts_made_without_an_extractor_are_never_cached() {
 }
 
 #[test]
-fn the_walk_allowlist_is_exactly_what_the_registry_supports() {
+fn the_walk_allowlist_is_every_indexable_language() {
     let root = tempfile::tempdir().unwrap();
     let context = BuildContext::open(root.path(), 1).unwrap();
-    assert_eq!(context.walk.languages, Some(Registry::supported()));
+    assert_eq!(context.walk.languages, Some(Registry::indexable()));
 }
 
 /// Facts made without an extractor describe rr's support, not the file, so a
@@ -156,11 +156,11 @@ fn the_walk_allowlist_is_exactly_what_the_registry_supports() {
 #[test]
 fn an_unsupported_language_degrades_without_being_cached() {
     let root = tempfile::tempdir().unwrap();
-    write(root.path(), "script.lua", "function greet() end\n");
+    write(root.path(), "script.cs", "class Greeter {}\n");
 
     let cache = FactCache::open(root.path()).unwrap();
     let mut worker = Worker::new(root.path());
-    let script = source("script.lua", Lang::Lua);
+    let script = source("script.cs", Lang::CSharp);
     let (input, _) = worker.process(&script, &cache).unwrap();
     let facts = input.unwrap().facts;
     assert!(matches!(

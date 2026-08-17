@@ -1,0 +1,33 @@
+---
+source: crates/rr-core/tests/tags_fixture.rs
+expression: "to_snapshot(\"imports.lua\", &facts)"
+---
+path: imports.lua
+status: tags(parse_errors=false)
+defs: []
+references:
+  - name: require
+    kind: call
+    line: 1
+    owner: ~
+  - name: require
+    kind: call
+    line: 2
+    owner: ~
+imports:
+  - kind: Require
+    path: mod.sub
+    name: ~
+    alias: ~
+    is_public: false
+    is_glob: false
+    line: 1
+    owner: ~
+  - kind: Require
+    path: other
+    name: ~
+    alias: ~
+    is_public: false
+    is_glob: false
+    line: 2
+    owner: ~

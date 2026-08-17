@@ -37,7 +37,11 @@ use crate::{Error, Result};
 /// not even fail — and every later field lands one slot early. The version in
 /// the cache file name keeps the two apart: a stale entry is never found,
 /// never misread, and simply reparsed.
-pub const FACT_SCHEMA_VERSION: u32 = 5;
+/// Version 6 adds [`ReferenceKind::Type`]: a type named without being called.
+/// Version 7 adds [`Visibility::Package`]: Java package-private and Go's
+/// lowercase export rule.
+/// Version 8 adds [`ImportKind::Include`]: C and C++ `#include`.
+pub const FACT_SCHEMA_VERSION: u32 = 8;
 
 /// A source range over one exact UTF-8 byte buffer.
 ///
@@ -409,6 +413,14 @@ pub enum Visibility {
     Crate,
     /// Rust `pub(in path)`, carrying the path.
     Restricted(String),
+    /// Visible within the package that declares it, with no modifier saying so.
+    ///
+    /// Java's default access and Go's lowercase initial. Not [`Visibility::Internal`],
+    /// which names a *convention* — a Python `_name` that anyone may still
+    /// read — and not [`Visibility::Crate`], which names Rust's `pub(crate)`.
+    /// This one is enforced by the compiler and is the language's default
+    /// rather than a thing the author wrote down.
+    Package,
 }
 
 /// Test-related signals derived from content attributes and enclosing scope.
@@ -450,6 +462,13 @@ pub enum ReferenceKind {
     MethodCall,
     MacroCall,
     Implementation,
+    /// A type named without being called. A Go parameter's type, a Java
+    /// `extends` clause, a JavaScript `new Service()`'s class.
+    ///
+    /// Distinct from [`ReferenceKind::Implementation`], which is the narrower
+    /// claim that the naming declaration *implements* the named type. Every
+    /// implementation names a type; most type references implement nothing.
+    Type,
 }
 
 /// Kind of an import clause.
@@ -470,6 +489,12 @@ pub enum ImportKind {
     /// A module pulled in by call rather than by declaration. A `CommonJS`
     /// `require("y")`, including TypeScript's `import x = require("y")`.
     Require,
+    /// A file pasted in by the preprocessor. C and C++ `#include`.
+    ///
+    /// Not [`ImportKind::Import`]: an `#include` names a *file* to be inserted
+    /// verbatim before compilation, not a module to be bound to a name, and the
+    /// two behave differently in every way a consumer might care about.
+    Include,
 }
 
 impl ImportKind {
@@ -477,12 +502,13 @@ impl ImportKind {
     ///
     /// Exists for the reason [`DefKind::ALL`] does: a test can prove it covers
     /// all of them rather than the handful its fixtures happen to contain.
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::Use,
         Self::ExternCrate,
         Self::Import,
         Self::From,
         Self::Require,
+        Self::Include,
     ];
 
     /// Whether [`Import::path`] is a path *this index's resolver* can follow to
@@ -490,13 +516,14 @@ impl ImportKind {
     ///
     /// Answered about the resolver, not about the language. `index::build`
     /// splits a path on `::` and rejoins it onto the importing file's module
-    /// path, so Rust's `use` is the only kind that survives it. The other four
+    /// path, so Rust's `use` is the only kind that survives it. The other five
     /// are false for a reason no extractor work changes: their `path` is a
-    /// specifier, not a path. `./Button`, `..` and `react` name a module the
-    /// way a filesystem or a package resolver understands it, and turning one
-    /// into a definition rr holds means building a module graph — tsconfig
-    /// paths, extension resolution, `node_modules`, package layout. That graph
-    /// is out of scope by decision, not by omission, so this is a settled
+    /// specifier, not a path. `./Button`, `..`, `react` and `<stdio.h>` name a
+    /// module the way a filesystem, a package resolver or an include search
+    /// path understands it, and turning one into a definition rr holds means
+    /// building a module graph — tsconfig paths, extension resolution,
+    /// `node_modules`, package layout, or the compiler's include path. That
+    /// graph is out of scope by decision, not by omission, so this is a settled
     /// answer rather than a placeholder: a row flips to `true` only alongside a
     /// resolver that can follow that language's specifiers, and the issue that
     /// builds one owns this predicate.
@@ -512,7 +539,7 @@ impl ImportKind {
     pub const fn resolves_by_path(self) -> bool {
         match self {
             Self::Use => true,
-            Self::ExternCrate | Self::Import | Self::From | Self::Require => false,
+            Self::ExternCrate | Self::Import | Self::From | Self::Require | Self::Include => false,
         }
     }
 }
@@ -1328,6 +1355,29 @@ mod tests {
     }
 
     #[test]
+    fn reference_kind_round_trips() {
+        let all = [
+            (ReferenceKind::Call, "\"call\""),
+            (ReferenceKind::MethodCall, "\"method-call\""),
+            (ReferenceKind::MacroCall, "\"macro-call\""),
+            (ReferenceKind::Implementation, "\"implementation\""),
+            (ReferenceKind::Type, "\"type\""),
+        ];
+        for (kind, expected) in all {
+            let json = serde_json::to_string(&kind).unwrap();
+            assert_eq!(json, expected);
+            let back: ReferenceKind = serde_json::from_str(&json).unwrap();
+            assert_eq!(back, kind);
+            let bytes = postcard::to_allocvec(&kind).unwrap();
+            let decoded: ReferenceKind = postcard::from_bytes(&bytes).unwrap();
+            assert_eq!(decoded, kind);
+        }
+        assert!(ReferenceKind::Call < ReferenceKind::Type);
+        assert!(ReferenceKind::Implementation < ReferenceKind::Type);
+        assert_variant_count::<ReferenceKind>(all.len(), "the list above");
+    }
+
+    #[test]
     fn visibility_round_trips_including_the_widened_variants() {
         let all = [
             (Visibility::Private, "\"private\""),
@@ -1335,6 +1385,7 @@ mod tests {
             (Visibility::Protected, "\"protected\""),
             (Visibility::Internal, "\"internal\""),
             (Visibility::Crate, "\"crate\""),
+            (Visibility::Package, "\"package\""),
             (
                 Visibility::Restricted("super::inner".into()),
                 "{\"restricted\":\"super::inner\"}",
@@ -1361,6 +1412,7 @@ mod tests {
             (ImportKind::Import, "\"import\"", false),
             (ImportKind::From, "\"from\"", false),
             (ImportKind::Require, "\"require\"", false),
+            (ImportKind::Include, "\"include\"", false),
         ];
         for (kind, expected, resolves) in all {
             let json = serde_json::to_string(&kind).unwrap();
@@ -1445,12 +1497,13 @@ mod tests {
             let start = u32::try_from(index).unwrap() * 10;
             let mut def = sample_def(kind.as_str(), start, start + 5);
             def.kind = kind;
-            def.visibility = match index % 6 {
+            def.visibility = match index % 7 {
                 0 => Visibility::Private,
                 1 => Visibility::Public,
                 2 => Visibility::Protected,
                 3 => Visibility::Internal,
                 4 => Visibility::Crate,
+                5 => Visibility::Package,
                 _ => Visibility::Restricted("super".into()),
             };
             def.test_signals.inside_test_scope = index % 2 == 0;
@@ -1462,6 +1515,7 @@ mod tests {
             ImportKind::Import,
             ImportKind::From,
             ImportKind::Require,
+            ImportKind::Include,
         ]
         .into_iter()
         .enumerate()

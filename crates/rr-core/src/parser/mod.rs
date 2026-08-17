@@ -21,12 +21,27 @@ use crate::Result;
 /// `Lang` is already a cache-key field: a Python grammar bump must not
 /// invalidate every cached Rust fact.
 pub const RUST_EXTRACTOR_VERSION: u32 = 3;
-pub const PYTHON_EXTRACTOR_VERSION: u32 = 6;
+pub const PYTHON_EXTRACTOR_VERSION: u32 = 7;
 /// TypeScript and TSX share a query and count separately, because they are two
 /// grammars: a `.tsx` fix that reparses every `.ts` file would be the global
 /// constant this module exists to avoid.
-pub const TYPESCRIPT_EXTRACTOR_VERSION: u32 = 4;
-pub const TSX_EXTRACTOR_VERSION: u32 = 4;
+pub const TYPESCRIPT_EXTRACTOR_VERSION: u32 = 5;
+pub const TSX_EXTRACTOR_VERSION: u32 = 5;
+pub const JAVASCRIPT_EXTRACTOR_VERSION: u32 = 1;
+/// JavaScript and JSX share a grammar, a query and an import query, and count
+/// separately anyway: they are two cache-key languages, and a `.jsx` fix that
+/// reparsed every `.js` file would be the global constant this module exists to
+/// avoid. That the two numbers will move together for a while is fine; that
+/// they *can* move apart is the point.
+pub const JSX_EXTRACTOR_VERSION: u32 = 1;
+pub const GO_EXTRACTOR_VERSION: u32 = 1;
+pub const JAVA_EXTRACTOR_VERSION: u32 = 1;
+pub const C_EXTRACTOR_VERSION: u32 = 1;
+pub const CPP_EXTRACTOR_VERSION: u32 = 1;
+pub const RUBY_EXTRACTOR_VERSION: u32 = 1;
+pub const LUA_EXTRACTOR_VERSION: u32 = 1;
+pub const PHP_EXTRACTOR_VERSION: u32 = 1;
+pub const SWIFT_EXTRACTOR_VERSION: u32 = 1;
 
 /// The extractor version for `lang`, `0` when rr has no extractor for it.
 #[must_use]
@@ -36,6 +51,16 @@ pub const fn extractor_version(lang: Lang) -> u32 {
         Lang::Python => PYTHON_EXTRACTOR_VERSION,
         Lang::TypeScript => TYPESCRIPT_EXTRACTOR_VERSION,
         Lang::Tsx => TSX_EXTRACTOR_VERSION,
+        Lang::JavaScript => JAVASCRIPT_EXTRACTOR_VERSION,
+        Lang::Jsx => JSX_EXTRACTOR_VERSION,
+        Lang::Go => GO_EXTRACTOR_VERSION,
+        Lang::Java => JAVA_EXTRACTOR_VERSION,
+        Lang::C => C_EXTRACTOR_VERSION,
+        Lang::Cpp => CPP_EXTRACTOR_VERSION,
+        Lang::Ruby => RUBY_EXTRACTOR_VERSION,
+        Lang::Lua => LUA_EXTRACTOR_VERSION,
+        Lang::Php => PHP_EXTRACTOR_VERSION,
+        Lang::Swift => SWIFT_EXTRACTOR_VERSION,
         _ => 0,
     }
 }
@@ -145,13 +170,50 @@ impl Extractor for RustExtractor {
 type Built = Result<Box<dyn Extractor>, String>;
 type Builder = fn() -> Built;
 
-/// Each language beside the only builder allowed to fill it, so the lookup and
-/// [`Registry::supported`] cannot disagree.
-const EXTRACTORS: &[(Lang, Builder)] = &[
-    (Lang::Rust, build_rust),
-    (Lang::Python, build_python),
-    (Lang::TypeScript, build_typescript),
-    (Lang::Tsx, build_tsx),
+/// How much rr can say about a language.
+///
+/// Not a property of the language alone: a language with no extractor in this
+/// binary is [`Tier::Lexical`]. The six data formats are not in the table at
+/// all — they are not indexed, which is a stronger claim than lexical.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Tier {
+    /// A hand-written extractor: every fact the vocabulary has for it.
+    Complete,
+    /// A grammar's own `tags.scm`, read through a [`LanguageSpec`].
+    Tags,
+    /// No extractor compiled in: identifiers only.
+    Lexical,
+}
+
+impl Tier {
+    /// The name the README table and `rr version --languages` both print.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Complete => "complete",
+            Self::Tags => "tags",
+            Self::Lexical => "lexical",
+        }
+    }
+}
+
+/// Each language beside its tier and the only builder allowed to fill it, so
+/// the lookup, [`Registry::supported`] and [`tier`] cannot disagree.
+const EXTRACTORS: &[(Lang, Tier, Builder)] = &[
+    (Lang::Rust, Tier::Complete, build_rust),
+    (Lang::Python, Tier::Tags, build_python),
+    (Lang::TypeScript, Tier::Tags, build_typescript),
+    (Lang::Tsx, Tier::Tags, build_tsx),
+    (Lang::JavaScript, Tier::Tags, build_javascript),
+    (Lang::Jsx, Tier::Tags, build_jsx),
+    (Lang::Go, Tier::Tags, build_go),
+    (Lang::Java, Tier::Tags, build_java),
+    (Lang::C, Tier::Tags, build_c),
+    (Lang::Cpp, Tier::Tags, build_cpp),
+    (Lang::Ruby, Tier::Tags, build_ruby),
+    (Lang::Lua, Tier::Tags, build_lua),
+    (Lang::Php, Tier::Tags, build_php),
+    (Lang::Swift, Tier::Tags, build_swift),
 ];
 
 fn build_rust() -> Built {
@@ -170,6 +232,46 @@ fn build_typescript() -> Built {
 
 fn build_tsx() -> Built {
     TagsExtractor::new(&tags::TSX).map(|extractor| Box::new(extractor) as Box<dyn Extractor>)
+}
+
+fn build_javascript() -> Built {
+    TagsExtractor::new(&tags::JAVASCRIPT).map(|extractor| Box::new(extractor) as Box<dyn Extractor>)
+}
+
+fn build_jsx() -> Built {
+    TagsExtractor::new(&tags::JSX).map(|extractor| Box::new(extractor) as Box<dyn Extractor>)
+}
+
+fn build_go() -> Built {
+    TagsExtractor::new(&tags::GO).map(|extractor| Box::new(extractor) as Box<dyn Extractor>)
+}
+
+fn build_java() -> Built {
+    TagsExtractor::new(&tags::JAVA).map(|extractor| Box::new(extractor) as Box<dyn Extractor>)
+}
+
+fn build_c() -> Built {
+    TagsExtractor::new(&tags::C).map(|extractor| Box::new(extractor) as Box<dyn Extractor>)
+}
+
+fn build_cpp() -> Built {
+    TagsExtractor::new(&tags::CPP).map(|extractor| Box::new(extractor) as Box<dyn Extractor>)
+}
+
+fn build_ruby() -> Built {
+    TagsExtractor::new(&tags::RUBY).map(|extractor| Box::new(extractor) as Box<dyn Extractor>)
+}
+
+fn build_lua() -> Built {
+    TagsExtractor::new(&tags::LUA).map(|extractor| Box::new(extractor) as Box<dyn Extractor>)
+}
+
+fn build_php() -> Built {
+    TagsExtractor::new(&tags::PHP).map(|extractor| Box::new(extractor) as Box<dyn Extractor>)
+}
+
+fn build_swift() -> Built {
+    TagsExtractor::new(&tags::SWIFT).map(|extractor| Box::new(extractor) as Box<dyn Extractor>)
 }
 
 /// One lazily built extractor per supported language, keyed by [`Lang`].
@@ -196,7 +298,7 @@ impl Registry {
     pub fn for_lang(&mut self, lang: Lang) -> Option<Result<&mut dyn Extractor, String>> {
         let build = EXTRACTORS
             .iter()
-            .find_map(|(candidate, build)| (*candidate == lang).then_some(*build))?;
+            .find_map(|(candidate, _, build)| (*candidate == lang).then_some(*build))?;
 
         match self.built.entry(lang).or_insert_with(build) {
             Ok(extractor) => Some(Ok(extractor.as_mut())),
@@ -204,11 +306,41 @@ impl Registry {
         }
     }
 
-    /// The languages that have an extractor. Read by the walk allowlist.
+    /// The languages that have an extractor.
+    ///
+    /// Not the walk allowlist — see [`Registry::indexable`], which is what
+    /// that has to be. A language with no extractor is still walked and
+    /// degraded to lexical; it is not made invisible.
     #[must_use]
     pub fn supported() -> Vec<Lang> {
-        EXTRACTORS.iter().map(|(lang, _)| *lang).collect()
+        EXTRACTORS.iter().map(|(lang, _, _)| *lang).collect()
     }
+
+    /// Every language rr indexes.
+    ///
+    /// The walk allowlist. Deliberately *not* [`Registry::supported`]: a
+    /// language with no extractor must still be walked and degraded to
+    /// `DegradedReason::NoExtractor`, because missing an extractor narrows
+    /// what rr can say about a file and never whether it sees it.
+    #[must_use]
+    pub fn indexable() -> Vec<Lang> {
+        Lang::ALL
+            .into_iter()
+            .filter(|lang| lang.is_code())
+            .collect()
+    }
+}
+
+/// The tier `lang` reaches.
+///
+/// Read from the same table the extractors come from, so a language cannot be
+/// advertised at a tier no builder backs.
+#[must_use]
+pub fn tier(lang: Lang) -> Tier {
+    EXTRACTORS
+        .iter()
+        .find_map(|(candidate, tier, _)| (*candidate == lang).then_some(*tier))
+        .unwrap_or(Tier::Lexical)
 }
 
 #[cfg(test)]
@@ -259,9 +391,20 @@ mod tests {
     }
     #[test]
     fn supported_lists_registered_extractors() {
+        let supported = Registry::supported();
+        assert!(supported.contains(&Lang::Rust));
+        assert!(supported.contains(&Lang::Python));
+        assert!(supported.contains(&Lang::JavaScript));
+        assert!(supported.contains(&Lang::Go));
+        assert!(supported.contains(&Lang::Lua));
+        assert!(!supported.contains(&Lang::CSharp));
+        let mut unique = supported.clone();
+        unique.sort();
+        unique.dedup();
         assert_eq!(
-            Registry::supported(),
-            vec![Lang::Rust, Lang::Python, Lang::TypeScript, Lang::Tsx]
+            unique.len(),
+            supported.len(),
+            "supported lists a language twice"
         );
     }
 
@@ -289,7 +432,7 @@ mod tests {
     #[test]
     fn for_lang_returns_none_for_an_unsupported_language() {
         let mut registry = Registry::new();
-        assert!(registry.for_lang(Lang::Lua).is_none());
+        assert!(registry.for_lang(Lang::CSharp).is_none());
     }
 
     #[test]
@@ -300,7 +443,49 @@ mod tests {
                 "{lang} has an extractor but no extractor version"
             );
         }
-        assert_eq!(extractor_version(Lang::Lua), 0);
+        assert_eq!(extractor_version(Lang::CSharp), 0);
+    }
+
+    #[test]
+    fn indexable_covers_every_code_language_and_no_format() {
+        let indexable = Registry::indexable();
+        assert_eq!(indexable.len(), 21);
+        assert!(indexable.contains(&Lang::CSharp));
+        assert!(indexable.contains(&Lang::Go));
+        assert!(!indexable.contains(&Lang::Json));
+    }
+
+    #[test]
+    fn indexable_is_wider_than_supported() {
+        let supported = Registry::supported();
+        let indexable = Registry::indexable();
+        assert!(indexable.contains(&Lang::CSharp));
+        assert!(!supported.contains(&Lang::CSharp));
+        for lang in supported {
+            assert!(
+                indexable.contains(&lang),
+                "{lang} has an extractor but is not indexable"
+            );
+        }
+    }
+
+    #[test]
+    fn tier_reports_lexical_for_a_language_with_no_extractor() {
+        assert_eq!(tier(Lang::CSharp), Tier::Lexical);
+        assert_eq!(tier(Lang::Rust), Tier::Complete);
+        assert_eq!(tier(Lang::Python), Tier::Tags);
+        assert_eq!(tier(Lang::Go), Tier::Tags);
+    }
+
+    #[test]
+    fn every_supported_language_reaches_at_least_the_tags_tier() {
+        for lang in Registry::supported() {
+            assert_ne!(
+                tier(lang),
+                Tier::Lexical,
+                "{lang} is supported but advertised as lexical"
+            );
+        }
     }
 
     #[test]

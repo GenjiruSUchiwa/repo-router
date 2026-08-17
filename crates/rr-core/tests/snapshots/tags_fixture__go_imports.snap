@@ -1,0 +1,41 @@
+---
+source: crates/rr-core/tests/tags_fixture.rs
+expression: "to_snapshot(\"imports.go\", &facts)"
+---
+path: imports.go
+status: tags(parse_errors=false)
+defs: []
+references: []
+imports:
+  - kind: Import
+    path: fmt
+    name: ~
+    alias: ~
+    is_public: false
+    is_glob: false
+    line: 4
+    owner: ~
+  - kind: Import
+    path: strings
+    name: ~
+    alias: strs
+    is_public: false
+    is_glob: false
+    line: 5
+    owner: ~
+  - kind: Import
+    path: embed
+    name: ~
+    alias: _
+    is_public: false
+    is_glob: false
+    line: 6
+    owner: ~
+  - kind: Import
+    path: math
+    name: ~
+    alias: ~
+    is_public: false
+    is_glob: true
+    line: 7
+    owner: ~

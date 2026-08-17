@@ -1,0 +1,25 @@
+---
+source: crates/rr-core/tests/tags_fixture.rs
+expression: "to_snapshot(\"imports.c\", &facts)"
+---
+path: imports.c
+status: tags(parse_errors=false)
+defs: []
+references: []
+imports:
+  - kind: Include
+    path: "<stdio.h>"
+    name: ~
+    alias: ~
+    is_public: false
+    is_glob: false
+    line: 1
+    owner: ~
+  - kind: Include
+    path: local.h
+    name: ~
+    alias: ~
+    is_public: false
+    is_glob: false
+    line: 2
+    owner: ~

@@ -1,0 +1,118 @@
+---
+source: crates/rr-core/tests/tags_fixture.rs
+expression: "to_snapshot(\"surface.js\", &facts)"
+---
+path: surface.js
+status: tags(parse_errors=false)
+defs:
+  - name: Service
+    local_qualified: ~
+    kind: class
+    visibility: public
+    start_line: 4
+    end_line: 19
+    signature: "class Service extends Base {"
+    signature_idents:
+      - class
+      - extends
+      - Base
+    body_idents:
+      - secret
+      - constructor
+      - name
+      - super
+      - this
+      - name
+      - name
+    doc_idents: []
+    attribute_idents: []
+  - name: run
+    local_qualified: Service.run
+    kind: method
+    visibility: public
+    start_line: 10
+    end_line: 12
+    signature: "run() {"
+    signature_idents: []
+    body_idents:
+      - return
+      - helper
+      - this
+      - name
+    doc_idents: []
+    attribute_idents: []
+  - name: build
+    local_qualified: Service.build
+    kind: method
+    visibility: public
+    start_line: 13
+    end_line: 15
+    signature: "static build() {"
+    signature_idents:
+      - static
+    body_idents:
+      - return
+      - new
+      - Service
+      - x
+    doc_idents: []
+    attribute_idents: []
+  - name: size
+    local_qualified: Service.size
+    kind: method
+    visibility: public
+    start_line: 16
+    end_line: 18
+    signature: "get size() {"
+    signature_idents:
+      - get
+    body_idents:
+      - return
+    doc_idents: []
+    attribute_idents: []
+  - name: bare
+    local_qualified: ~
+    kind: function
+    visibility: public
+    start_line: 21
+    end_line: 23
+    signature: "function bare(a) {"
+    signature_idents:
+      - function
+      - a
+    body_idents:
+      - return
+      - a
+    doc_idents: []
+    attribute_idents: []
+  - name: arrow
+    local_qualified: ~
+    kind: function
+    visibility: public
+    start_line: 25
+    end_line: 25
+    signature: arrow = (a) => a
+    signature_idents:
+      - a
+      - a
+    body_idents: []
+    doc_idents: []
+    attribute_idents: []
+references:
+  - name: helper
+    kind: call
+    line: 11
+    owner: run
+  - name: Service
+    kind: type
+    line: 14
+    owner: build
+imports:
+  - kind: From
+    path: "./helper.js"
+    name: helper
+    alias: ~
+    is_public: false
+    is_glob: false
+    line: 1
+    owner: ~

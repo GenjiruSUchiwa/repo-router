@@ -118,6 +118,58 @@ impl Lang {
         }
     }
 
+    /// Every language, in declaration order.
+    ///
+    /// Exists so the walk allowlist and the tier table can prove they cover
+    /// all of them rather than the handful their fixtures happen to contain.
+    pub const ALL: [Self; 27] = [
+        Self::Rust,
+        Self::Python,
+        Self::TypeScript,
+        Self::Tsx,
+        Self::JavaScript,
+        Self::Jsx,
+        Self::Go,
+        Self::Java,
+        Self::CSharp,
+        Self::C,
+        Self::Cpp,
+        Self::Ruby,
+        Self::Php,
+        Self::Swift,
+        Self::Kotlin,
+        Self::Scala,
+        Self::Zig,
+        Self::Lua,
+        Self::Shell,
+        Self::Toml,
+        Self::Json,
+        Self::Yaml,
+        Self::Markdown,
+        Self::Html,
+        Self::Css,
+        Self::Sql,
+        Self::Proto,
+    ];
+
+    /// Whether this language has definitions rr could route to.
+    ///
+    /// The six data formats answer `false`: a key in a YAML file is not a
+    /// function with a signature and a visibility, and no extraction tier —
+    /// not even the lexical one — turns it into one. `Lang` recognises them so
+    /// the walk can classify and skip them, which is what it should keep doing.
+    ///
+    /// Written as an exhaustive match rather than a list, so a new variant
+    /// fails to compile until someone decides which side it falls on.
+    #[must_use]
+    #[allow(clippy::match_like_matches_macro)]
+    pub const fn is_code(self) -> bool {
+        match self {
+            Self::Toml | Self::Json | Self::Yaml | Self::Markdown | Self::Html | Self::Css => false,
+            _ => true,
+        }
+    }
+
     /// The separator this language writes between qualified-name segments.
     ///
     /// This is the spelling `rr query` has to accept back, so the extractor
@@ -317,5 +369,46 @@ mod tests {
             "\"typescript\""
         );
         assert_eq!(serde_json::to_string(&Lang::CSharp).unwrap(), "\"csharp\"");
+    }
+
+    #[test]
+    fn lang_all_lists_every_variant() {
+        assert_variant_count::<Lang>(Lang::ALL.len(), "Lang::ALL");
+        let mut names: Vec<&str> = Lang::ALL.iter().map(Lang::as_str).collect();
+        names.sort_unstable();
+        let unique = names.len();
+        names.dedup();
+        assert_eq!(names.len(), unique, "a language is listed in ALL twice");
+    }
+
+    #[test]
+    fn every_lang_is_code_or_a_format() {
+        let code: Vec<Lang> = Lang::ALL
+            .into_iter()
+            .filter(|lang| lang.is_code())
+            .collect();
+        assert_eq!(code.len(), 21);
+        assert!(!Lang::Toml.is_code());
+        assert!(!Lang::Json.is_code());
+        assert!(!Lang::Yaml.is_code());
+        assert!(!Lang::Markdown.is_code());
+        assert!(!Lang::Html.is_code());
+        assert!(!Lang::Css.is_code());
+        assert!(Lang::CSharp.is_code());
+        assert!(Lang::Go.is_code());
+    }
+
+    /// postcard writes a fieldless variant as its index, so the last listed
+    /// index must decode and the next one must not.
+    fn assert_variant_count<T: serde::de::DeserializeOwned>(count: usize, listed: &str) {
+        let last = u8::try_from(count - 1).unwrap();
+        assert!(
+            postcard::from_bytes::<T>(&[last]).is_ok(),
+            "{listed} lists more variants than the enum has"
+        );
+        assert!(
+            postcard::from_bytes::<T>(&[last + 1]).is_err(),
+            "a variant was added to the enum and not to {listed}"
+        );
     }
 }

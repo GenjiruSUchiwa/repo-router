@@ -190,6 +190,10 @@ impl VisibilityLabel {
                 label: "crate",
                 key: "crate".to_owned(),
             }),
+            Visibility::Package => Some(Self {
+                label: "package",
+                key: "package".to_owned(),
+            }),
             Visibility::Restricted(path) => Some(Self {
                 label: "restricted",
                 key: format!("restricted({path})"),

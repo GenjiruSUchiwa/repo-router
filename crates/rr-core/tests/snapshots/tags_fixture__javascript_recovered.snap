@@ -1,0 +1,55 @@
+---
+source: crates/rr-core/tests/tags_fixture.rs
+expression: "to_snapshot(\"recovered.js\", &facts)"
+---
+path: recovered.js
+status: tags(parse_errors=true)
+defs:
+  - name: before
+    local_qualified: ~
+    kind: function
+    visibility: public
+    start_line: 1
+    end_line: 3
+    signature: "function before(value) {"
+    signature_idents:
+      - function
+      - value
+    body_idents:
+      - return
+      - value
+    doc_idents: []
+    attribute_idents: []
+  - name: After
+    local_qualified: ~
+    kind: class
+    visibility: public
+    start_line: 9
+    end_line: 13
+    signature: "class After {"
+    signature_idents:
+      - class
+    body_idents: []
+    doc_idents: []
+    attribute_idents: []
+  - name: run
+    local_qualified: After.run
+    kind: method
+    visibility: public
+    start_line: 10
+    end_line: 12
+    signature: "run(value) {"
+    signature_idents:
+      - value
+    body_idents:
+      - return
+      - helper
+      - value
+    doc_idents: []
+    attribute_idents: []
+references:
+  - name: helper
+    kind: call
+    line: 11
+    owner: run
+imports: []
