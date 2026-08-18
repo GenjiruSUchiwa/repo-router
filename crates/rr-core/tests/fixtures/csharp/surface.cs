@@ -48,6 +48,8 @@ public record struct Pair(int Left, int Right);
 public interface IService
 {
     void Run();
+    int Size { get; }
+    private void Trace() {}
 }
 
 public enum Mode
@@ -56,10 +58,35 @@ public enum Mode
     Slow
 }
 
+public class Repo : System.Collections.Generic.List<int>
+{
+    public void Load()
+    {
+        var buffer = new IO.MemoryStream();
+        var page = Fetch<int>();
+        this.Emit<int>(page);
+    }
+}
+
+public class Box : Repo
+{
+    [Obsolete("keep until 2 (the next major")] public void Drop() {}
+}
+
 namespace App.Legacy
 {
     public class LegacyGate
     {
         public void Serve() {}
+    }
+}
+
+class Hidden
+{
+    void Tick() {}
+
+    class Inner
+    {
+        void Beat() {}
     }
 }
