@@ -56,6 +56,20 @@ pub struct LanguageSpec {
     /// kind and a kind changed afterwards would leave the order it was sorted
     /// into.
     pub refine: fn(&mut Def),
+    /// Last word on one definition once the definition enclosing it is known.
+    ///
+    /// [`LanguageSpec::refine`] reads one declaration alone, which is all most
+    /// languages need. A few decide access by where the declaration sits: a C#
+    /// type written straight into a file or a namespace is `internal` while the
+    /// same words nested in a class are private, and every member of an
+    /// interface is public however little it says. Neither is legible from the
+    /// declaration text, and both are legible from the enclosing kind.
+    ///
+    /// Runs from [`assign_nesting`], after the sort `refine` has to precede,
+    /// and receives `None` for a definition nothing encloses. Changing a kind
+    /// here would leave the order [`def_key`] sorted into, so this may only
+    /// settle what the enclosing definition decides — visibility.
+    pub enclose: fn(&mut Def, Option<DefKind>),
     /// Whether this language's documentation is the string literal that opens
     /// a body, as Python's docstring is.
     ///
@@ -939,6 +953,10 @@ fn docstring_range(source: &str, from: usize, span_end: usize) -> Option<Range<u
     None
 }
 
+/// A language whose declarations state their own access, whatever encloses
+/// them. Every language but C#.
+fn states_its_own_access(_def: &mut Def, _enclosing: Option<DefKind>) {}
+
 fn assign_nesting(
     defs: &mut [Def],
     header_exclusions: &[Vec<Span>],
@@ -978,6 +996,9 @@ fn assign_nesting(
             }
             direct_children[parent].push(defs[index].span);
         }
+        let enclosing = stack.last().map(|&parent| defs[parent].kind);
+        (spec.enclose)(&mut defs[index], enclosing);
+
         let inside_test_scope = stack
             .iter()
             .any(|ancestor| (spec.test_scope)(&defs[*ancestor].name));
@@ -1145,6 +1166,7 @@ pub(crate) static PYTHON: LanguageSpec = LanguageSpec {
     test_attribute: python_test_attribute,
     test_scope: python_test_scope,
     refine: python_refine,
+    enclose: states_its_own_access,
     doc_is_leading_body_string: true,
     line_comment_prefixes: &["#"],
     config: OnceLock::new(),
@@ -1413,6 +1435,7 @@ const fn typescript_spec(
         test_attribute: never_a_test_signal,
         test_scope: never_a_test_signal,
         refine: typescript_refine,
+        enclose: states_its_own_access,
         doc_is_leading_body_string: false,
         line_comment_prefixes: &["//"],
         config: OnceLock::new(),
@@ -1521,6 +1544,7 @@ const fn javascript_spec(lang: Lang, imports: &'static ImportSpec) -> LanguageSp
         test_attribute: never_a_test_signal,
         test_scope: never_a_test_signal,
         refine: javascript_refine,
+        enclose: states_its_own_access,
         doc_is_leading_body_string: false,
         line_comment_prefixes: &["//"],
         config: OnceLock::new(),
@@ -1596,6 +1620,7 @@ pub(crate) static GO: LanguageSpec = LanguageSpec {
     test_attribute: never_a_test_signal,
     test_scope: go_test_scope,
     refine: keep_as_captured,
+    enclose: states_its_own_access,
     doc_is_leading_body_string: false,
     line_comment_prefixes: &["//"],
     config: OnceLock::new(),
@@ -1729,6 +1754,7 @@ pub(crate) static JAVA: LanguageSpec = LanguageSpec {
     test_attribute: java_test_attribute,
     test_scope: never_a_test_signal,
     refine: java_refine,
+    enclose: states_its_own_access,
     doc_is_leading_body_string: false,
     line_comment_prefixes: &["//"],
     config: OnceLock::new(),
@@ -1742,6 +1768,11 @@ static JAVA_IMPORTS: ImportSpec = ImportSpec {
     compiled: OnceLock::new(),
 };
 
+/// A C# `record` maps to `Class` where Java's maps to `Struct`, deliberately:
+/// a C# record is a reference type the compiler shapes, and both spellings
+/// `record` and `record struct` parse to the same node — the value-type form
+/// is a modifier the grammar does not distinguish, so `Struct` would be a
+/// guess on the wrong half of them.
 const CSHARP_KINDS: &[(&str, DefKind)] = &[
     ("class", DefKind::Class),
     ("interface", DefKind::Interface),
@@ -1757,11 +1788,6 @@ const CSHARP_KINDS: &[(&str, DefKind)] = &[
     ("module", DefKind::Module),
 ];
 
-/// A C# `record` maps to `Class` where Java's maps to `Struct`, deliberately:
-/// a C# record is a reference type the compiler shapes, and both spellings
-/// `record` and `record struct` parse to the same node — the value-type form
-/// is a modifier the grammar does not distinguish, so `Struct` would be a
-/// guess on the wrong half of them.
 const CSHARP_REFERENCE_KINDS: &[(&str, ReferenceKind)] = &[
     ("call", ReferenceKind::Call),
     ("method-call", ReferenceKind::MethodCall),
@@ -1771,6 +1797,11 @@ const CSHARP_REFERENCE_KINDS: &[(&str, ReferenceKind)] = &[
 
 /// A C# member that states no modifier is private, which is the language's
 /// default; the placeholder has to say the same thing the file does.
+///
+/// It is the member default, not the only one: a type is `internal` where a
+/// namespace or a file holds it and an interface member is public. Neither is
+/// visible from the name this reads, so [`csharp_enclose`] settles both once
+/// the enclosing definition is known.
 fn csharp_visibility(_name: &str) -> Visibility {
     Visibility::Private
 }
@@ -1805,6 +1836,11 @@ const CSHARP_MODIFIERS: &[&str] = &[
 /// slice opens with the attribute rather than the modifier; `strip_leading_decorations`
 /// knows `@` and `#[` but not a bare `[`, which no other language in this file
 /// puts at that position.
+/// String literals are stepped over rather than counted, the way
+/// [`signature_end`] steps over them: `[Obsolete("count (0 if empty")]` closes
+/// its real bracket after a parenthesis that only ever existed inside prose,
+/// and a scan that counted it would hand back the tail of the attribute
+/// instead of the declaration — reading a `public` method as private.
 fn csharp_strip_attributes(signature: &str) -> &str {
     let bytes = signature.as_bytes();
     let mut cursor = 0;
@@ -1817,17 +1853,27 @@ fn csharp_strip_attributes(signature: &str) -> &str {
         }
         let mut index = cursor;
         let mut depth = 0usize;
+        let mut quote: Option<u8> = None;
         while let Some(&byte) = bytes.get(index) {
-            match byte {
-                b'[' | b'(' => depth += 1,
-                b']' | b')' => {
-                    depth -= 1;
-                    if depth == 0 {
-                        index += 1;
-                        break;
-                    }
+            if let Some(open) = quote {
+                match byte {
+                    b'\\' => index += 1,
+                    _ if byte == open => quote = None,
+                    _ => {}
                 }
-                _ => {}
+            } else {
+                match byte {
+                    b'\'' | b'"' => quote = Some(byte),
+                    b'[' | b'(' => depth += 1,
+                    b']' | b')' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            index += 1;
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
             }
             index += 1;
         }
@@ -1837,10 +1883,14 @@ fn csharp_strip_attributes(signature: &str) -> &str {
 
 /// The access modifier this declaration states, or `None` when it states none.
 ///
-/// `internal` reads as [`Visibility::Package`]: enforced by the compiler and
-/// scoped to one compilation unit, like Java's default access. The compound
-/// forms keep their first word — `protected internal` is at least `protected`,
-/// `private protected` at least `private`.
+/// `internal` reads as [`Visibility::Internal`], which is where Swift already
+/// files the identical keyword with the identical assembly- or module-wide
+/// meaning. Not [`Visibility::Package`]: that one names a default the author
+/// never wrote down, and C# `internal` is written down. Rendering one keyword
+/// as `package` here and `internal` three languages over would put both words
+/// in one `SYMBOLS.md` for one concept. The compound forms keep their first
+/// word — `protected internal` is at least `protected`, `private protected` at
+/// least `private`.
 fn csharp_declared_visibility(signature: &str) -> Option<Visibility> {
     csharp_strip_attributes(signature)
         .split(' ')
@@ -1849,16 +1899,59 @@ fn csharp_declared_visibility(signature: &str) -> Option<Visibility> {
             "public" => Some(Visibility::Public),
             "private" => Some(Visibility::Private),
             "protected" => Some(Visibility::Protected),
-            "internal" => Some(Visibility::Package),
+            "internal" => Some(Visibility::Internal),
             _ => None,
         })
 }
 
 /// What the C# query captured, plus the modifier no capture can reach.
+///
+/// A `namespace` carries no access modifier and cannot: the language gives
+/// every namespace the same global visibility, so the `Private` placeholder
+/// would be a claim C# never lets a file make — and `Private` is the one
+/// visibility [`crate::text`] withholds from the map, which would drop every
+/// namespace in the repository out of `SYMBOLS.md`.
 fn csharp_refine(def: &mut Def) {
+    if def.kind == DefKind::Module {
+        def.visibility = Visibility::Public;
+        return;
+    }
     if let Some(visibility) = csharp_declared_visibility(&def.signature) {
         def.visibility = visibility;
     }
+}
+
+/// The access C# reads off the surroundings rather than off the declaration.
+///
+/// Two defaults the declaration text cannot show, both of which `Private`
+/// would get wrong in the direction that hides code: a type declared straight
+/// into a file or a namespace is `internal`, not private, and every member of
+/// an interface is public — an interface states nothing precisely because the
+/// language already said it. Both would otherwise be withheld from the map by
+/// [`crate::text`], which is the whole public surface of a C# assembly.
+///
+/// Only a declaration that states no access of its own is settled here. C# 8
+/// allows a `private` interface member and a `file` type, and a modifier the
+/// author wrote down outranks the default it was written to displace.
+fn csharp_enclose(def: &mut Def, enclosing: Option<DefKind>) {
+    if def.kind == DefKind::Module || csharp_declared_visibility(&def.signature).is_some() {
+        return;
+    }
+    match enclosing {
+        None | Some(DefKind::Module) if csharp_is_type(def.kind) => {
+            def.visibility = Visibility::Internal;
+        }
+        Some(DefKind::Interface) => def.visibility = Visibility::Public,
+        _ => {}
+    }
+}
+
+/// The kinds C# lets a namespace or a file hold directly.
+fn csharp_is_type(kind: DefKind) -> bool {
+    matches!(
+        kind,
+        DefKind::Class | DefKind::Interface | DefKind::Struct | DefKind::Enum | DefKind::TypeAlias
+    )
 }
 
 /// xUnit `Fact`/`Theory`, `NUnit` `Test`/`TestCase`, `MSTest` `TestMethod`.
@@ -1881,6 +1974,7 @@ pub(crate) static CSHARP: LanguageSpec = LanguageSpec {
     test_attribute: csharp_test_attribute,
     test_scope: never_a_test_signal,
     refine: csharp_refine,
+    enclose: csharp_enclose,
     doc_is_leading_body_string: false,
     line_comment_prefixes: &["//"],
     config: OnceLock::new(),
@@ -1923,6 +2017,7 @@ pub(crate) static C: LanguageSpec = LanguageSpec {
     test_attribute: never_a_test_signal,
     test_scope: never_a_test_signal,
     refine: keep_as_captured,
+    enclose: states_its_own_access,
     doc_is_leading_body_string: false,
     line_comment_prefixes: &["//"],
     config: OnceLock::new(),
@@ -1955,6 +2050,7 @@ pub(crate) static CPP: LanguageSpec = LanguageSpec {
     test_attribute: never_a_test_signal,
     test_scope: never_a_test_signal,
     refine: keep_as_captured,
+    enclose: states_its_own_access,
     doc_is_leading_body_string: false,
     line_comment_prefixes: &["//"],
     config: OnceLock::new(),
@@ -2026,6 +2122,7 @@ pub(crate) static RUBY: LanguageSpec = LanguageSpec {
     test_attribute: never_a_test_signal,
     test_scope: ruby_test_scope,
     refine: ruby_refine,
+    enclose: states_its_own_access,
     doc_is_leading_body_string: false,
     line_comment_prefixes: &["#"],
     config: OnceLock::new(),
@@ -2065,6 +2162,7 @@ pub(crate) static LUA: LanguageSpec = LanguageSpec {
     test_attribute: never_a_test_signal,
     test_scope: never_a_test_signal,
     refine: keep_as_captured,
+    enclose: states_its_own_access,
     doc_is_leading_body_string: false,
     line_comment_prefixes: &["--"],
     config: OnceLock::new(),
@@ -2186,6 +2284,7 @@ pub(crate) static PHP: LanguageSpec = LanguageSpec {
     test_attribute: never_a_test_signal,
     test_scope: never_a_test_signal,
     refine: php_refine,
+    enclose: states_its_own_access,
     doc_is_leading_body_string: false,
     line_comment_prefixes: &["//", "#"],
     config: OnceLock::new(),
@@ -2276,6 +2375,7 @@ pub(crate) static SWIFT: LanguageSpec = LanguageSpec {
     test_attribute: never_a_test_signal,
     test_scope: never_a_test_signal,
     refine: swift_refine,
+    enclose: states_its_own_access,
     doc_is_leading_body_string: false,
     line_comment_prefixes: &["//"],
     config: OnceLock::new(),
@@ -2346,6 +2446,7 @@ mod tests {
             test_attribute: never_a_test_signal,
             test_scope: never_a_test_signal,
             refine: keep_as_captured,
+            enclose: states_its_own_access,
             doc_is_leading_body_string: false,
             line_comment_prefixes: &["//"],
             config: OnceLock::new(),
@@ -2461,6 +2562,120 @@ mod tests {
     }
 
     #[test]
+    fn a_csharp_attribute_holding_a_stray_bracket_still_states_its_access() {
+        assert_eq!(
+            csharp_strip_attributes(r#"[Obsolete("count (0 if empty")] public void Run() {}"#),
+            "public void Run() {}"
+        );
+        assert_eq!(
+            csharp_declared_visibility(r#"[Obsolete("count (0 if empty")] public void Run() {}"#),
+            Some(Visibility::Public)
+        );
+        assert_eq!(
+            csharp_declared_visibility("[Fact] [Trait(\"a\", \"b\")] public void Run() {}"),
+            Some(Visibility::Public)
+        );
+        assert_eq!(csharp_declared_visibility("void Run();"), None);
+    }
+
+    #[test]
+    fn a_csharp_namespace_is_never_withheld_as_private() {
+        let mut extractor = TagsExtractor::new(&CSHARP).unwrap();
+        let facts = extractor
+            .extract(b"namespace App.Core;\n\npublic class Thing {}\n")
+            .unwrap();
+        let namespace = facts
+            .defs()
+            .iter()
+            .find(|def| def.kind == DefKind::Module)
+            .expect("namespace missing");
+        assert_eq!(namespace.visibility, Visibility::Public);
+    }
+
+    #[test]
+    fn a_csharp_type_a_namespace_holds_is_internal_and_a_nested_one_is_not() {
+        let mut extractor = TagsExtractor::new(&CSHARP).unwrap();
+        let facts = extractor
+            .extract(
+                b"namespace App;\n\n                  class Hidden {\n\
+                      class Inner {}\n\
+                  }\n\
+                  public class Shown {}\n",
+            )
+            .unwrap();
+        assert_eq!(visibility_of(&facts, "Hidden"), Visibility::Internal);
+        assert_eq!(visibility_of(&facts, "Inner"), Visibility::Private);
+        assert_eq!(visibility_of(&facts, "Shown"), Visibility::Public);
+    }
+
+    #[test]
+    fn a_csharp_interface_member_is_public_unless_it_says_otherwise() {
+        let mut extractor = TagsExtractor::new(&CSHARP).unwrap();
+        let facts = extractor
+            .extract(
+                b"public interface IService {\n\
+                      void Run();\n\
+                      int Size { get; }\n\
+                      private void Trace() {}\n\
+                  }\n\
+                  public class Service {\n\
+                      void Helper() {}\n\
+                  }\n",
+            )
+            .unwrap();
+        assert_eq!(visibility_of(&facts, "Run"), Visibility::Public);
+        assert_eq!(visibility_of(&facts, "Size"), Visibility::Public);
+        assert_eq!(visibility_of(&facts, "Trace"), Visibility::Private);
+        assert_eq!(visibility_of(&facts, "Helper"), Visibility::Private);
+    }
+
+    #[test]
+    fn csharp_internal_is_the_visibility_swift_gives_the_same_word() {
+        assert_eq!(
+            csharp_declared_visibility("internal int unitField;"),
+            Some(Visibility::Internal)
+        );
+        assert_eq!(
+            swift_declared_visibility("internal var shared: Int"),
+            Some(Visibility::Internal)
+        );
+    }
+
+    fn visibility_of(facts: &Facts, name: &str) -> Visibility {
+        facts
+            .defs()
+            .iter()
+            .find(|def| def.name == name)
+            .unwrap_or_else(|| panic!("{name} missing"))
+            .visibility
+            .clone()
+    }
+
+    #[test]
+    fn a_csharp_reference_names_the_type_and_not_its_path_or_arguments() {
+        let mut extractor = TagsExtractor::new(&CSHARP).unwrap();
+        let facts = extractor
+            .extract(
+                b"public class Repo : System.Collections.Generic.List<int> {\n\
+                     public void Load() {\n\
+                         var buffer = new IO.MemoryStream();\n\
+                         var page = Fetch<int>();\n\
+                         this.Emit<int>(page);\n\
+                     }\n\
+                 }\n",
+            )
+            .unwrap();
+        let named: Vec<&str> = facts
+            .references()
+            .iter()
+            .map(|reference| reference.name.as_str())
+            .collect();
+        for expected in ["List", "MemoryStream", "Fetch", "Emit"] {
+            assert!(named.contains(&expected), "{named:?} is missing {expected}");
+        }
+    }
+
+    #[test]
     fn the_java_query_reaches_what_upstream_leaves_out() {
         let mut extractor = TagsExtractor::new(&JAVA).unwrap();
         let facts = extractor
@@ -2546,6 +2761,7 @@ mod tests {
             test_attribute: python_test_attribute,
             test_scope: python_test_scope,
             refine: python_refine,
+            enclose: states_its_own_access,
             doc_is_leading_body_string: true,
             line_comment_prefixes: &["#"],
             config: OnceLock::new(),
@@ -2562,6 +2778,7 @@ mod tests {
             test_attribute: python_test_attribute,
             test_scope: python_test_scope,
             refine: python_refine,
+            enclose: states_its_own_access,
             doc_is_leading_body_string: true,
             line_comment_prefixes: &["#"],
             config: OnceLock::new(),
@@ -3403,6 +3620,7 @@ mod tests {
             test_attribute: python_test_attribute,
             test_scope: python_test_scope,
             refine: python_refine,
+            enclose: states_its_own_access,
             doc_is_leading_body_string: true,
             line_comment_prefixes: &["#"],
             config: OnceLock::new(),

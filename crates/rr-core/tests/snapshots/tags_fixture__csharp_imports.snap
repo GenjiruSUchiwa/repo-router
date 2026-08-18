@@ -8,9 +8,9 @@ defs:
   - name: App
     local_qualified: ~
     kind: module
-    visibility: private
-    start_line: 6
-    end_line: 6
+    visibility: public
+    start_line: 7
+    end_line: 7
     signature: namespace App;
     signature_idents:
       - namespace
@@ -21,8 +21,8 @@ defs:
     local_qualified: ~
     kind: class
     visibility: public
-    start_line: 8
-    end_line: 8
+    start_line: 9
+    end_line: 9
     signature: "public class Thing {}"
     signature_idents:
       - public
@@ -63,4 +63,12 @@ imports:
     is_public: false
     is_glob: false
     line: 4
+    owner: ~
+  - kind: Import
+    path: Thing
+    name: ~
+    alias: Alias
+    is_public: false
+    is_glob: false
+    line: 5
     owner: ~

@@ -8,7 +8,7 @@ defs:
   - name: App.Core
     local_qualified: ~
     kind: module
-    visibility: private
+    visibility: public
     start_line: 6
     end_line: 6
     signature: namespace App.Core;
@@ -65,7 +65,7 @@ defs:
   - name: unitField
     local_qualified: Service.unitField
     kind: field
-    visibility: package
+    visibility: internal
     start_line: 13
     end_line: 13
     signature: internal int unitField;
@@ -280,7 +280,7 @@ defs:
     kind: interface
     visibility: public
     start_line: 48
-    end_line: 51
+    end_line: 53
     signature: public interface IService
     signature_idents:
       - public
@@ -291,7 +291,7 @@ defs:
   - name: Run
     local_qualified: IService.Run
     kind: method
-    visibility: private
+    visibility: public
     start_line: 50
     end_line: 50
     signature: void Run();
@@ -300,12 +300,38 @@ defs:
     body_idents: []
     doc_idents: []
     attribute_idents: []
+  - name: Size
+    local_qualified: IService.Size
+    kind: property
+    visibility: public
+    start_line: 51
+    end_line: 51
+    signature: "int Size { get; }"
+    signature_idents:
+      - int
+      - get
+    body_idents: []
+    doc_idents: []
+    attribute_idents: []
+  - name: Trace
+    local_qualified: IService.Trace
+    kind: method
+    visibility: private
+    start_line: 52
+    end_line: 52
+    signature: "private void Trace() {}"
+    signature_idents:
+      - private
+      - void
+    body_idents: []
+    doc_idents: []
+    attribute_idents: []
   - name: Mode
     local_qualified: ~
     kind: enum
     visibility: public
-    start_line: 53
-    end_line: 57
+    start_line: 55
+    end_line: 59
     signature: public enum Mode
     signature_idents:
       - public
@@ -315,12 +341,89 @@ defs:
       - Slow
     doc_idents: []
     attribute_idents: []
+  - name: Repo
+    local_qualified: ~
+    kind: class
+    visibility: public
+    start_line: 61
+    end_line: 69
+    signature: "public class Repo : System.Collections.Generic.List<int>"
+    signature_idents:
+      - public
+      - class
+      - System
+      - Collections
+      - Generic
+      - List
+      - int
+    body_idents: []
+    doc_idents: []
+    attribute_idents: []
+  - name: Load
+    local_qualified: Repo.Load
+    kind: method
+    visibility: public
+    start_line: 63
+    end_line: 68
+    signature: public void Load()
+    signature_idents:
+      - public
+      - void
+    body_idents:
+      - var
+      - buffer
+      - new
+      - IO
+      - MemoryStream
+      - var
+      - page
+      - Fetch
+      - int
+      - this
+      - Emit
+      - int
+      - page
+    doc_idents: []
+    attribute_idents: []
+  - name: Box
+    local_qualified: ~
+    kind: class
+    visibility: public
+    start_line: 71
+    end_line: 74
+    signature: "public class Box : Repo"
+    signature_idents:
+      - public
+      - class
+      - Repo
+    body_idents: []
+    doc_idents: []
+    attribute_idents: []
+  - name: Drop
+    local_qualified: Box.Drop
+    kind: method
+    visibility: public
+    start_line: 73
+    end_line: 73
+    signature: "[Obsolete(\"keep until 2 (the next major\")] public void Drop() {}"
+    signature_idents:
+      - Obsolete
+      - keep
+      - until
+      - the
+      - next
+      - major
+      - public
+      - void
+    body_idents: []
+    doc_idents: []
+    attribute_idents: []
   - name: App.Legacy
     local_qualified: ~
     kind: module
-    visibility: private
-    start_line: 59
-    end_line: 65
+    visibility: public
+    start_line: 76
+    end_line: 82
     signature: namespace App.Legacy
     signature_idents:
       - namespace
@@ -333,8 +436,8 @@ defs:
     local_qualified: App.Legacy.LegacyGate
     kind: class
     visibility: public
-    start_line: 61
-    end_line: 64
+    start_line: 78
+    end_line: 81
     signature: public class LegacyGate
     signature_idents:
       - public
@@ -346,11 +449,59 @@ defs:
     local_qualified: App.Legacy.LegacyGate.Serve
     kind: method
     visibility: public
-    start_line: 63
-    end_line: 63
+    start_line: 80
+    end_line: 80
     signature: "public void Serve() {}"
     signature_idents:
       - public
+      - void
+    body_idents: []
+    doc_idents: []
+    attribute_idents: []
+  - name: Hidden
+    local_qualified: ~
+    kind: class
+    visibility: internal
+    start_line: 84
+    end_line: 92
+    signature: class Hidden
+    signature_idents:
+      - class
+    body_idents: []
+    doc_idents: []
+    attribute_idents: []
+  - name: Tick
+    local_qualified: Hidden.Tick
+    kind: method
+    visibility: private
+    start_line: 86
+    end_line: 86
+    signature: "void Tick() {}"
+    signature_idents:
+      - void
+    body_idents: []
+    doc_idents: []
+    attribute_idents: []
+  - name: Inner
+    local_qualified: Hidden.Inner
+    kind: class
+    visibility: private
+    start_line: 88
+    end_line: 91
+    signature: class Inner
+    signature_idents:
+      - class
+    body_idents: []
+    doc_idents: []
+    attribute_idents: []
+  - name: Beat
+    local_qualified: Hidden.Inner.Beat
+    kind: method
+    visibility: private
+    start_line: 90
+    end_line: 90
+    signature: "void Beat() {}"
+    signature_idents:
       - void
     body_idents: []
     doc_idents: []
@@ -376,6 +527,26 @@ references:
     kind: call
     line: 29
     owner: Run
+  - name: List
+    kind: implementation
+    line: 61
+    owner: Repo
+  - name: MemoryStream
+    kind: type
+    line: 65
+    owner: Load
+  - name: Fetch
+    kind: call
+    line: 66
+    owner: Load
+  - name: Emit
+    kind: methodcall
+    line: 67
+    owner: Load
+  - name: Repo
+    kind: implementation
+    line: 71
+    owner: Box
 imports:
   - kind: Import
     path: System

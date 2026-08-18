@@ -54,23 +54,46 @@
   function: (identifier) @name) @reference.call
 
 (invocation_expression
+  function: (generic_name
+    (identifier) @name)) @reference.call
+
+(invocation_expression
   function: (member_access_expression
     name: (identifier) @name)) @reference.method-call
+
+(invocation_expression
+  function: (member_access_expression
+    name: (generic_name
+      (identifier) @name))) @reference.method-call
 
 (object_creation_expression
   type: (identifier) @name) @reference.class
 
 (object_creation_expression
-  type: (qualified_name) @name) @reference.class
+  type: (generic_name
+    (identifier) @name)) @reference.class
 
 (object_creation_expression
-  type: (generic_name) @name) @reference.class
+  type: (qualified_name
+    name: (identifier) @name)) @reference.class
+
+(object_creation_expression
+  type: (qualified_name
+    name: (generic_name
+      (identifier) @name))) @reference.class
 
 (base_list
   (identifier) @name) @reference.implementation
 
 (base_list
-  (qualified_name) @name) @reference.implementation
+  (generic_name
+    (identifier) @name)) @reference.implementation
 
 (base_list
-  (generic_name) @name) @reference.implementation
+  (qualified_name
+    name: (identifier) @name)) @reference.implementation
+
+(base_list
+  (qualified_name
+    name: (generic_name
+      (identifier) @name))) @reference.implementation
