@@ -626,7 +626,50 @@ pub fn rank<'scratch>(
     };
     merge_candidates(snapshot, profile, scratch, &mut evidence)?;
     score_retained(snapshot, profile, scratch, &mut evidence)?;
+    collapse_shared_anchors(snapshot, &mut scratch.ranked);
     Ok((scratch.ranked.as_slice(), evidence))
+}
+
+/// Drops every symbol whose anchor a better-scored symbol already occupies.
+///
+/// Two definitions of one name in one file — a class and its constructor, two
+/// overloads — print as one `path#name`, and [`decide`] reads the ranking twice
+/// over: once for the margin between the top two, once for the candidate list.
+/// A duplicate corrupts both. It ties with itself, so the margin collapses and
+/// the direct answer the ranking had earned is withheld; then it spends a
+/// second of the three places the v1 contract allows on a line identical to the
+/// first. The list is already sorted by score, so the first sighting of an
+/// anchor is its best one.
+///
+/// The scan is quadratic in the kept prefix and holds no set of its own: the
+/// ranking is capped at [`CANDIDATE_LIMIT`], and this routine sits on the path
+/// `ranking_alloc` pins to zero allocations in steady state.
+fn collapse_shared_anchors(snapshot: &Snapshot, ranked: &mut Vec<RankedSymbol>) {
+    let mut kept = 0usize;
+    for index in 0..ranked.len() {
+        let entry = ranked[index];
+        let anchor = anchor_of(snapshot, entry.symbol);
+        let duplicate = anchor.is_some_and(|anchor| {
+            ranked[..kept]
+                .iter()
+                .any(|held| anchor_of(snapshot, held.symbol) == Some(anchor))
+        });
+        if !duplicate {
+            ranked[kept] = entry;
+            kept += 1;
+        }
+    }
+    ranked.truncate(kept);
+}
+
+/// Resolves the `(path, name)` pair a symbol would print as.
+fn anchor_of(snapshot: &Snapshot, symbol_id: SymbolId) -> Option<(&str, &str)> {
+    let symbol = snapshot.symbols.get(symbol_id.index())?;
+    let file = snapshot.files.get(symbol.file.index())?;
+    Some((
+        snapshot.strings.get(file.path.index())?.as_str(),
+        snapshot.strings.get(symbol.name.index())?.as_str(),
+    ))
 }
 
 /// Turns ranked candidates into the public result vocabulary.

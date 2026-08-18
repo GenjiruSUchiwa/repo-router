@@ -3,8 +3,9 @@ use std::cmp::Ordering;
 use smallvec::SmallVec;
 use unicode_ident::{is_xid_continue, is_xid_start};
 
-use crate::index::{FileId, Snapshot, SymbolId};
-use crate::lex::{query_terms, QueryTerms, TermId};
+use crate::facts::DefKind;
+use crate::index::{FileId, FileRecord, Snapshot, SymbolId};
+use crate::lex::{query_terms, LexicalField, QueryTerms, TermId};
 use crate::path::RelPath;
 use crate::ranking::{route_lexical, RankingEvidence, RankingProfile, RankingScratch};
 use crate::result::{Candidate, Confidence, NoneReason, Pipeline, QueryResult, TargetId};
@@ -330,7 +331,41 @@ struct ScoredSymbol<'a> {
     overlap: u32,
     qual_name: &'a str,
     path: &'a str,
+    /// Bare name, with the path the whole of what an anchor can say.
+    name: &'a str,
+    kind: DefKind,
     start_line: u32,
+}
+
+/// Reports whether two scored symbols would print as one anchor.
+fn share_one_anchor(left: &ScoredSymbol<'_>, right: &ScoredSymbol<'_>) -> bool {
+    left.path == right.path && left.name == right.name
+}
+
+/// Ranks the kinds that can collide under one name, worst last.
+///
+/// A C# or Java constructor is named after the class it builds, so both answer
+/// to `Fichier.cs#Foo`. Asked for `Foo`, a caller means the type.
+const fn kind_precedence(kind: DefKind) -> u8 {
+    match kind {
+        DefKind::Class
+        | DefKind::Interface
+        | DefKind::Struct
+        | DefKind::Enum
+        | DefKind::TypeAlias
+        | DefKind::Trait => 2,
+        DefKind::Constructor => 0,
+        _ => 1,
+    }
+}
+
+/// Reports whether `candidate` should displace `held`, the two sharing an anchor.
+fn displaces(candidate: &ScoredSymbol<'_>, held: &ScoredSymbol<'_>) -> bool {
+    match candidate.overlap.cmp(&held.overlap) {
+        Ordering::Greater => true,
+        Ordering::Less => false,
+        Ordering::Equal => kind_precedence(candidate.kind) > kind_precedence(held.kind),
+    }
 }
 
 fn compare_scored(left: &ScoredSymbol<'_>, right: &ScoredSymbol<'_>) -> Ordering {
@@ -343,7 +378,24 @@ fn compare_scored(left: &ScoredSymbol<'_>, right: &ScoredSymbol<'_>) -> Ordering
         .then_with(|| left.symbol_id.cmp(&right.symbol_id))
 }
 
+/// Inserts one candidate into the sorted top three.
+///
+/// Two symbols in one file under one name — a class and its constructor, two
+/// overloads under a tags-tier grammar — print as the same `path#name`, so a
+/// list carrying both offers a choice the anchor cannot express, and spends two
+/// of the three places the v1 contract has. Only the better survives, and it
+/// stays one entry: a list of three identical lines answers nothing, and two
+/// tied entries also defeat the margin that would have earned a direct answer.
 fn retain_top_three<'a>(top: &mut SmallVec<[ScoredSymbol<'a>; 3]>, candidate: ScoredSymbol<'a>) {
+    if let Some(held) = top
+        .iter()
+        .position(|entry| share_one_anchor(entry, &candidate))
+    {
+        if !displaces(&candidate, &top[held]) {
+            return;
+        }
+        top.remove(held);
+    }
     let position = top
         .iter()
         .position(|existing| compare_scored(&candidate, existing) == Ordering::Less)
@@ -355,6 +407,59 @@ fn retain_top_three<'a>(top: &mut SmallVec<[ScoredSymbol<'a>; 3]>, candidate: Sc
     if top.len() > 3 {
         top.pop();
     }
+}
+
+/// Fields read when the name and the path fail to separate two candidates.
+///
+/// Ordered widest first is tempting; they are read as a set, and the count of
+/// them is also the weight one name or path hit carries, so no run of content
+/// hits can outrank a single hit on what the symbol is called.
+const CONTENT_FIELDS: [LexicalField; 3] = [
+    LexicalField::Signature,
+    LexicalField::Body,
+    LexicalField::Documentation,
+];
+
+/// Reports whether any symbol in `file` carries `term` in a content field.
+///
+/// The file, not the symbol, is the unit that can answer. What separates two
+/// same-named types is usually written in one of their members — the word
+/// `bulk` belongs to a `Convert(BulkPayload)` method, not to the class — and a
+/// tags-tier body scan deliberately keeps a member's text out of the type that
+/// encloses it. Asking the symbol alone would therefore never see the word.
+/// Asking the file is also the honest unit: what this routine chooses between
+/// is `path#name` anchors, so the file is already half of the identity.
+///
+/// A file owns a contiguous run of symbol ids, posting lists are sorted by term
+/// text and their entries by symbol id, so this is two binary searches over
+/// data the index already holds.
+fn file_carries_term(snapshot: &Snapshot, file: &FileRecord, term: TermId) -> bool {
+    let Some(text) = term_text(snapshot, term) else {
+        return false;
+    };
+    let first = file.first_symbol as usize;
+    let end = first.saturating_add(file.symbol_count as usize);
+    CONTENT_FIELDS.iter().any(|&field| {
+        let lists = snapshot.postings.lists(field);
+        lists
+            .binary_search_by(|list| term_text(snapshot, list.term).unwrap_or("").cmp(text))
+            .is_ok_and(|position| {
+                let entries = &lists[position].entries;
+                let start = entries.partition_point(|entry| entry.symbol.index() < first);
+                entries
+                    .get(start)
+                    .is_some_and(|entry| entry.symbol.index() < end)
+            })
+    })
+}
+
+/// Resolves a term to its text, or `None` if the index does not hold it.
+fn term_text(snapshot: &Snapshot, term: TermId) -> Option<&str> {
+    let record = snapshot.terms.get(term.index())?;
+    snapshot
+        .strings
+        .get(record.text.index())
+        .map(String::as_str)
 }
 
 fn disambiguate_candidates(
@@ -390,15 +495,33 @@ fn disambiguate_candidates(
             .strings
             .get(file.path.index())
             .map_or("", String::as_str);
+        let name = snapshot
+            .strings
+            .get(sym.name.index())
+            .map_or("", String::as_str);
         let qual_terms = query_terms(qual_name, snapshot);
         let path_terms = query_terms(file_path, snapshot);
-        let count = remaining_query_terms
+        let named = remaining_query_terms
             .iter()
             .filter(|term| {
                 qual_terms.as_slice().contains(term) || path_terms.as_slice().contains(term)
             })
             .count();
-        let overlap = u32::try_from(count).unwrap_or(u32::MAX);
+        // The word that tells two same-named symbols apart is often in neither
+        // the name nor the path: a `convert(BulkPayload)` overload puts it in
+        // the signature. Those fields are indexed already, so consulting
+        // them costs one binary search per term and settles ties the name alone
+        // leaves open. They are counted below the name and the path, never
+        // beside them, so a body word cannot outvote a path word.
+        let carried = remaining_query_terms
+            .iter()
+            .filter(|term| {
+                !qual_terms.as_slice().contains(term)
+                    && !path_terms.as_slice().contains(term)
+                    && file_carries_term(snapshot, file, **term)
+            })
+            .count();
+        let overlap = u32::try_from(named * CONTENT_FIELDS.len() + carried).unwrap_or(u32::MAX);
 
         retain_top_three(
             &mut top,
@@ -407,6 +530,8 @@ fn disambiguate_candidates(
                 overlap,
                 qual_name,
                 path: file_path,
+                name,
+                kind: sym.kind,
                 start_line: sym.span.start_line(),
             },
         );
@@ -634,6 +759,74 @@ mod tests {
             resolve_route_anchor(&snapshot, "src/auth/token.rs#verify"),
             None
         );
+    }
+
+    fn route(snapshot: &Snapshot, text: &str) -> ExactOutcome {
+        let parsed = parse_query(snapshot, QueryRequest::new(text, None)).unwrap();
+        route_exact(snapshot, &parsed)
+    }
+
+    fn anchors(snapshot: &Snapshot, candidates: &[Candidate]) -> Vec<String> {
+        candidates
+            .iter()
+            .map(|candidate| {
+                let anchor = resolve_anchor(snapshot, candidate.target).unwrap();
+                encode_anchor(anchor.path, anchor.symbol)
+            })
+            .collect()
+    }
+
+    /// A C# class and its constructor, two overloads under a tags-tier grammar,
+    /// two same-named functions under different scopes: all render one anchor.
+    /// Offered twice it is not a choice, it spends a place the contract caps at
+    /// three, and — the part that costs an answer — it ties with itself, so the
+    /// margin that would have earned a direct route never appears.
+    #[test]
+    fn one_anchor_is_offered_once() {
+        let snapshot = snapshot(&[(
+            "src/auth/token.rs",
+            "pub mod issue { pub fn verify() {} }\npub mod refresh { pub fn verify() {} }\n",
+        )]);
+
+        let ExactOutcome::Candidates(candidates) = route(&snapshot, "verify") else {
+            panic!("two same-named symbols must be offered as candidates");
+        };
+        assert_eq!(
+            anchors(&snapshot, &candidates),
+            vec!["src/auth/token.rs#verify"],
+            "the duplicate anchor was offered twice"
+        );
+    }
+
+    /// The word that separates two same-named symbols is often in neither the
+    /// name nor the path. Reading the signature and the body turns a list of
+    /// candidates into the answer the caller asked for.
+    #[test]
+    fn a_body_word_separates_two_same_named_symbols() {
+        let snapshot = snapshot(&[
+            (
+                "src/convert/single.rs",
+                "pub fn convert_status() { let payload = 1; let _ = payload; }\n",
+            ),
+            (
+                "src/convert/many.rs",
+                "pub fn convert_status() { let bulk_payload = 1; let _ = bulk_payload; }\n",
+            ),
+        ]);
+
+        assert!(
+            matches!(
+                route(&snapshot, "convert_status"),
+                ExactOutcome::Candidates(_)
+            ),
+            "the bare name alone cannot separate the two"
+        );
+
+        let ExactOutcome::Direct(candidate) = route(&snapshot, "convert_status bulk") else {
+            panic!("the body word must settle the choice");
+        };
+        let anchor = resolve_anchor(&snapshot, candidate.target).unwrap();
+        assert_eq!(anchor.path, "src/convert/many.rs");
     }
 
     /// Pins D5: a file target has no owning scope record, so a file anchor could
